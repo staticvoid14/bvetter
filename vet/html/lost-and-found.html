@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Lost and Found Management</title>
+    <link rel="stylesheet" href="/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/vet/css/lost-and-found.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <!-- <script src="/shared/js/sidebar.js" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin="" defer></script>
+    <script src="/vet/js/lost-and-found.js" defer></script> -->
+</head>
+
+<body>
+    <div class="main-holder lf-page">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <main class="lf-main">
+            <section class="lf-hero card">
+                <div>
+                    <h1>Lost And Found Management</h1>
+                    <p>Review reports, validate claims, and resolve pet match workflows.</p>
+                </div>
+                <button class="btn btn-primary" id="uploadFoundBtn" type="button">Upload Found Pet</button>
+            </section>
+
+            <section class="lf-stats" id="statsRow"></section>
+            <section class="lf-tabbar" id="tabBar"></section>
+
+            <section class="lf-toolbar card">
+                <label class="search-box" for="searchInput">
+                    <input id="searchInput" type="text" placeholder="Search breed, name, or location..."
+                        aria-label="Search lost and found reports">
+                </label>
+                <select id="typeFilter" aria-label="Select report type"></select>
+                <select id="sourceFilter" aria-label="Select source"></select>
+                <select id="barangayFilter" aria-label="Select barangay"></select>
+            </section>
+
+            <section id="lfContent" class="lf-content"></section>
+        </main>
+    </div>
+
+    <!-- L&F modal -->
+    <div id="lfModalOverlay" class="lf-modal-overlay" hidden>
+        <section class="lf-modal" role="dialog" aria-modal="true" aria-labelledby="lfModalTitle">
+            <button type="button" class="modal-close" id="closeModalBtn" aria-label="Close modal">&times;</button>
+            <div id="lfModalBody"></div>
+        </section>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="/shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="/shared/js/sidebar.js"></script>
+    <script src="/vet/js/lost-and-found.js"></script>
+
+</body>
+
+</html>

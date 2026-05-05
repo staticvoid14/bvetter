@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!--
+  Page:    account-settings.html
+  Feature: Profile editing, password, 2FA, deactivation
+  CSS:     variables.css → components.css → account-settings.css
+  JS:      nav.js → api.js → account-settings.js
+
+  TODO backend:
+  - Load profile: api.getProfile() on page load
+  - Save profile: api.updateProfile(data)
+  - Change password: api.changePassword(data)
+  - Toggle 2FA: PATCH /api/user/2fa
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Account Settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Shared components -->
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/account-settings.css"/>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-left">
+    <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+    <ul class="nav-links">
+      <li><a href="landing.html">Home</a></li>
+      <li><a href="book-appointment.html">Book An Appointment</a></li>
+      <li><a href="lost-found.html">Lost And Found</a></li>
+    </ul>
+  </div>
+  <div class="nav-right nav-right-auth">
+    <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+      <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+      <span class="nav-notif-dot"></span>
+    </button>
+    <div class="nav-user-pill" onclick="toggleUserMenu()">
+      <div class="nav-user-info">
+        <span class="nav-user-name">Mark Depa</span>
+        <span class="nav-user-role">Pet Owner</span>
+      </div>
+      <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+    </div>
+    <div class="nav-user-dropdown" id="userDropdown">
+      <a href="account-profile.html" class="dropdown-item active-item">
+        <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+      </a>
+      <a href="account-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+      </a>
+      <a href="notification-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+        <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+<main class="page-main">
+  <div class="page-body">
+
+    <h1 class="page-title">Account Settings</h1>
+    <p class="page-sub">Manage your clinical profile, security preferences, and pet ownership details.</p>
+
+    <!-- Profile Information -->
+    <div class="settings-card profile-card">
+      <div class="profile-card-header">
+        <div>
+          <div class="card-title">Profile Information</div>
+          <div class="card-desc">Update your personal identification and contact details.</div>
+        </div>
+        <button class="btn-save" id="btnSaveProfile">Save Changes</button>
+      </div>
+      <div class="profile-body">
+        <div class="avatar-col">
+          <div class="avatar-wrap">
+            <img src="../images/img/account-avatar.png" alt="Profile" class="profile-avatar" id="profileAvatarImg"/>
+            <input type="file" id="avatarFileInput" accept="image/*" style="display:none;"/>
+          </div>
+          <button class="avatar-upload-btn" onclick="document.getElementById('avatarFileInput').click()">Upload Photo</button>
+          <div class="avatar-hint">PNG or JPG, max 5MB</div>
+        </div>
+        <div class="profile-fields">
+          <div class="fields-grid">
+            <div class="form-group">
+              <label class="form-label">FULL NAME</label>
+              <input type="text" class="form-input" placeholder="Your full name" id="inputFullName"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">EMAIL ADDRESS</label>
+              <input type="email" class="form-input" placeholder="your@email.com" id="inputEmail"/>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">PHONE NUMBER</label>
+              <div class="phone-row">
+                <div class="select-wrap phone-code-wrap">
+                  <select class="form-select phone-code" id="phoneCode">
+                    <option>+1</option>
+                    <option selected>+63</option>
+                    <option>+44</option>
+                    <option>+81</option>
+                  </select>
+                  <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-icon"/>
+                </div>
+                <input type="tel" class="form-input phone-num" placeholder="0000-000-0000" id="inputPhone"/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Cards -->
+    <div class="security-row">
+      <div class="settings-card security-card">
+        <div class="sec-icon-wrap lock-bg">
+          <img src="../images/icons/settings-password.svg" alt="" class="sec-icon"/>
+        </div>
+        <div class="sec-title">Change Password</div>
+        <div class="sec-desc">It's a good idea to use a strong password that you don't use elsewhere.</div>
+        <button class="btn-sec" id="btnUpdatePw">
+          Update Security Credentials
+          <img src="../images/icons/icon-arrow-right.svg" alt="" class="btn-arrow"/>
+        </button>
+      </div>
+
+      <div class="settings-card security-card">
+        <div class="twofa-top">
+          <div class="sec-icon-wrap shield-bg">
+            <img src="../images/icons/settings-2fa.svg" alt="" class="sec-icon"/>
+          </div>
+          <span class="twofa-badge enabled" id="twofaBadge">ENABLED</span>
+        </div>
+        <div class="sec-title">Two-Factor Auth</div>
+        <div class="sec-desc">Add an extra layer of security to your clinical records and billing data.</div>
+        <button class="btn-sec twofa-sec" id="btnManage2FA">
+          Manage Authentication
+          <img src="../images/icons/icon-fingerprint.svg" alt="" class="btn-arrow"/>
+        </button>
+      </div>
+    </div>
+
+    <div class="danger-row">
+      <button class="btn-deactivate" id="btnDeactivate">
+        Deactivate My Account
+        <img src="../images/icons/icon-warning.svg" alt="" class="danger-icon"/>
+      </button>
+    </div>
+
+  </div>
+</main>
+
+<!-- Password Modal -->
+<div class="modal-overlay" id="pwModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title">Change Password</div>
+      <button class="modal-close-btn" id="btnClosePwModal">
+        <img src="../images/icons/icon-close.svg" alt="close" class="close-icon"/>
+      </button>
+    </div>
+    <div class="modal-fields">
+      <div class="form-group">
+        <label class="form-label">Current Password</label>
+        <div class="pw-wrap"><input type="password" class="form-input" placeholder="••••••••" id="inputCurrentPw"/>
+          <button class="pw-eye" data-target="inputCurrentPw"><img src="../images/icons/icon-eye.svg" alt="" class="eye-icon"/></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <div class="pw-wrap"><input type="password" class="form-input" placeholder="••••••••" id="inputNewPw"/>
+          <button class="pw-eye" data-target="inputNewPw"><img src="../images/icons/icon-eye.svg" alt="" class="eye-icon"/></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm New Password</label>
+        <div class="pw-wrap"><input type="password" class="form-input" placeholder="••••••••" id="inputConfirmPw"/>
+          <button class="pw-eye" data-target="inputConfirmPw"><img src="../images/icons/icon-eye.svg" alt="" class="eye-icon"/></button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer-row">
+      <button class="btn-modal-cancel" id="btnCancelPw">Cancel</button>
+      <button class="btn-modal-confirm" id="btnConfirmPw">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deactivate Modal -->
+<div class="modal-overlay" id="deactivateModal">
+  <div class="modal-box narrow">
+    <div class="modal-icon-wrap danger-wrap">
+      <img src="../images/icons/icon-warning.svg" alt="" class="modal-icon-lg"/>
+    </div>
+    <div class="modal-title center">Deactivate Account?</div>
+    <div class="modal-desc center">This will suspend access to all services. Your data will be retained for 30 days before permanent deletion.</div>
+    <div class="modal-footer-row centered">
+      <button class="btn-modal-cancel" id="btnCancelDeactivate">Cancel</button>
+      <button class="btn-modal-danger">Yes, Deactivate</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+  <!-- ══ SCRIPTS — auth.js MUST be first ══ -->
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    /* Route guard — redirects wrong role to their home */
+    guardPage([ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/account-settings.js"></script>
+</body>
+</html>

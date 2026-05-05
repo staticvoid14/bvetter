@@ -1,0 +1,476 @@
+/* =============================================
+   BVETTER — account-profile.css
+   Page: Account profile — hero banner, stats, activity, quick actions.
+   Depends: variables.css (must load first in HTML)
+
+   Path from public/html/[page].html:
+     <link rel="stylesheet" href="../css/variables.css"/>
+     <link rel="stylesheet" href="../css/account-profile.css"/>
+
+   All colors use CSS custom properties from variables.css.
+   To change a color: edit variables.css only — not this file.
+   ============================================= */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Manrope', sans-serif;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+.hero-wrapper {
+  padding: 15px 40px 0;
+}
+
+/* ── HERO ──────────────────────────────────── */
+.profile-hero {
+  background: var(--gradient-hero);
+  padding: 36px 40px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.profile-hero::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: rgba(17, 193, 37, 0.08);
+  pointer-events: none;
+}
+
+.profile-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -40px;
+  left: 38%;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+}
+
+.profile-hero-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 2;
+}
+
+.profile-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hero-avatar {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-green-dark);
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.hero-name {
+  font-size: 32px;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.hero-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 10px;
+}
+
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(17, 193, 37, 0.2);
+  border: 1px solid rgba(17, 193, 37, 0.4);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--color-green-light);
+  letter-spacing: 0.6px;
+}
+
+.verified-icon {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+}
+
+.btn-edit-profile {
+  padding: 10px 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Manrope', sans-serif;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-edit-profile:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── PAGE BODY ─────────────────────────────── */
+.page-body {
+  padding: 20px 0 60px;
+}
+
+/* ── STATS ROW ─────────────────────────────── */
+.stats-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  margin-bottom: 28px;
+  overflow: visible;
+}
+
+.stat-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 22px 28px;
+  gap: 16px;
+  position: relative;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.stat-accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0 2px 2px 0;
+}
+
+.stat-accent.red {
+  background: var(--color-red);
+}
+
+.stat-accent.blue {
+  background: var(--color-navy);
+}
+
+.stat-accent.green {
+  background: var(--color-green);
+}
+
+.stat-content {
+  flex: 1;
+}
+
+.stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stat-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.red-bg {
+  background: var(--color-red-pale);
+}
+
+.blue-bg {
+  background: #E8EEF8;
+}
+
+.green-bg {
+  background: var(--color-green-pale);
+}
+
+.stat-divider {
+  display: none;
+}
+
+/* ── CONTENT LAYOUT ────────────────────────── */
+.content-layout {
+  display: grid;
+  grid-template-columns: 1fr 455px;
+  gap: 24px;
+}
+
+/* ── SECTION HEADING ───────────────────────── */
+.section-heading {
+  margin-bottom: 16px;
+  line-height: 1;
+}
+
+.section-title {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--color-navy);
+  line-height: 1.15;
+  display: block;
+}
+
+.mb-actions {
+  margin-bottom: 16px;
+  font-size: 17px;
+}
+
+/* ── ACTIVITY LIST ─────────────────────────── */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.activity-card {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  padding: 16px 18px;
+  transition: box-shadow 0.2s;
+}
+
+.activity-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.07);
+}
+
+.activity-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.activity-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.activity-dot-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.activity-dot-icon {
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+}
+
+.green-dot {
+  background: var(--color-green-pale);
+}
+
+.blue-dot {
+  background: #e8eef8;
+}
+
+.teal-dot {
+  background: #e0f4f7;
+}
+
+.red-dot {
+  background: var(--color-red-pale);
+}
+
+.activity-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.activity-ref {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.activity-badge {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+}
+
+.badge-approved {
+  background: var(--color-green-pale);
+  color: var(--color-green-dark);
+}
+
+.badge-review {
+  background: #E8EEF8;
+  color: var(--color-navy);
+}
+
+.badge-completed {
+  background: var(--color-green-pale);
+  color: var(--color-green-dark);
+}
+
+.badge-pending {
+  background: var(--color-yellow-light);
+  color: var(--color-yellow);
+}
+
+.activity-body {
+  padding-left: 46px;
+}
+
+.activity-desc {
+  font-size: 12px;
+  color: var(--text-body);
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+.activity-time {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.5px;
+}
+
+.btn-view-all {
+  width: 100%;
+  padding: 13px;
+  background: #fff;
+  border: 1.5px solid var(--border-default);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Manrope', sans-serif;
+  color: var(--color-green-dark);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-view-all:hover {
+  background: var(--color-green-pale);
+  border-color: var(--color-green);
+}
+
+/* ── QUICK ACTIONS ─────────────────────────── */
+.quick-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quick-action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 16px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-action-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-color: #C8E8C8;
+}
+
+.qa-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.qa-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.qa-text {
+  flex: 1;
+}
+
+.qa-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.qa-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.qa-arrow {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  opacity: 0.4;
+}

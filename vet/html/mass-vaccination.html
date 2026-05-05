@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Mass Vaccination</title>
+    <link rel="stylesheet" href="/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/vet/css/mass-vaccination.css">
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="/shared/js/sidebar.js" defer></script>
+    <script src="/vet/js/mass-vaccination.js" defer></script> -->
+</head>
+
+<body>
+    <div class="page-shell">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <main class="right-side mass-vacc-main">
+
+            <!-- Dashboard panel -->
+            <section id="mass-vacc-dashboard" class="panel active-panel" aria-label="Mass Vaccination Dashboard">
+                <header class="hero">
+                    <div>
+                        <h1>Mass Vaccination</h1>
+                        <p>View and analyze vaccination data from online consultation.</p>
+                    </div>
+                    <button id="open-create-event" class="btn btn-primary" type="button">
+                        Create New Event
+                    </button>
+                </header>
+
+                <section class="metric-grid" aria-label="Mass Vaccination KPIs">
+                    <article class="metric-card">
+                        <h2>Total Events This Year</h2>
+                        <p class="metric-value" data-metric="eventsTotal">24</p>
+                        <small class="metric-note success">25% higher compared to last year</small>
+                    </article>
+                    <article class="metric-card">
+                        <h2>Total Pets Vaccinated</h2>
+                        <p class="metric-value" data-metric="petsVaccinated">1,842</p>
+                        <small class="metric-note">Across all barangays</small>
+                    </article>
+                    <article class="metric-card">
+                        <h2>Most Active Barangay</h2>
+                        <p class="metric-value" data-metric="activeBarangay">Sta. Cruz</p>
+                        <small class="metric-note">312 pets vaccinated</small>
+                    </article>
+                    <article class="metric-card">
+                        <h2>Pending Reports</h2>
+                        <p class="metric-value danger" data-metric="pendingReports">3</p>
+                        <small class="metric-note">Events awaiting data</small>
+                    </article>
+                </section>
+
+                <section class="chart-grid">
+                    <article class="card chart-card span-2">
+                        <div class="card-head">
+                            <h3>Pets Vaccinated per Barangay</h3>
+                            <select id="range-filter" aria-label="Time range filter" class="dropdown">
+                                <option>This Month</option>
+                                <option>Last 3 Months</option>
+                                <option>This Year</option>
+                            </select>
+                        </div>
+                        <canvas id="vaccinatedPerBarangayChart"></canvas>
+                    </article>
+                    <article class="card chart-card">
+                        <div class="card-head">
+                            <h2>Predicted Number of Animals to be Vaccinated</h2>
+                        </div>
+                        <canvas id="predictedAnimalsChart"></canvas>
+                    </article>
+                </section>
+
+                <section class="chart-grid">
+                    <article class="card chart-card">
+                        <div class="card-head">
+                            <h3>Vaccine Types</h3>
+                        </div>
+                        <canvas id="vaccineTypesChart"></canvas>
+                    </article>
+                    <article class="card chart-card span-2">
+                        <div class="card-head">
+                            <h3>Number of Vaccines Needed per Barangay</h3>
+                        </div>
+                        <canvas id="vaccinesNeededChart"></canvas>
+                    </article>
+                </section>
+
+                <section class="card table-card">
+                    <div class="card-head">
+                        <h3>Recent Vaccination Events</h3>
+                        <small>Click a row to open event report details</small>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Barangay</th>
+                                    <th>Vaccine</th>
+                                    <th>Total Vaccinated</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="event-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+
+            <!-- Event detail panel -->
+            <section id="mass-vacc-detail" class="panel" aria-label="Mass Vaccination Event Detail">
+                <button id="back-to-dashboard" class="back-link" type="button">
+                    ← Back to Mass Vaccination
+                </button>
+
+                <header class="detail-header">
+                    <div>
+                        <h2 id="detail-title">Tangos – Anti-Rabies</h2>
+                        <p id="detail-date">February 24, 2025</p>
+                    </div>
+                    <span id="detail-status" class="pill">Completed</span>
+                </header>
+
+                <section class="detail-grid">
+                    <article class="card info-card">
+                        <h3>Event Information</h3>
+                        <dl class="info-list">
+                            <div>
+                                <dt>Date</dt>
+                                <dd id="info-date">February 24, 2025</dd>
+                            </div>
+                            <div>
+                                <dt>Barangay</dt>
+                                <dd id="info-barangay">Tangos</dd>
+                            </div>
+                            <div>
+                                <dt>Vaccine Type</dt>
+                                <dd id="info-vaccine">Anti-Rabies</dd>
+                            </div>
+                            <div>
+                                <dt>Status</dt>
+                                <dd id="info-status">Completed</dd>
+                            </div>
+                        </dl>
+                    </article>
+
+                    <article class="card report-card">
+                        <h3>Post-Event Report</h3>
+                        <form id="post-event-form">
+                            <label for="total-vaccinated">Total Pets Vaccinated *</label>
+                            <input id="total-vaccinated" name="totalVaccinated" type="number" min="0" required>
+
+                            <label class="switch-row" for="include-breakdown">
+                                <input id="include-breakdown" name="includeBreakdown" type="checkbox">
+                                <span>Include Breakdown</span>
+                            </label>
+
+                            <div id="species-breakdown" class="species-grid hidden" aria-hidden="true">
+                                <div>
+                                    <label for="dogs-count">Dogs</label>
+                                    <input id="dogs-count" name="dogs" type="number" min="0" value="0">
+                                </div>
+                                <div>
+                                    <label for="cats-count">Cats</label>
+                                    <input id="cats-count" name="cats" type="number" min="0" value="0">
+                                </div>
+                                <div>
+                                    <label for="others-count">Others</label>
+                                    <input id="others-count" name="others" type="number" min="0" value="0">
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-success">Save Report</button>
+                        </form>
+                    </article>
+                </section>
+
+                <section class="card comparison-card">
+                    <h3>Barangay Comparison – This Event vs Average</h3>
+                    <div class="progress-row">
+                        <span>This event</span>
+                        <div class="line">
+                            <div id="event-progress" class="fill fill-blue"></div>
+                        </div>
+                        <strong id="event-progress-value">87</strong>
+                    </div>
+                    <div class="progress-row">
+                        <span>Brgy Average</span>
+                        <div class="line">
+                            <div id="average-progress" class="fill fill-slate"></div>
+                        </div>
+                        <strong id="average-progress-value">72</strong>
+                    </div>
+                    <div class="progress-row">
+                        <span>Highest Ever</span>
+                        <div class="line">
+                            <div id="highest-progress" class="fill fill-green"></div>
+                        </div>
+                        <strong id="highest-progress-value">100</strong>
+                    </div>
+                    <p id="comparison-note" class="success-note">↑ 21% above barangay average – good turnout!</p>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <!-- Create event modal -->
+    <div id="create-event-modal" class="modal hidden" role="dialog" aria-modal="true"
+        aria-labelledby="create-event-heading">
+        <div class="modal-card">
+            <button id="close-create-event" class="modal-close" type="button" aria-label="Close modal">×</button>
+            <h2 id="create-event-heading">Create Mass Vaccination Event</h2>
+            <form id="create-event-form">
+                <label for="event-date">Date *</label>
+                <input id="event-date" name="date" type="date" required>
+
+                <label for="event-barangay">Barangay *</label>
+                <select id="event-barangay" name="barangay" required>
+                    <option value="">Select Barangay…</option>
+                    <option>Poblacion</option>
+                    <option>Tangos</option>
+                    <option>San Jose</option>
+                    <option>Sta. Cruz</option>
+                </select>
+
+                <label for="event-vaccine">Vaccine Type *</label>
+                <select id="event-vaccine" name="vaccine" required>
+                    <option value="">Select Vaccine…</option>
+                    <option>Anti-Rabies</option>
+                    <option>5-in-1</option>
+                    <option>Others</option>
+                </select>
+
+                <div class="modal-actions">
+                    <button id="cancel-create-event" type="button" class="btn btn-outline">Cancel</button>
+                    <button type="submit" class="btn btn-success">Create Event</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="/shared/js/sidebar.js"></script>
+    <script src="/vet/js/mass-vaccination.js"></script>
+
+</body>
+
+</html>

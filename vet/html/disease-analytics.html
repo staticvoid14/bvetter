@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Disease Analytics</title>
+    <link rel="stylesheet" href="/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/vet/css/disease-analytics.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <!-- <script src="/shared/js/sidebar.js" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin="" defer></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" defer></script>
+    <script src="/vet/js/disease-analytics.js" defer></script> -->
+</head>
+
+<body>
+    <div class="main-holder da-page">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <main class="da-main">
+            <!-- Overview panel -->
+            <section id="overviewPanel" class="panel panel-active">
+                <header class="overview-header">
+                    <div>
+                        <h1>Disease Analytics</h1>
+                        <p>View reports and auto-triggered insights here.</p>
+                    </div>
+                    <div class="header-actions">
+                        <select id="diseaseFilter" aria-label="Select disease"></select>
+                        <button id="openMapBtn" class="btn btn-primary">View Detailed Map</button>
+                    </div>
+                </header>
+
+                <section class="overview-grid">
+                    <div class="detailed-headers">
+                        <div class="kpi-row" id="kpiCards"></div>
+                        <section class="prediction-banner card" id="predictionBanner"></section>
+                    </div>
+                    <aside class="data-sources card">
+                        <h3>Data Sources</h3>
+                        <ul id="sourceList"></ul>
+                        <button class="btn btn-secondary" id="refreshSourcesBtn">Refresh All Sources</button>
+                    </aside>
+                </section>
+
+                <section class="chart-grid">
+                    <div class="card chart-card">
+                        <h3>Actual Disease Cases per Barangay</h3>
+                        <div id="actualChart" class="bar-chart"></div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Predicted Disease Cases per Barangay</h3>
+                        <div id="predictedChart" class="bar-chart"></div>
+                    </div>
+                </section>
+
+                <section class="card insight-section">
+                    <h3>Insights</h3>
+                    <div id="insightCards" class="insight-grid"></div>
+                </section>
+            </section>
+
+            <!-- Insight drill-down panel -->
+            <section id="insightPanel" class="panel">
+                <button class="back-btn" id="backToOverviewBtn">
+                    <img src="/vet/images/back.svg" alt="back"> Back to Disease Analytics
+                </button>
+                <div class="insight-layout">
+                    <div class="insight-left card">
+                        <h2 id="insightBarangayName">Tangos</h2>
+                        <div class="summary-kpi-grid">
+                            <div class="summary-kpi"><span id="selectedCaseCount">0</span>
+                                <p>Cases</p>
+                            </div>
+                            <div class="summary-kpi"><span id="selectedAverage">0</span>
+                                <p>Avg</p>
+                            </div>
+                        </div>
+                        <h4>Barangay Comparison – This Disease vs Average</h4>
+                        <div id="comparisonBars" class="mini-bars"></div>
+                        <h4>Predicted Case Count</h4>
+                        <div id="predictionBars" class="mini-bars"></div>
+                    </div>
+                    <div class="insight-right card" id="protocolPanel"></div>
+                </div>
+            </section>
+
+            <!-- Map panel -->
+            <section id="mapPanel" class="panel">
+                <div class="map-topbar">
+                    <button class="back-btn" id="backFromMapBtn">Back to Disease Analytics</button>
+                    <div class="crumbs">Disease Analytics / Detailed Map View</div>
+                </div>
+                <div class="map-layout card">
+                    <div class="map-stage">
+                        <div class="map-metrics" id="mapMetricCards"></div>
+                        <div id="baliwagMap"></div>
+                        <div class="map-footer-legend">
+                            <span>Disease Intensity</span>
+                            <span class="dot critical"></span>Critical
+                            <span class="dot monitor"></span>Monitor
+                            <span class="dot stable"></span>Stable
+                        </div>
+                    </div>
+                    <aside class="map-side" id="mapSidePanel">
+                        <div class="map-side-header">
+                            <button id="toggleActionBtn" class="btn btn-primary">Action Tab</button>
+                        </div>
+                        <div id="hotspotList" class="hotspot-list"></div>
+                        <div class="forecast card" id="forecastPanel"></div>
+                    </aside>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="/shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="/shared/js/sidebar.js"></script>
+    <script src="/vet/js/disease-analytics.js"></script>
+
+</body>
+
+</html>

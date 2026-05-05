@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<!--
+  Page:    landing.html
+  Feature: Public landing / home page
+  CSS:     variables.css → components.css → landing.css
+  JS:      nav.js → landing.js → chatbot.js
+
+  TODO backend:
+  - Replace sessionStorage nav toggle with server-side session
+  - Replace static event cards with api.getEvents()
+  - Replace static pet cards with api.getReports({ limit: 3 })
+  - Replace hardcoded user name in navAuth with api.getProfile()
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Baliwag Veterinary Services</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Shared components: navbar + footer -->
+  <link rel="stylesheet" href="../css/components.css"/>
+  <!-- 3. Page-specific -->
+  <link rel="stylesheet" href="../css/landing.css"/>
+</head>
+<body>
+
+  <!-- ══════════ NAVBAR ══════════
+       Guest nav: shown when not logged in
+       Auth nav:  shown when logged in
+       Toggle handled by landing.js        -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+      <ul class="nav-links">
+        <li><a href="landing.html" class="active">Home</a></li>
+        <li><a href="book-appointment.html">Book An Appointment</a></li>
+        <li><a href="lost-found.html">Lost And Found</a></li>
+      </ul>
+    </div>
+
+    <!-- Guest nav (not logged in) -->
+    <div class="nav-right" id="navGuest">
+      <a href="login.html" class="btn-register">Register</a>
+      <a href="login.html" class="btn-login-nav">Login</a>
+    </div>
+
+    <!-- Auth nav (logged in) -->
+    <div class="nav-right nav-right-auth" id="navAuth" style="display:none;">
+      <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+        <span class="nav-notif-dot"></span>
+      </button>
+      <div class="nav-user-pill" onclick="toggleUserMenu()">
+        <div class="nav-user-info">
+          <span class="nav-user-name">Mark Depa</span><!-- TODO backend: api.getProfile().name -->
+          <span class="nav-user-role">Pet Owner</span>
+        </div>
+        <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+      </div>
+      <div class="nav-user-dropdown" id="userDropdown">
+        <a href="account-profile.html" class="dropdown-item">
+          <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+        </a>
+        <a href="account-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+        </a>
+        <a href="notification-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+        </a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+          <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════ HERO ══════════ -->
+  <section class="hero">
+    <div class="hero-left">
+      <span class="hero-badge">Baliwag Veterinary Clinic</span>
+      <h1 class="hero-title">
+        Compassion<br/>Meets<br/>
+        <span style="display:block; margin-top: 20px;">
+          <span class="hero-title-green">Clinical</span><br/>Precision
+        </span>
+      </h1>
+      <p class="hero-desc">Redefining veterinary excellence with world-class diagnostics and a deep-rooted empathy for your companion's vitality.</p>
+      <div class="hero-actions">
+        <a href="./login.html" class="btn-book">
+          Book Appointment
+          <span class="btn-icon-circle">
+            <img src="../images/icons/icon-circle-arrow.svg"/>
+          </span>
+        </a>
+        <a href="#" class="btn-specialties">Our Specialties</a>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-img-wrap">
+        <img src="../images/img/hero-dog.png" alt="Dog" class="hero-dog-img"/>
+        <div class="vitality-badge">
+          <div class="vitality-icon-wrap">
+            <img src="../images/icons/icon-vitality.svg" alt="" class="vitality-icon"/>
+          </div>
+          <div>
+            <span class="vitality-label">VITALITY SCORE</span>
+            <span class="vitality-text">Optimized Recovery Plans</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ STATS ══════════ -->
+  <section class="stats">
+    <div class="stat-item">
+      <span class="stat-label">CLINIC CAPACITY</span>
+      <span class="stat-value">24/7</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">SURGERY RECOVERY</span>
+      <span class="stat-value">98.4%</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">SPECIALISTS</span>
+      <span class="stat-value">12</span>
+    </div>
+  </section>
+
+  <!-- ══════════ UPCOMING HEALTH EVENTS ══════════
+       TODO backend: replace cards with api.getEvents() -->
+  <section class="events-section">
+    <div class="events-header">
+      <div>
+        <h2>Upcoming Health Events</h2>
+        <p>Stay proactive with our community wellness initiatives.</p>
+      </div>
+      <div class="events-nav">
+        <button class="events-nav-btn" onclick="slideEvents(-1)">&#8592;</button>
+        <button class="events-nav-btn" onclick="slideEvents(1)">&#8594;</button>
+      </div>
+    </div>
+    <div class="events-carousel">
+      <div class="events-track" id="eventsTrack">
+        <div class="event-card">
+          <div class="event-card-img-side">
+            <span class="event-tag upcoming">Upcoming Event</span>
+            <img src="../images/img/event-1.png" alt="Event" class="event-img"/>
+          </div>
+          <div class="event-card-info">
+            <span class="event-type">PREVENTATIVE CARE</span>
+            <h3>Vaccine Event 1</h3>
+            <p>Protect your pets from common seasonal illnesses. Join our weekend walk-in clinic for discounted vaccinations, microchipping, and wellness checks.</p>
+            <div class="event-meta">
+              <span class="event-meta-item">
+                <img src="../images/icons/icon-calendar.svg" alt="" class="meta-icon"/> Dec 15, 2026
+              </span>
+              <span class="event-meta-item">
+                <img src="../images/icons/icon-location.svg" alt="" class="meta-icon"/> Barangay Tangos
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="event-card">
+          <div class="event-card-img-side">
+            <span class="event-tag seminar">Special Seminar</span>
+            <img src="../images/img/event-2.png" alt="Event" class="event-img"/>
+          </div>
+          <div class="event-card-info">
+            <span class="event-type">SPECIAL SEMINAR</span>
+            <h3>Pet Health Seminar</h3>
+            <p>Join our veterinary experts for an informative session on pet wellness, disease prevention, and modern treatment approaches for your beloved companions.</p>
+            <div class="event-meta">
+              <span class="event-meta-item">
+                <img src="../images/icons/icon-calendar.svg" alt="" class="meta-icon"/> Jan 20, 2027
+              </span>
+              <span class="event-meta-item">
+                <img src="../images/icons/icon-location.svg" alt="" class="meta-icon"/> Baliwag City Hall
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="events-dots">
+      <div class="events-dot active" onclick="goToEvent(0)"></div>
+      <div class="events-dot" onclick="goToEvent(1)"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ LOST & FOUND PREVIEW ══════════
+       TODO backend: replace cards with api.getReports({ limit: 3 }) -->
+  <section class="lostfound-section">
+    <div class="lostfound-header">
+      <div>
+        <h2>Lost & Found<br/>Community</h2>
+        <p>Our integrated network helps reunite elite companions with their families through real-time pet tracking and alerts.</p>
+      </div>
+      <a href="lost-found.html" class="visit-link">Visit Lost & Found →</a>
+    </div>
+    <div class="pets-grid">
+      <div class="pet-card">
+        <div class="pet-img-wrap">
+          <div class="pet-status lost">Lost</div>
+          <img src="../images/img/pet-1.jpg" alt="Max" class="pet-img"/>
+        </div>
+        <div class="pet-info">
+          <span class="pet-name">Max (Beagle)</span>
+          <span class="pet-location">
+            <img src="../images/icons/icon-location.svg" alt="" class="loc-icon"/> Tangos
+          </span>
+        </div>
+      </div>
+      <div class="pet-card">
+        <div class="pet-img-wrap">
+          <div class="pet-status found">Found</div>
+          <img src="../images/img/pet-2.jpg" alt="Ginger Cat" class="pet-img"/>
+        </div>
+        <div class="pet-info">
+          <span class="pet-name">Ginger Cat</span>
+          <span class="pet-location">
+            <img src="../images/icons/icon-location.svg" alt="" class="loc-icon"/> Baliwag City Clinic
+          </span>
+        </div>
+      </div>
+      <div class="pet-card">
+        <div class="pet-img-wrap">
+          <div class="pet-status lost">Lost</div>
+          <img src="../images/img/pet-3.jpg" alt="Bella" class="pet-img"/>
+        </div>
+        <div class="pet-info">
+          <span class="pet-name">Bella (Poodle)</span>
+          <span class="pet-location">
+            <img src="../images/icons/icon-location.svg" alt="" class="loc-icon"/> Maasim
+          </span>
+        </div>
+      </div>
+      <div class="pet-card pet-card-report">
+        <div class="report-icon">
+          <img src="../images/icons/icon-report.svg" alt="report" class="report-svg"/>
+        </div>
+        <span class="report-text">Report a Pet</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ SPECIALISTS ══════════ -->
+  <section class="specialists-section">
+    <h2>Meet Our Specialists</h2>
+    <p class="specialists-sub">The experts behind our clinical precision.</p>
+    <div class="specialists-grid">
+      <div class="specialist-card">
+        <div class="specialist-icon blue">
+          <img src="../images/icons/icon-doctor.svg" alt="" class="doc-icon"/>
+        </div>
+        <div class="specialist-info">
+          <span class="specialist-name">Dr. Aris V.</span>
+          <span class="specialist-role">MEDICAL DIRECTOR</span>
+          <p>Dedicated to advancing diagnostic accuracy through innovative laboratory integration and compassionate animal advocacy.</p>
+        </div>
+      </div>
+      <div class="specialist-card">
+        <div class="specialist-icon green">
+          <img src="../images/icons/icon-surgeon.svg" alt="" class="doc-icon"/>
+        </div>
+        <div class="specialist-info">
+          <span class="specialist-name">Dr. Elena M.</span>
+          <span class="specialist-role">HEAD OF SURGERY</span>
+          <p>Specializing in minimally invasive procedures and post-operative recovery protocols for optimal patient outcomes.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ FOOTER ══════════ -->
+  <footer class="footer">
+    <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <h3>Baliwag Veterinary Services</h3>
+        <p>Leading the future of veterinary medicine through precision technology and heartfelt dedication.</p>
+      </div>
+      <div class="footer-links">
+        <h4>QUICK LINKS</h4>
+        <ul>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Emergency Care</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>CONTACT</h4>
+        <p>AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026</p>
+        <p class="footer-email">BaliwagtVC@gmail.com</p>
+        <p class="footer-phone">09959210640</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Baliwag Veterinary Services. Precision in Medicine, Vitality in Life</span>
+      <div class="footer-socials">
+        <a href="#" class="social-btn">f</a>
+        <a href="#" class="social-btn">in</a>
+      </div>
+    </div>
+  </footer>
+  <!-- ══ SCRIPTS ══ -->
+  <script src="../../shared/js/auth.js"></script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/landing.js"></script>
+  <script src="../js/chatbot.js"></script>
+</body>
+</html>

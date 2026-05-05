@@ -1,0 +1,106 @@
+<!-- =============================================
+     BVETTER — SHARED COMPONENTS REFERENCE
+     File: public/components/_shared-components.html
+
+     REFERENCE ONLY — not served directly.
+     Copy navbar/footer blocks into each page.
+
+     PATHS assume file is in: public/pages/[page].html
+       CSS:      ../css/
+       JS:       ../js/
+       auth.js:  ../../shared/js/auth.js
+       Images:   ../images/
+
+     SCRIPT ORDER (bottom of every protected page):
+       <script src="../../shared/js/auth.js"></script>
+       <script> guardPage([ROLES.PET_OWNER]); </script>
+       <script src="../js/nav.js"></script>
+       <script src="../js/api.js"></script>
+       <script src="../js/[page-name].js"></script>
+
+     For login/signup/forgot (no navbar, no guard):
+       <script src="../js/api.js"></script>
+       <script src="../js/[page-name].js"></script>
+
+     WHEN BACKEND READY — replace copy-paste with:
+       PHP:       <?php include '../components/navbar.php'; ?>
+       Jinja2:    {% include 'navbar.html' %}
+       Blade:     @include('components.navbar')
+     ============================================= -->
+
+
+<!-- ══ NAVBAR — copy to every authenticated page ══
+     Set class="active" on the correct nav link.
+     logout() comes from shared/js/auth.js.         -->
+<nav class="navbar">
+  <div class="nav-left">
+    <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+    <ul class="nav-links">
+      <li><a href="landing.html">Home</a></li>
+      <li><a href="book-appointment.html">Book An Appointment</a></li>
+      <li><a href="lost-found.html">Lost And Found</a></li>
+    </ul>
+  </div>
+  <div class="nav-right nav-right-auth">
+    <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+      <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+      <span class="nav-notif-dot"></span>
+    </button>
+    <div class="nav-user-pill" onclick="toggleUserMenu()">
+      <div class="nav-user-info">
+        <span class="nav-user-name">Mark Depa</span><!-- TODO backend: populate from getCurrentUser().name -->
+        <span class="nav-user-role">Pet Owner</span>
+      </div>
+      <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+    </div>
+    <div class="nav-user-dropdown" id="userDropdown">
+      <a href="account-profile.html" class="dropdown-item">
+        <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+      </a>
+      <a href="account-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+      </a>
+      <a href="notification-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+        <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<!-- ══ FOOTER — copy before </body> on every page ══ -->
+<footer class="footer">
+  <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <h3>Baliwag Veterinary Services</h3>
+      <p>Leading the future of veterinary medicine through precision technology and heartfelt dedication.</p>
+    </div>
+    <div class="footer-links">
+      <h4>QUICK LINKS</h4>
+      <ul>
+        <li><a href="#">Privacy Policy</a></li>
+        <li><a href="#">Terms of Service</a></li>
+        <li><a href="#">Emergency Care</a></li>
+        <li><a href="#">Careers</a></li>
+      </ul>
+    </div>
+    <div class="footer-contact">
+      <h4>CONTACT</h4>
+      <p>AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026</p>
+      <p class="footer-email">BaliwagtVC@gmail.com</p>
+      <p class="footer-phone">09959210640</p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 Baliwag Veterinary Services. Precision in Medicine, Vitality in Life</span>
+    <div class="footer-socials">
+      <a href="#" class="social-btn">f</a>
+      <a href="#" class="social-btn">in</a>
+    </div>
+  </div>
+</footer>

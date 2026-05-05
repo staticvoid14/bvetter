@@ -1,0 +1,331 @@
+/* =============================================
+   BVETTER — components.css
+   Page: Shared navbar + footer. Used on ALL authenticated pages.
+   Depends: variables.css (must load first in HTML)
+
+   Path from public/html/[page].html:
+     <link rel="stylesheet" href="../css/variables.css"/>
+     <link rel="stylesheet" href="../css/components.css"/>
+
+   All colors use CSS custom properties from variables.css.
+   To change a color: edit variables.css only — not this file.
+   ============================================= */
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  height: 60px;
+  background: var(--color-navy);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+
+.nav-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.nav-links {
+  list-style: none;
+  display: flex;
+  gap: 28px;
+}
+
+.nav-links li a {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.75);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.nav-links li a.active {
+  color: var(--color-green);
+  font-weight: 700;
+  border-bottom: 2px solid var(--color-green);
+  padding-bottom: 2px;
+}
+
+.nav-links li a:hover { color: #ffffff; }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-register {
+  padding: 8px 22px;
+  border: 1.5px solid rgba(255,255,255,0.4);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  text-decoration: none;
+  transition: border-color 0.2s;
+}
+
+.btn-register:hover { border-color: rgba(255,255,255,0.8); }
+
+.btn-login-nav {
+  padding: 8px 26px;
+  background: var(--color-green);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.btn-login-nav:hover { background: var(--color-green); }
+
+/* ── AUTH NAV (logged-in state) ─────────── */
+.nav-right-auth {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+}
+
+.nav-notif-btn {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+}
+
+.nav-notif-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  opacity: 0.85;
+}
+
+.nav-notif-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--color-green);
+  border-radius: 50%;
+  border: 2px solid var(--color-navy);
+}
+
+.nav-user-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.nav-user-info { text-align: right; }
+
+.nav-user-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.nav-user-role {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nav-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.nav-user-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  min-width: 210px;
+  overflow: hidden;
+  z-index: 300;
+}
+
+.nav-user-dropdown.open { display: block; }
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.dropdown-item:hover { background: var(--bg-page); }
+.dropdown-item.active-item { color: var(--color-green-dark); background: var(--color-green-pale); }
+
+.dropdown-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  opacity: 0.65;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 4px 0;
+}
+
+.dropdown-logout { color: var(--color-red); }
+
+/* =============================================
+   FOOTER
+   ============================================= */
+.footer {
+  background: var(--color-navy);
+  position: relative;
+  overflow: hidden;
+  padding: 52px 80px 24px;
+  height: 350px;
+}
+
+.footer-paw {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 320px;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1.4fr;
+  gap: 48px;
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  position: relative;
+  z-index: 2;
+}
+
+.footer-brand h3 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 12px;
+}
+
+.footer-brand p {
+  font-size: 13px;
+  color: rgba(255,255,255,0.55);
+  line-height: 1.7;
+  width: 400px;
+}
+
+.footer-links h4,
+.footer-contact h4 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-green);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.footer-links ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.footer-links ul li a {
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.footer-links ul li a:hover { color: #ffffff; }
+
+.footer-contact p {
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.footer-email {
+  color: #83AEF5 !important;
+  font-weight: 500;
+}
+
+.footer-phone {
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  margin-top: 4px;
+}
+
+.footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  position: relative;
+  z-index: 2;
+}
+
+.footer-bottom span {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+
+.footer-socials { display: flex; gap: 8px; }
+
+.social-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.social-btn:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+}

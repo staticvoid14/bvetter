@@ -1,0 +1,127 @@
+/* =============================================
+   BVETTER — variables.css
+   File: public/css/variables.css
+
+   ██████████████████████████████████████████
+   THIS FILE MUST BE LINKED FIRST IN EVERY PAGE
+   before any other CSS file.
+
+   <link rel="stylesheet" href="../css/variables.css"/>
+
+   HOW TO USE:
+   Use var(--token-name) in any CSS file.
+   To change a brand color → edit ONLY this file.
+   All 14 CSS files read from here automatically.
+   ██████████████████████████████████████████
+
+   Sections:
+   1. Brand Colors
+   2. Text Colors
+   3. Backgrounds
+   4. Borders
+   5. Spacing / Border Radius
+   6. Shadows
+   7. Typography
+   8. Gradients (for buttons and hero panels)
+   ============================================= */
+
+:root {
+
+  /* ══════════════════════════════════════════
+     1. BRAND COLORS
+     ══════════════════════════════════════════ */
+
+  /* Navy — primary brand, navbar, buttons, text headings */
+  --color-navy:          #002A58;
+  --color-navy-mid:      #0E4686;   /* hover state for navy */
+
+  /* Green — primary action color, badges, accents */
+  --color-green:         #11C125;   /* bright — CTA buttons, checkmarks */
+  --color-green-dark:    #005312;   /* dark — body text links, labels */
+  --color-green-light:   #A0F399;   /* light — success badges, pill backgrounds */
+  --color-green-pale:    #F0FFF0;   /* pale — card backgrounds, success areas */
+
+  /* Red — error states, lost pet badges, danger actions */
+  --color-red:           #BA1A1A;
+  --color-red-light:     #FFDAD6;   /* badge backgrounds */
+  --color-red-pale:      #FDECEA;   /* icon wrap backgrounds */
+
+  /* Yellow — pending states, warnings */
+  --color-yellow:        #856404;   /* text on yellow backgrounds */
+  --color-yellow-light:  #FFF3CD;   /* pending badge backgrounds */
+
+
+  /* ══════════════════════════════════════════
+     2. TEXT COLORS
+     ══════════════════════════════════════════ */
+
+  --text-primary:   #1A1C20;   /* headings, card titles, important values */
+  --text-body:      #424750;   /* body copy, descriptions, labels */
+  --text-muted:     #737781;   /* secondary labels, timestamps, placeholders */
+  --text-faint:     #9ba3ae;   /* very subtle — hints, disabled states */
+  --text-white:     #ffffff;
+
+
+  /* ══════════════════════════════════════════
+     3. BACKGROUNDS
+     ══════════════════════════════════════════ */
+
+  --bg-page:        #F2F2F7;   /* page/body background */
+  --bg-card:        #ffffff;   /* card, modal backgrounds */
+  --bg-input:       #F9F9FF;   /* table rows, subtle card areas */
+  --bg-input-alt:   #F3F3F9;   /* login/signup form input background */
+
+
+  /* ══════════════════════════════════════════
+     4. BORDERS
+     ══════════════════════════════════════════ */
+
+  --border-default: #E0E3E8;   /* standard card, input, divider borders */
+  --border-light:   #F0F0F0;   /* very subtle dividers inside tables */
+  --border-input:   #C3C6D2;   /* form input borders (slightly darker) */
+
+
+  /* ══════════════════════════════════════════
+     5. SPACING / BORDER RADIUS
+     ══════════════════════════════════════════ */
+
+  --radius-sm:      6px;       /* small badges, tiny chips */
+  --radius-md:      8px;       /* buttons, form inputs, small cards */
+  --radius-lg:      14px;      /* main cards */
+  --radius-xl:      16px;      /* modals, large panels */
+  --radius-2xl:     18px;      /* hero sections */
+  --radius-full:    9999px;    /* pill shapes, avatar circles */
+
+
+  /* ══════════════════════════════════════════
+     6. SHADOWS
+     ══════════════════════════════════════════ */
+
+  --shadow-card:    0 4px 16px rgba(0, 0, 0, 0.07);
+  --shadow-hover:   0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-modal:   0 24px 64px rgba(0, 0, 0, 0.18);
+  --shadow-dropdown:0 12px 32px rgba(0, 0, 0, 0.12);
+
+
+  /* ══════════════════════════════════════════
+     7. TYPOGRAPHY
+     ══════════════════════════════════════════ */
+
+  --font-main:      'Manrope', sans-serif;
+
+
+  /* ══════════════════════════════════════════
+     8. GRADIENTS
+     Used in: buttons, hero panels, success cards
+     ══════════════════════════════════════════ */
+
+  /* Hero panels — navy to navy-mid to dark green */
+  --gradient-hero:    linear-gradient(135deg, #002A58 0%, #0E4686 55%, #1B6D24 100%);
+
+  /* Primary CTA button — dark green to bright green */
+  --gradient-btn:     linear-gradient(135deg, #005312 0%, #00B928 100%);
+
+  /* Login/forgot password button — navy to blue */
+  --gradient-btn-alt: linear-gradient(90deg, #002A58 0%, #0047A0 100%);
+
+}

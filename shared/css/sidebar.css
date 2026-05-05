@@ -1,0 +1,420 @@
+/* ============================================================
+   VBetter – Shared Sidebar  (shared/css/sidebar.css)
+   Used by: vet/, admin/, and any future role panel
+   ============================================================ */
+
+:root {
+    --primary-dark:           #002A58;
+    --primary-blue:           #004080;
+    --primary-light:          #0E4686;
+    --secondary-green:        #1B6D24;
+    --secondary-light-green:  #00B928;
+    --accent-red:             #93000A;
+    --accent-light-red:       #FFDAD6;
+    --background-light:       #F3F3F9;
+    --background-gray:        rgba(66, 71, 80, 0.05);
+    --text-primary:           #1A1C20;
+    --text-secondary:         #424750;
+    --text-tertiary:          #737781;
+    --border-light:           rgba(195, 198, 210, 0.30);
+    --white:                  #FFFFFF;
+
+    /* Admin accent (orange-red so it's clearly "elevated access") */
+    --admin-accent:           #FF6B35;
+    --admin-section-bg:       rgba(255, 107, 53, 0.10);
+    --admin-section-border:   rgba(255, 107, 53, 0.30);
+
+    /* Layout tokens */
+    --sidebar-width-collapsed: 80px;
+    --sidebar-width-expanded:  180px;
+    --shell-gap:               16px;
+    --sidebar-main-gap:        16px;
+    --transition:              all 0.3s ease;
+}
+
+/* ── Sibling content panels ──────────────────────────────── */
+.sidebar.expanded ~ .main-content,
+.sidebar.expanded ~ .right-content,
+.sidebar.expanded ~ .right-side,
+.sidebar.expanded ~ .lf-main,
+.sidebar.expanded ~ .da-main,
+.sidebar.expanded ~ .mass-vacc-main,
+.sidebar.expanded ~ .profile-main,
+.sidebar.expanded ~ .admin-main {
+    margin-left: calc(var(--sidebar-width-expanded) + var(--sidebar-main-gap));
+    width: calc(100% - (var(--sidebar-width-expanded) + var(--sidebar-main-gap) + var(--shell-gap)));
+}
+
+.main-content,
+.right-content,
+.right-side,
+.lf-main,
+.da-main,
+.mass-vacc-main,
+.profile-main,
+.admin-main {
+    transition: margin-left 0.28s ease, width 0.28s ease;
+}
+
+/* ── Sidebar shell ───────────────────────────────────────── */
+.sidebar {
+    width:            var(--sidebar-width-collapsed);
+    height:           calc(100vh - (var(--shell-gap) * 2));
+    background:       var(--primary-dark);
+    display:          flex;
+    flex-direction:   column;
+    justify-content:  space-between;
+    align-items:      stretch;
+    padding:          12px 10px;
+    position:         fixed;
+    left:             var(--shell-gap);
+    top:              var(--shell-gap);
+    border-radius:    18px;
+    overflow:         hidden;
+    border-right:     1px solid rgba(255, 255, 255, 0.1);
+    transition:       width 0.28s ease;
+    z-index:          100;
+}
+
+.sidebar.expanded {
+    width: var(--sidebar-width-expanded);
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.sidebar-header {
+    width:           100%;
+    display:         flex;
+    justify-content: center;
+    align-items:     center;
+    gap:             8px;
+    margin-bottom:   14px;
+}
+
+.sidebar-toggle {
+    display:         none;
+    align-items:     center;
+    justify-content: center;
+    border:          1px solid rgba(255, 255, 255, 0.28);
+    background:      rgba(255, 255, 255, 0.06);
+    color:           var(--white);
+    width:           34px;
+    height:          34px;
+    border-radius:   10px;
+    cursor:          pointer;
+    font-size:       17px;
+    line-height:     1;
+    transition:      background 0.2s ease, border-color 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+    background:   rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.46);
+}
+
+.logo {
+    width:           50px;
+    height:          50px;
+    border-radius:   12px;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    color:           var(--white);
+    font-weight:     800;
+    font-size:       24px;
+}
+
+.logo img {
+    width:         100%;
+    height:        100%;
+    object-fit:    contain;
+    border-radius: 12px;
+}
+
+/* ── Nav ─────────────────────────────────────────────────── */
+.sidebar-nav {
+    display:         flex;
+    flex-direction:  column;
+    gap:             4px;
+    flex:            1;
+    justify-content: flex-start;
+    overflow-y:      auto;
+    scrollbar-width: none;
+}
+
+.sidebar-nav::-webkit-scrollbar { display: none; }
+
+/* Section divider — for admin-only block */
+.nav-section-divider {
+    width:        100%;
+    margin:       8px 0 4px;
+    border:       none;
+    border-top:   1px solid rgba(255, 255, 255, 0.12);
+    position:     relative;
+}
+
+.nav-section-label {
+    font-size:      8px;
+    font-weight:    700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color:          var(--admin-accent);
+    padding:        4px 0 2px;
+    opacity:        0;
+    max-height:     0;
+    overflow:       hidden;
+    transition:     opacity 0.18s ease, max-height 0.18s ease;
+    white-space:    nowrap;
+}
+
+.sidebar.expanded .nav-section-label {
+    opacity:    1;
+    max-height: 24px;
+}
+
+/* Nav items */
+.nav-item {
+    width:           100%;
+    min-height:      34px;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    gap:             8px;
+    border-radius:   8px;
+    color:           rgba(255, 255, 255, 0.7);
+    cursor:          pointer;
+    transition:      var(--transition);
+    text-decoration: none;
+    padding:         7px 0;
+}
+
+.sidebar.expanded .nav-item {
+    justify-content: flex-start;
+    padding:         7px 10px;
+}
+
+.nav-item:hover {
+    background: rgba(0, 185, 40, 0.22);
+    color:      var(--white);
+}
+
+.nav-item.active {
+    background: var(--secondary-light-green);
+    color:      var(--white);
+    box-shadow: 0 6px 18px rgba(0, 185, 40, 0.3);
+}
+
+/* Admin-section items get orange hover instead of green */
+.nav-item.admin-item:hover {
+    background: rgba(255, 107, 53, 0.22);
+    color:      var(--white);
+}
+
+.nav-item.admin-item.active {
+    background: var(--admin-accent);
+    color:      var(--white);
+    box-shadow: 0 6px 18px rgba(255, 107, 53, 0.35);
+}
+
+.nav-icon {
+    width:       16px;
+    height:      16px;
+    flex-shrink: 0;
+    opacity:     0.95;
+}
+
+.nav-label {
+    font-size:   11px;
+    font-weight: 600;
+    line-height: 1.2;
+    opacity:     0;
+    max-width:   0;
+    overflow:    hidden;
+    white-space: nowrap;
+    transition:  opacity 0.18s ease, max-width 0.18s ease;
+}
+
+.sidebar.expanded .nav-label {
+    opacity:   1;
+    max-width: 160px;
+}
+
+/* ── Footer / Profile card ───────────────────────────────── */
+.sidebar-footer {
+    width:           100%;
+    display:         flex;
+    justify-content: center;
+    padding-bottom:  6px;
+}
+
+.sidebar.expanded .sidebar-footer {
+    justify-content: stretch;
+}
+
+.sidebar-profile-card {
+    width:           50px;
+    min-height:      50px;
+    border-radius:   0 0 24px 24px;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    gap:             0;
+    overflow:        hidden;
+    border:          none;
+    background:      transparent;
+    padding:         14px 0 18px;
+    transition:      background 0.28s ease, border-color 0.28s ease,
+                     gap 0.28s ease, padding 0.28s ease;
+    cursor:          pointer;
+}
+
+/* Green card for vet */
+.sidebar.expanded .sidebar-profile-card {
+    width:           100%;
+    min-height:      51px;
+    border-radius:   16px;
+    justify-content: flex-start;
+    gap:             10px;
+    padding:         10px;
+    background:      #0f9540;
+    border:          1px solid #39d263;
+}
+
+/* Orange card for admin — JS adds data-role to the card */
+.sidebar.expanded .sidebar-profile-card[data-role="admin"] {
+    background: #c94a1a;
+    border:     1px solid var(--admin-accent);
+}
+
+.sidebar-profile-avatar {
+    width:         51px;
+    height:        51px;
+    border-radius: 50%;
+    object-fit:    cover;
+    flex-shrink:   0;
+}
+
+.sidebar.expanded .sidebar-profile-avatar {
+    width:  44px;
+    height: 44px;
+}
+
+.sidebar-profile-meta {
+    display:    none;
+    width:      0;
+    max-width:  0;
+    opacity:    0;
+    visibility: hidden;
+    overflow:   hidden;
+    min-width:  0;
+    color:      #ffffff;
+}
+
+.sidebar.expanded .sidebar-profile-meta {
+    display:        flex;
+    flex-direction: column;
+    width:          auto;
+    max-width:      130px;
+    opacity:        1;
+    visibility:     visible;
+    overflow:       hidden;
+}
+
+.sidebar-profile-name,
+.sidebar-profile-role {
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+}
+
+.sidebar-profile-name {
+    font-size:   12px;
+    font-weight: 700;
+}
+
+.sidebar-profile-role {
+    font-size: 10px;
+    opacity:   0.9;
+}
+
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .sidebar {
+        position:       relative;
+        left:           0;
+        top:            0;
+        width:          100%;
+        height:         auto;
+        border-radius:  12px;
+        padding:        10px 12px;
+        flex-direction: row;
+        align-items:    center;
+        gap:            10px;
+    }
+
+    .sidebar.expanded { width: 100%; }
+
+    .sidebar-header {
+        margin-bottom:   0;
+        justify-content: flex-start;
+    }
+
+    .sidebar-toggle {
+        display: inline-flex;
+        width:   36px;
+        height:  36px;
+    }
+
+    .logo { width: 40px; height: 40px; }
+
+    .sidebar-nav {
+        flex-direction: row;
+        align-items:    center;
+        gap:            8px;
+        overflow-x:     auto;
+        flex:           1;
+        padding-bottom: 2px;
+    }
+
+    .nav-section-divider,
+    .nav-section-label { display: none; }
+
+    .nav-item,
+    .sidebar.expanded .nav-item {
+        width:           auto;
+        min-width:       42px;
+        min-height:      42px;
+        justify-content: center;
+        padding:         8px;
+        border-radius:   10px;
+        flex-shrink:     0;
+    }
+
+    .nav-label,
+    .sidebar.expanded .nav-label {
+        display:   none;
+        opacity:   0;
+        max-width: 0;
+    }
+
+    .sidebar-footer { display: none; }
+
+    .sidebar ~ .main-content,
+    .sidebar ~ .right-content,
+    .sidebar ~ .right-side,
+    .sidebar ~ .da-main,
+    .sidebar ~ .lf-main,
+    .sidebar ~ .mass-vacc-main,
+    .sidebar ~ .profile-main,
+    .sidebar ~ .admin-main,
+    .sidebar.expanded ~ .main-content,
+    .sidebar.expanded ~ .right-content,
+    .sidebar.expanded ~ .right-side,
+    .sidebar.expanded ~ .da-main,
+    .sidebar.expanded ~ .lf-main,
+    .sidebar.expanded ~ .mass-vacc-main,
+    .sidebar.expanded ~ .profile-main,
+    .sidebar.expanded ~ .admin-main {
+        margin-left: 0 !important;
+        width:       100% !important;
+    }
+}

@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<!--
+  Page:    book-appointment.html
+  Feature: Vet selection + 4-step booking form + history
+  CSS:     variables.css → components.css → book-appointment.css
+  JS:      nav.js → api.js → book-appointment.js
+
+  TODO backend:
+  - s4Confirm: api.bookAppointment(data) then show step 5
+  - pageHistory: api.getAppointments() to populate rows
+  - Vet list sidebar: api.getVets() to populate dynamically
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Book An Appointment</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Shared components -->
+  <link rel="stylesheet" href="../css/components.css"/>
+  <!-- Page-specific styles -->
+  <!-- 3. Page-specific -->
+  <link rel="stylesheet" href="../css/book-appointment.css"/>
+</head>
+<body>
+
+  <!-- ===================== NAVBAR - LOGGED IN ===================== -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+      <ul class="nav-links">
+        <li><a href="landing.html">Home</a></li>
+        <li><a href="book-appointment.html" class="active">Book An Appointment</a></li>
+        <li><a href="lost-found.html" class="">Lost And Found</a></li>
+      </ul>
+    </div>
+    <div class="nav-right nav-right-auth">
+      <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+        <span class="nav-notif-dot"></span>
+      </button>
+      <div class="nav-user-pill" onclick="toggleUserMenu()">
+        <div class="nav-user-info">
+          <span class="nav-user-name">Mark Depa</span>
+          <span class="nav-user-role">Pet Owner</span>
+        </div>
+      <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+    </div>
+    <div class="nav-user-dropdown" id="userDropdown">
+      <a href="account-profile.html" class="dropdown-item active-item">
+        <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+      </a>
+      <a href="account-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+      </a>
+      <a href="notification-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+        <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════
+     PAGE 1 — VET SELECTION
+══════════════════════════════════════════ -->
+<div id="pageVet" class="page active">
+
+  <div class="hero-wrap">
+    <div class="hero">
+      <div class="hero-left">
+        <span class="hero-tag">VETERINARY SERVICES</span>
+        <h1>Book An Appointment</h1>
+        <p>Schedule a visit with our veterinarians. Select your preferred specialist and choose a convenient time slot.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="vet-wrap">
+    <div class="vet-layout">
+
+      <!-- Sidebar -->
+      <div class="vet-sidebar">
+        <div class="sidebar-label">Available Vets</div>
+        <div class="sidebar-sub">Select your preferred specialist</div>
+        <div class="vet-item active">
+          <img src="../images/img/vet-profile.png" alt="Dr. Kizea" class="vet-thumb"/>
+          <div>
+            <div class="vet-item-name">Kizea Bien Igaya</div>
+            <div class="vet-item-role">Senior Surgeon</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vet Profile -->
+      <div class="vet-profile-card">
+        <div class="vet-profile-header">
+          <img src="../images/img/vet-profile.png" alt="Dr. Kizea" class="vet-profile-img"/>
+          <div class="vet-profile-info">
+            <div class="vet-profile-name">Dr. Kizea Bien Igaya</div>
+            <div class="vet-profile-title">Senior Veterinary Surgeon</div>
+            <div class="vet-profile-clinic">
+              <img src="../images/icons/icon-location.svg" alt="" class="info-icon"/>
+              Baliwag Vet Clinic
+            </div>
+            <div class="vet-profile-rating">
+              <img src="../images/icons/rating.svg" alt="star" class="info-icon"/>
+              <span class="rating-num">4.9</span>
+              <span class="rating-count">(124 reviews)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="vet-stats-row">
+          <div class="vet-stat">
+            <div class="vet-stat-label">Experience</div>
+            <div class="vet-stat-val">12+ Years</div>
+          </div>
+          <div class="vet-stat">
+            <div class="vet-stat-label">Patients</div>
+            <div class="vet-stat-val">2.4k</div>
+          </div>
+          <div class="vet-stat">
+            <div class="vet-stat-label">Rating</div>
+            <div class="vet-stat-val">98%</div>
+          </div>
+        </div>
+
+        <div class="vet-profile-body">
+          <div class="section-title">Education &amp; Expertise</div>
+          <div class="section-desc">Dr. Igaya specializes in complex orthopedic surgeries and soft tissue repair. She completed her residency at the Royal Veterinary College and has been leading our surgical department for over 6 years.</div>
+          <div class="tag-row">
+            <span class="edu-tag">DVM, Cornell University</span>
+            <span class="edu-tag">MS, Animal Science</span>
+          </div>
+
+          <div class="section-title">Common Symptoms Treated</div>
+          <div class="symptoms-grid">
+            <div class="symptom-item">
+              <div class="symptom-icon"><img src="../images/icons/vet-symptom-1.svg" alt=""/></div>
+              Acute Trauma
+            </div>
+            <div class="symptom-item">
+              <div class="symptom-icon"><img src="../images/icons/vet-symptom-3.svg" alt=""/></div>
+              Joint Issues
+            </div>
+            <div class="symptom-item">
+              <div class="symptom-icon"><img src="../images/icons/vet-symptom-2.svg" alt=""/></div>
+              Post-Op Care
+            </div>
+            <div class="symptom-item">
+              <div class="symptom-icon"><img src="../images/icons/vet-symptom-4.svg" alt=""/></div>
+              Internal Pain
+            </div>
+          </div>
+
+          <div class="feedback-header">
+            <div class="section-title" style="margin-bottom:0;">Patient Feedback</div>
+            <a href="#" class="see-all">See All</a>
+          </div>
+          <div class="feedback-card">
+            <div class="feedback-user">
+              <div class="feedback-avatar"></div>
+              <div class="feedback-user-info">
+                <div class="feedback-name">Sarah Jenkins</div>
+                <div class="feedback-pet">Pet: Buster (Golden Retriever)</div>
+              </div>
+              <div class="feedback-stars">
+                <img src="../images/icons/rate.svg" alt="star" class="star-sm"/>
+                <img src="../images/icons/rate.svg" alt="" class="star-sm"/>
+                <img src="../images/icons/rate.svg" alt="" class="star-sm"/>
+                <img src="../images/icons/rate.svg" alt="" class="star-sm"/>
+                <img src="../images/icons/rate.svg" alt="" class="star-sm"/>
+              </div>
+            </div>
+            <div class="feedback-text">"Dr. Clara was amazing with Buster's leg surgery. Extremely professional and communicative throughout the process."</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar -->
+      <div class="vet-right-col">
+        <div class="vet-calendar-card">
+          <div class="cal-title">Calendar</div>
+          <div class="cal-header">
+            <div class="cal-month">October 2026</div>
+            <div class="cal-nav">
+              <button class="cal-btn">
+                <img src="../images/icons/calendar-left.svg" alt="prev"/>
+              </button>
+              <button class="cal-btn">
+                <img src="../images/icons/calendar-right.svg" alt="next"/>
+              </button>
+            </div>
+          </div>
+          <div class="cal-grid">
+            <div class="cal-day-label">MO</div><div class="cal-day-label">TU</div><div class="cal-day-label">WE</div>
+            <div class="cal-day-label">TH</div><div class="cal-day-label">FR</div><div class="cal-day-label">SA</div><div class="cal-day-label">SU</div>
+            <div class="cal-day">10</div><div class="cal-day">11</div><div class="cal-day today">12</div>
+            <div class="cal-day">13</div><div class="cal-day">14</div><div class="cal-day">15</div><div class="cal-day">16</div>
+            <div class="cal-day">17</div><div class="cal-day">18</div><div class="cal-day">19</div>
+            <div class="cal-day">20</div><div class="cal-day">21</div><div class="cal-day">22</div><div class="cal-day">23</div>
+          </div>
+
+          <div class="hours-title">Available Hours</div>
+          <div class="hours-legend">
+            <span class="legend-label"><span class="legend-dot na"></span> Not Available</span>
+            <span class="legend-label"><span class="legend-dot av"></span> Available</span>
+          </div>
+          <div class="time-grid">
+            <div class="time-slot na">09:00 AM</div>
+            <div class="time-slot available selected">10:30 AM</div>
+            <div class="time-slot na">11:00 AM</div>
+            <div class="time-slot available">01:30 PM</div>
+            <div class="time-slot available">02:00 PM</div>
+            <div class="time-slot available">04:30 PM</div>
+          </div>
+
+          <button class="btn-book" id="btnBook">
+            <img src="../images/icons/book-white.svg" alt="" class="btn-icon"/>
+            Book An Appointment
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- History strip -->
+    <div class="history-section">
+      <div class="history-header">
+        <div class="history-title">Recent Appointment History</div>
+        <a href="#" class="view-all" id="btnViewAll">View All Records</a>
+      </div>
+      <div class="history-card">
+  <div style="display:flex; align-items:center; gap:14px;">  <!-- ← wrap these two -->
+    <div class="history-icon">
+      <img src="../images/icons/syringe.svg" alt="vaccination"/>
+    </div>
+    <div class="history-info">
+      <div class="history-name">Rabies Vaccination</div>
+      <div class="history-meta">Luna &bull; Sep 12, 2023</div>
+    </div>
+  </div>                                                      <!-- ← close wrapper -->
+  <button class="btn-rate">Rate &amp; Review</button>
+</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     PAGE 2 — BOOKING STEPS
+══════════════════════════════════════════ -->
+<div id="pageBooking" class="page">
+  <div class="booking-page">
+
+    <!-- Split booking header -->
+    <div class="booking-top">
+      <div class="booking-top-left">
+        <a class="back-pill" id="btnBackToVet">
+          &#8592; Back to selection
+        </a>
+        <div class="vet-booked-preview">
+          <div class="vet-booked-initials">KI</div>
+          <div>
+            <div class="vet-booked-name">Dr. Kizea Bien Igaya</div>
+            <div class="vet-booked-role">Senior Surgeon</div>
+          </div>
+        </div>
+      </div>
+      <div class="booking-top-right">
+        <div class="booking-eyebrow" id="bookingEyebrow">Step 1 of 4</div>
+        <div class="booking-title">Book an Appointment</div>
+        <div class="booking-sub">Fill in your details to confirm your visit</div>
+        <div class="header-stepper">
+          <div class="hstep-col">
+            <div class="hstep-dot active" id="sc1">1</div>
+            <div class="hstep-label active" id="sl1">Owner</div>
+          </div>
+          <div class="hstep-bar" id="line1"></div>
+          <div class="hstep-col">
+            <div class="hstep-dot todo" id="sc2">2</div>
+            <div class="hstep-label" id="sl2">Pet</div>
+          </div>
+          <div class="hstep-bar" id="line2"></div>
+          <div class="hstep-col">
+            <div class="hstep-dot todo" id="sc3">3</div>
+            <div class="hstep-label" id="sl3">Appointment</div>
+          </div>
+          <div class="hstep-bar" id="line3"></div>
+          <div class="hstep-col">
+            <div class="hstep-dot todo" id="sc4">4</div>
+            <div class="hstep-label" id="sl4">Review</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form steps -->
+    <div class="booking-form-wrap">
+    <!-- Step 1 -->
+    <div id="step1" class="step-content">
+      <div class="form-card">
+        <div class="form-card-title">Owner Information</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" class="form-input" placeholder="Enter your full name" id="ownerName"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact Number *</label>
+            <input type="tel" class="form-input" placeholder="Enter your contact number" id="ownerContact"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email Address *</label>
+            <input type="email" class="form-input" placeholder="Enter your email address" id="ownerEmail"/>
+            <span class="field-hint">For appointment confirmation</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Barangay *</label>
+            <div class="select-wrap">
+              <select class="form-select" id="ownerBarangay">
+                <option value="">Select your barangay</option>
+                <option>Bagong Nayon</option><option>Burol</option><option>Calasag</option>
+                <option>Camalig</option><option>Canalate</option><option>Caniogan</option>
+                <option>Entablado</option><option>Lote</option><option>Maasim</option>
+                <option>Pagala</option><option>Paitan</option><option>Poblacion</option>
+                <option>Sabang</option><option>San Jose</option><option>San Roque</option>
+                <option>Sta. Barbara</option><option>Subic</option><option>Tangos</option>
+                <option>Tibag</option><option>Tilapayong</option>
+              </select>
+              <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-icon"/>
+            </div>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Complete Address *</label>
+            <input type="text" class="form-input" placeholder="House No., Street, Purok / Subdivision" id="ownerAddress"/>
+          </div>
+        </div>
+        <div class="step-nav">
+          <div></div>
+          <button class="btn-next-step" id="s1Next">
+            Pet Information
+            <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-icon-sm"/>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="step2" class="step-content" style="display:none;">
+      <div class="form-card">
+        <div class="form-card-title">Pet Information</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Pet Name *</label>
+            <input type="text" class="form-input" placeholder="e.g. Depa" id="petName"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pet Type *</label>
+            <div class="select-wrap">
+              <select class="form-select" id="petType">
+                <option>Dog</option><option>Cat</option><option>Bird</option><option>Other</option>
+              </select>
+              <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-icon"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Breed *</label>
+            <input type="text" class="form-input" placeholder="e.g. Golden Retriever" id="petBreed"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Age *</label>
+            <input type="text" class="form-input" placeholder="e.g. 2 years" id="petAge"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sex *</label>
+            <div class="select-wrap">
+              <select class="form-select" id="petSex">
+                <option>Male</option><option>Female</option>
+              </select>
+              <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-icon"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Last Vaccination Date *</label>
+            <input type="date" class="form-input" id="petVaccDate"/>
+          </div>
+        </div>
+        <div class="step-nav">
+          <button class="btn-back-step" id="s2Back">
+            <img src="../images/icons/icon-left-arrow.svg" alt="" class="btn-icon-sm"/>
+            Owner Info
+          </button>
+          <button class="btn-next-step" id="s2Next">
+            Appointment Info
+            <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-icon-sm"/>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="step3" class="step-content" style="display:none;">
+      <div class="form-card">
+        <div class="form-card-title">Appointment Info</div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label">Type of Visit *</label>
+            <div class="select-wrap">
+              <select class="form-select" id="visitType">
+                <option>Consultation</option><option>Vaccination</option>
+                <option>Surgery</option><option>Grooming</option><option>Check-up</option>
+              </select>
+              <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-icon"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Preferred Date *</label>
+            <input type="date" class="form-input" id="apptDate"/>
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label">Select Time Slot *</label>
+            <div class="slot-grid">
+              <button class="slot-btn" data-slot="8:00 AM">8:00 AM</button>
+              <button class="slot-btn" data-slot="9:00 AM">9:00 AM</button>
+              <button class="slot-btn" data-slot="10:00 AM">10:00 AM</button>
+              <button class="slot-btn" data-slot="11:00 AM">11:00 AM</button>
+              <button class="slot-btn" data-slot="1:00 PM">1:00 PM</button>
+              <button class="slot-btn selected" data-slot="2:00 PM">2:00 PM</button>
+              <button class="slot-btn" data-slot="3:00 PM">3:00 PM</button>
+              <button class="slot-btn" data-slot="4:00 PM">4:00 PM</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Additional Details *</label>
+            <textarea class="form-textarea" placeholder="Describe your pet’s condition or reason for visit" id="apptNotes"></textarea>
+          </div>
+        </div>
+        <div class="step-nav">
+          <button class="btn-back-step" id="s3Back">
+            <img src="../images/icons/icon-left-arrow.svg" alt="" class="btn-icon-sm"/>
+            Pet Info
+          </button>
+          <button class="btn-next-step" id="s3Next">
+            Review Info
+            <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-icon-sm"/>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div id="step4" class="step-content" style="display:none;">
+      <div class="form-card wide">
+        <div class="form-card-title">Review &amp; Confirm</div>
+        <p class="review-intro">Please review all details carefully. You will receive a confirmation via SMS/Email once your appointment is approved by the clinic.</p>
+
+        <div class="review-section-label">OWNER INFO</div>
+        <div class="review-block">
+          <div class="review-row"><span class="review-key">Full Name:</span><span class="review-val" id="rv-name"></span></div>
+          <div class="review-row"><span class="review-key">Contact:</span><span class="review-val" id="rv-contact"></span></div>
+          <div class="review-row"><span class="review-key">Barangay:</span><span class="review-val" id="rv-barangay"></span></div>
+        </div>
+
+        <div class="review-section-label">PET INFO</div>
+        <div class="review-block">
+          <div class="review-row"><span class="review-key">Pet Name:</span><span class="review-val" id="rv-petname"></span></div>
+          <div class="review-row"><span class="review-key">Pet Type:</span><span class="review-val" id="rv-pettype"></span></div>
+          <div class="review-row"><span class="review-key">Age / Sex:</span><span class="review-val" id="rv-ageSex"></span></div>
+        </div>
+
+        <div class="review-section-label">APPOINTMENT INFO</div>
+        <div class="review-block">
+          <div class="review-row"><span class="review-key">Visit Type:</span><span class="review-val" id="rv-visitType"></span></div>
+          <div class="review-row"><span class="review-key">Date:</span><span class="review-val" id="rv-date"></span></div>
+          <div class="review-row"><span class="review-key">Time:</span><span class="review-val" id="rv-time"></span></div>
+        </div>
+
+        <div class="step-nav">
+          <button class="btn-back-step" id="s4Back">
+            <img src="../images/icons/book-edit.svg" alt="" class="btn-icon-sm"/>
+            Edit Appointment
+          </button>
+          <button class="btn-next-step green" id="s4Confirm">Confirm Booking</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Success -->
+    <div id="step5" class="step-content" style="display:none;">
+      <div class="success-card">
+        <div class="success-icon">
+          <img src="../images/icons/icon-success.png" alt="booked"/>
+        </div>
+        <div class="success-title">Appointment Booked!</div>
+        <div class="success-desc">Your appointment request has been submitted and is pending clinic approval. You'll be notified via SMS/Email once confirmed.</div>
+        <div class="success-ref">
+          <span class="ref-label">Reference No.</span>
+          <span class="ref-val">#BB-2025-12</span>
+        </div>
+      </div>
+      <div class="success-btns">
+        <button class="btn-back-step" id="btnBackHome">
+          <img src="../images/icons/icon-left-arrow.svg" alt="" class="btn-icon-sm"/>
+          Back to Home
+        </button>
+        <button class="btn-next-step" id="btnViewHistory">
+          View History
+          <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-icon-sm"/>
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     PAGE 3 — APPOINTMENT HISTORY
+══════════════════════════════════════════ -->
+<div id="pageHistory" class="page">
+
+  <div class="hero-wrap">
+    <div class="hero hist-hero">
+      <div class="hero-left">
+        <span class="hero-tag">CLINIC SUMMARY</span>
+        <h1>Complete Care History</h1>
+        <p>Review past visits, medical summaries, and help us improve with your feedback.</p>
+      </div>
+      <div class="hist-hero-art">
+        <img src="../images/icons/icon-history-lg.svg" alt="" class="hist-hero-img"/>
+      </div>
+    </div>
+  </div>
+
+  <div class="hist-body">
+    <div class="hist-layout">
+
+      <!-- Main: Appointment list -->
+      <div class="hist-main">
+        <div class="past-header">
+          <div class="past-title">Past Appointments</div>
+          <div class="past-filters">
+            <button class="filter-pill active">All Pets</button>
+            <button class="filter-pill">Last 6 Months</button>
+          </div>
+        </div>
+
+        <!-- EMPTY STATE — shown by default for new users
+             TODO backend: hide when api.getAppointments() returns records -->
+        <div class="empty-state" id="histEmpty">
+          <div class="empty-icon-wrap">
+            <img src="../images/icons/icon-calendar-empty.svg" alt="no records" class="empty-icon-img"/>
+          </div>
+          <div class="empty-title">No Records Yet</div>
+          <div class="empty-desc">You haven't made any appointments yet.<br/>Book your first visit with one of our veterinarians to get started.</div>
+          <button class="btn-next-step" id="btnBookFromHistory">
+            <img src="../images/icons/icon-calendar.svg" alt="" class="btn-icon-sm"/>
+            Book an Appointment
+          </button>
+        </div>
+
+        <!-- APPOINTMENT ROWS — hidden by default, shown when records exist -->
+        <div class="appt-list" id="histList" style="display:none;">
+
+          <div class="appt-row appt-pending">
+            <div class="appt-col">
+              <div class="appt-col-label">PET NAME</div>
+              <div class="appt-pet-name">Coco</div>
+              <div class="appt-pet-meta">Beagle &bull; 4 yrs</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">SERVICE</div>
+              <div class="appt-service-name">Vaccination</div>
+              <div class="appt-doctor">Dr. Kizea Bien Igaya</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">DATE</div>
+              <div class="appt-date-val">Oct 12, 2023</div>
+              <div class="appt-time-val">09:30 AM</div>
+            </div>
+            <div class="appt-actions">
+              <span class="status-badge s-pending">
+                <span class="status-dot"></span>Pending
+              </span>
+            </div>
+          </div>
+
+          <div class="appt-row appt-completed">
+            <div class="appt-col">
+              <div class="appt-col-label">PET NAME</div>
+              <div class="appt-pet-name">Buddy</div>
+              <div class="appt-pet-meta">Beagle &bull; 4 yrs</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">SERVICE</div>
+              <div class="appt-service-name">Annual Checkup</div>
+              <div class="appt-doctor">Dr. Kizea Bien Igaya</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">DATE</div>
+              <div class="appt-date-val">Oct 12, 2023</div>
+              <div class="appt-time-val">09:30 AM</div>
+            </div>
+            <div class="appt-actions">
+              <span class="status-badge s-completed">
+                <span class="status-dot"></span>Completed
+              </span>
+              <button class="btn-rate-review">Rate &amp; Review</button>
+            </div>
+          </div>
+
+          <div class="appt-row appt-completed">
+            <div class="appt-col">
+              <div class="appt-col-label">PET NAME</div>
+              <div class="appt-pet-name">Luna</div>
+              <div class="appt-pet-meta">Siamese &bull; 2 yrs</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">SERVICE</div>
+              <div class="appt-service-name">Vaccination</div>
+              <div class="appt-doctor">Dr. Kizea Bien Igaya</div>
+            </div>
+            <div class="appt-col">
+              <div class="appt-col-label">DATE</div>
+              <div class="appt-date-val">Sep 28, 2023</div>
+              <div class="appt-time-val">02:15 PM</div>
+            </div>
+            <div class="appt-actions">
+              <span class="status-badge s-completed">
+                <span class="status-dot"></span>Completed
+              </span>
+              <span class="rated-badge">
+                <img src="../images/icons/icon-star.svg" alt="" class="star-xs"/>
+                4.8 Rated
+              </span>
+            </div>
+          </div>
+
+        </div><!-- /histList -->
+      </div>
+
+      <!-- Sidebar: Health stats -->
+      <div class="hist-sidebar">
+        <div class="health-card">
+          <div class="health-label">HEALTHY STATUS</div>
+          <div class="health-num">12</div>
+          <div class="health-desc">Completed Visits</div>
+          <div class="health-ontime">
+            <img src="../images/icons/icon-check-circle.svg" alt="" class="ontime-icon"/>
+            100% On-time
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="hist-back-wrap">
+      <button class="btn-back-step" id="btnHistBack">
+        <img src="../images/icons/icon-arrow-left.svg" alt="" class="btn-icon-sm"/>
+        Back
+      </button>
+    </div>
+  </div>
+
+</div>
+
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <h3>Baliwag Veterinary Services</h3>
+        <p>Leading the future of veterinary medicine through precision technology and heartfelt dedication.</p>
+      </div>
+      <div class="footer-links">
+        <h4>QUICK LINKS</h4>
+        <ul>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Emergency Care</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>CONTACT</h4>
+        <p>AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026</p>
+        <p class="footer-email">BaliwagtVC@gmail.com</p>
+        <p class="footer-phone">09959210640</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Baliwag Veterinary Services. Precision in Medicine, Vitality in Life</span>
+      <div class="footer-socials">
+        <a href="#" class="social-btn">f</a>
+        <a href="#" class="social-btn">in</a>
+      </div>
+    </div>
+  </footer>
+  <!-- ══ SCRIPTS — auth.js MUST be first ══ -->
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    /* Route guard — redirects wrong role to their home */
+    guardPage([ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/book-appointment.js"></script>
+</body>
+</html>

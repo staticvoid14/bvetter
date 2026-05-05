@@ -1,0 +1,553 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+	--mv-bg: #eff2f8;
+	--mv-surface: #ffffff;
+	--mv-navy: #0c3566;
+	--mv-navy-2: #062d5f;
+	--mv-blue: #2f9df0;
+	--mv-blue-deep: #1622d7;
+	--mv-green: #108f2a;
+	--mv-muted: #6f8098;
+	--mv-line: #d5deea;
+	--mv-warning: #d4bc53;
+	--mv-danger: #e03f3f;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	font-family: 'Manrope', sans-serif;
+	background: linear-gradient(180deg, #f9fbff 0%, var(--mv-bg) 100%);
+	color: var(--mv-navy);
+}
+
+.page-shell {
+	min-height: 100vh;
+}
+
+.mass-vacc-main {
+	margin-left: calc(var(--sidebar-width-collapsed) + var(--sidebar-main-gap));
+	width: calc(100% - (var(--sidebar-width-collapsed) + var(--sidebar-main-gap) + var(--shell-gap)));
+	padding: 24px 26px 40px;
+	transition: all 0.28s ease;
+}
+
+.panel {
+	display: none;
+}
+
+.panel.active-panel {
+	display: block;
+}
+
+.hero {
+	background: linear-gradient(120deg, #103d76 10%, #167a60 90%);
+	border-radius: 12px;
+	color: #e7f2ff;
+	padding: 22px 24px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 20px;
+}
+
+.hero h1 {
+	margin: 0;
+	font-size: 34px;
+	font-weight: 800;
+}
+
+.hero p {
+	margin: 6px 0 0;
+	color: #cae2ff;
+	font-size: 13px;
+}
+
+.btn {
+	border: 0;
+	border-radius: 10px;
+	padding: 12px 18px;
+	font-weight: 700;
+	font-size: 15px;
+	cursor: pointer;
+}
+
+.btn-primary {
+	background: #003a88;
+	color: #fff;
+}
+
+.btn-success {
+	background: var(--mv-green);
+	color: #fff;
+}
+
+.btn-outline {
+	background: transparent;
+	color: #76809a;
+	border: 1px solid #8c96ac;
+}
+
+.metric-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 16px;
+	margin-bottom: 18px;
+}
+
+.metric-card {
+	background: transparent;
+	padding: 4px;
+}
+
+.metric-card h2 {
+	margin: 0;
+	color: rgba(111, 137, 174, 0.505);
+	font-size: 16px;
+    font-weight: normal;
+	
+}
+
+.metric-value {
+	margin: 2px 0;
+	font-size: 32px;
+	font-weight: 800;
+	color: var(--mv-navy);
+	line-height: 1;
+}
+
+.metric-note {
+	color: var(--mv-muted);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.metric-note.success,
+.success-note {
+	color: #159f2f;
+	font-weight: 700;
+}
+
+.metric-value.danger {
+	color: var(--mv-danger);
+}
+
+.chart-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 16px;
+	margin-bottom: 16px;
+}
+
+.card {
+	background: var(--mv-surface);
+	border-radius: 10px;
+	border: 1px solid #e4ebf5;
+	padding: 16px;
+}
+
+.chart-card {
+	min-height: 250px;
+}
+
+#vaccinatedPerBarangayChart {
+	height: 255px !important;
+}
+
+#predictedAnimalsChart {
+	height: 355px !important;
+}
+
+#vaccineTypesChart {
+	height: 220px !important;
+}
+
+#vaccinesNeededChart {
+	height: 245px !important;
+}
+
+.span-2 {
+	grid-column: span 2;
+}
+
+.card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 10px;
+}
+
+.card-head h3 {
+	margin: 0;
+	font-size: 24px;
+	font-weight: normal;
+	color: rgba(127, 152, 188, 0.752);
+}
+
+.card-head small {
+	color: #7b89a0;
+}
+
+select,
+input {
+	width: 100%;
+	border: 1px solid #a6b6cb;
+	border-radius: 8px;
+	padding: 10px 12px;
+	font: inherit;
+	color: var(--mv-navy);
+	background: #fff;
+}
+
+.dropdown {
+	max-width: 171px;
+    border: none;
+}
+
+.table-card {
+	margin-top: 18px;
+}
+
+.table-wrap {
+	overflow-x: auto;
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	min-width: 680px;
+}
+
+th,
+td {
+	text-align: left;
+	padding: 13px 12px;
+	border-bottom: 1px solid #e8eef8;
+}
+
+th {
+	color: #6f81a2;
+	font-size: 13px;
+	font-weight: 700;
+}
+
+td {
+	font-size: 14px;
+	color: #1f3964;
+	font-weight: 600;
+}
+
+tr[data-event-id] {
+	cursor: pointer;
+	transition: background 0.2s ease;
+}
+
+tr[data-event-id]:hover {
+	background: #f4f8fe;
+}
+
+.status-pill {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 9px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.status-pill.completed {
+	color: #1a8d34;
+	background: #d9f3e0;
+}
+
+.status-pill.pending {
+	color: #8d7512;
+	background: #f3e9be;
+}
+
+.back-link {
+	border: 0;
+	background: transparent;
+	color: #39679e;
+	font-size: 18px;
+	cursor: pointer;
+	margin-bottom: 22px;
+}
+
+.detail-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 18px;
+}
+
+.detail-header h2 {
+	margin: 0;
+	font-size: 44px;
+}
+.card-head h2{
+    margin: 0;
+    font-size: 16px;
+    font-weight: normal;
+    color: rgba(127, 152, 188, 0.752);
+}
+.detail-header p {
+	margin: 6px 0 0;
+	color: #5f7292;
+}
+
+.pill {
+	border-radius: 999px;
+	padding: 8px 12px;
+	font-weight: 700;
+	font-size: 13px;
+}
+
+.pill.completed {
+	background: #d5f1dc;
+	color: #178d2e;
+}
+
+.pill.pending {
+	background: #f3e5ad;
+	color: #9c8121;
+}
+
+.detail-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 16px;
+	margin-bottom: 16px;
+}
+
+.info-card h3,
+.report-card h3,
+.comparison-card h3 {
+	margin: 0 0 12px;
+	font-size: 27px;
+}
+
+.info-list {
+	margin: 0;
+}
+
+.info-list div {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--mv-line);
+}
+
+.info-list dt {
+	color: #42648e;
+}
+
+.info-list dd {
+	margin: 0;
+	font-weight: 800;
+}
+
+#post-event-form {
+	display: grid;
+	gap: 10px;
+}
+
+.switch-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: #4a668e;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.switch-row input {
+	width: 18px;
+	height: 18px;
+	accent-color: #3f9cf2;
+}
+
+.species-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.hidden {
+	display: none;
+}
+
+.comparison-card {
+	padding-bottom: 18px;
+}
+
+.progress-row {
+	display: grid;
+	grid-template-columns: 130px 1fr 42px;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 12px;
+}
+
+.progress-row span {
+	color: #4b6489;
+	font-weight: 600;
+}
+
+.line {
+	height: 11px;
+	border-radius: 999px;
+	background: #deebfa;
+	overflow: hidden;
+}
+
+.fill {
+	height: 100%;
+	border-radius: inherit;
+}
+
+.fill-blue {
+	background: var(--mv-blue);
+}
+
+.fill-slate {
+	background: #47697a;
+}
+
+.fill-green {
+	background: #0d8e27;
+}
+
+.modal {
+	position: fixed;
+	inset: 0;
+	background: rgba(10, 21, 39, 0.45);
+	display: grid;
+	place-items: center;
+	z-index: 90;
+	padding: 16px;
+}
+
+.modal.hidden {
+	display: none;
+}
+
+.modal-card {
+	width: min(560px, 100%);
+	background: #fff;
+	border-radius: 12px;
+	padding: 22px;
+	position: relative;
+}
+
+.modal-close {
+	position: absolute;
+	top: 12px;
+	right: 14px;
+	border: 0;
+	background: transparent;
+	font-size: 29px;
+	color: #95a0b3;
+	cursor: pointer;
+}
+
+.modal-card h2 {
+	margin: 0 0 14px;
+	font-size: 32px;
+}
+
+#create-event-form {
+	display: grid;
+	gap: 12px;
+}
+
+.modal-actions {
+	margin-top: 8px;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+@media (max-width: 1024px) {
+	.mass-vacc-main {
+		padding: 16px;
+	}
+
+	.metric-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.chart-grid,
+	.detail-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.span-2 {
+		grid-column: auto;
+	}
+
+	.detail-header h2 {
+		font-size: 33px;
+	}
+
+	.card-head h3,
+	.info-card h3,
+	.report-card h3,
+	.comparison-card h3,
+	.metric-card h2,
+	.modal-card h2 {
+		font-size: 22px;
+        font-weight: normal;
+	}
+
+	.metric-value {
+		font-size: 36px;
+	}
+}
+
+@media (max-width: 768px) {
+	.mass-vacc-main,
+	.sidebar.expanded ~ .mass-vacc-main {
+		margin-left: 0;
+		width: 100%;
+		padding-top: 12px;
+	}
+
+	#vaccinatedPerBarangayChart,
+	#predictedAnimalsChart,
+	#vaccineTypesChart,
+	#vaccinesNeededChart {
+		height: 230px !important;
+	}
+
+	.hero {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.metric-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.species-grid,
+	.modal-actions {
+		grid-template-columns: 1fr;
+	}
+
+	.progress-row {
+		grid-template-columns: 1fr;
+		gap: 6px;
+	}
+
+	.progress-row strong {
+		justify-self: start;
+	}
+}

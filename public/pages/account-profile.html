@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<!--
+  Page:    account-profile.html
+  Feature: User account profile / dashboard
+  CSS:     variables.css → components.css → account-profile.css
+  JS:      nav.js → api.js → account-profile.js
+
+  TODO backend:
+  - Replace hardcoded "Mark Depa" with api.getProfile().name
+  - Replace stat numbers with api.getProfile() data
+  - Replace activity list with api.getMyActivity()
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Account Profile</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Shared components -->
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/account-profile.css"/>
+</head>
+<body>
+
+<!-- ── NAVBAR ──────────────────────────────── -->
+<nav class="navbar">
+  <div class="nav-left">
+    <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+    <ul class="nav-links">
+      <li><a href="landing.html">Home</a></li>
+      <li><a href="book-appointment.html">Book An Appointment</a></li>
+      <li><a href="lost-found.html">Lost And Found</a></li>
+    </ul>
+  </div>
+  <div class="nav-right nav-right-auth">
+    <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+      <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+      <span class="nav-notif-dot"></span>
+    </button>
+    <div class="nav-user-pill" onclick="toggleUserMenu()">
+      <div class="nav-user-info">
+        <span class="nav-user-name">Mark Depa</span>
+        <span class="nav-user-role">Pet Owner</span>
+      </div>
+      <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+    </div>
+    <div class="nav-user-dropdown" id="userDropdown">
+      <a href="account-profile.html" class="dropdown-item active-item">
+        <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+      </a>
+      <a href="account-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+      </a>
+      <a href="notification-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+        <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+<main class="page-main">
+
+  <div class="hero-wrapper">
+
+    <!-- ── HERO BANNER ──────────────────────── -->
+    <div class="profile-hero">
+      <div class="profile-hero-inner">
+        <div class="profile-hero-left">
+          <img src="../images/img/account-avatar.png" alt="User" class="hero-avatar"/>
+          <div class="hero-info">
+            <h1 class="hero-name">Mark Depa</h1>
+            <p class="hero-sub">Elite Pet Owner since 2021.</p>
+            <span class="verified-badge">
+              <img src="../images/icons/icon-check-circle.svg" alt="" class="verified-icon"/>
+              VERIFIED IDENTITY
+            </span>
+          </div>
+        </div>
+        <button class="btn-edit-profile" onclick="window.location.href='account-settings.html'">Edit Profile</button>
+      </div>
+    </div>
+
+    <!-- ── PAGE BODY ─────────────────────────── -->
+    <div class="page-body">
+
+      <!-- ── STATS ROW ──────────────────────── -->
+      <div class="stats-row">
+        <div class="stat-item">
+          <div class="stat-accent red"></div>
+          <div class="stat-content">
+            <div class="stat-label">ACTIVE LOST REPORTS</div>
+            <div class="stat-value">02</div>
+          </div>
+          <div class="stat-icon-wrap red-bg">
+            <img src="../images/icons/profile-stats-reports.svg" alt="" class="stat-icon"/>
+          </div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <div class="stat-accent blue"></div>
+          <div class="stat-content">
+            <div class="stat-label">PENDING CLAIMS</div>
+            <div class="stat-value">01</div>
+          </div>
+          <div class="stat-icon-wrap blue-bg">
+            <img src="../images/icons/profile-stats-claims.svg" alt="" class="stat-icon"/>
+          </div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <div class="stat-accent green"></div>
+          <div class="stat-content">
+            <div class="stat-label">UPCOMING APPOINTMENTS</div>
+            <div class="stat-value">04</div>
+          </div>
+          <div class="stat-icon-wrap green-bg">
+            <img src="../images/icons/profile-stats-appointments.svg" alt="" class="stat-icon"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── MAIN CONTENT ───────────────────── -->
+      <div class="content-layout">
+
+        <!-- Left: Recent Activity -->
+        <div class="activity-col">
+         <div class="section-heading">
+          <div class="section-title">Recent Activity</div>
+        </div>
+
+          <div class="activity-list">
+
+            <!-- Activity Item: Approved -->
+            <div class="activity-card">
+              <div class="activity-card-top">
+                <div class="activity-left">
+                  <div class="activity-dot-wrap green-dot">
+                    <img src="../images/icons/profile-report-verification.svg" alt="" class="activity-dot-icon"/>
+                  </div>
+                  <div class="activity-meta">
+                    <div class="activity-title">Found Pet Verification</div>
+                    <div class="activity-ref">Report ID: #VP-9021</div>
+                  </div>
+                </div>
+                <span class="activity-badge badge-approved">APPROVED</span>
+              </div>
+              <div class="activity-body">
+                <p class="activity-desc">The claim for the Golden Retriever found in North Hills has been verified and matched.</p>
+                <span class="activity-time">2 HOURS AGO</span>
+              </div>
+            </div>
+
+            <!-- Activity Item: In Review -->
+            <div class="activity-card">
+              <div class="activity-card-top">
+                <div class="activity-left">
+                  <div class="activity-dot-wrap blue-dot">
+                    <img src="../images/icons/profile-report-submitted.svg" alt="" class="activity-dot-icon"/>
+                  </div>
+                  <div class="activity-meta">
+                    <div class="activity-title">Lost Pet Report Submitted</div>
+                    <div class="activity-ref">Report ID: #VP-9088</div>
+                  </div>
+                </div>
+                <span class="activity-badge badge-review">IN REVIEW</span>
+              </div>
+              <div class="activity-body">
+                <p class="activity-desc">Missing report for "Oliver" (Scottish Fold) is currently being processed by the regional team.</p>
+                <span class="activity-time">YESTERDAY, 14:30</span>
+              </div>
+            </div>
+
+            <!-- Activity Item: Completed -->
+            <div class="activity-card">
+              <div class="activity-card-top">
+                <div class="activity-left">
+                  <div class="activity-dot-wrap teal-dot">
+                    <img src="../images/icons/profile-appointment-completed.svg" alt="" class="activity-dot-icon"/>
+                  </div>
+                  <div class="activity-meta">
+                    <div class="activity-title">Appointment Completed</div>
+                    <div class="activity-ref">Booking: #BK-5521</div>
+                  </div>
+                </div>
+                <span class="activity-badge badge-completed">COMPLETED</span>
+              </div>
+              <div class="activity-body">
+                <p class="activity-desc">Annual vaccination check-up for Luna was successfully completed at Central Clinic.</p>
+                <span class="activity-time">MAY 12, 2024</span>
+              </div>
+            </div>
+
+          </div>
+
+          <button class="btn-view-all">View All Activity</button>
+        </div>
+
+        <!-- Right: Quick Actions -->
+        <div class="actions-col">
+          <div class="section-title mb-actions">Quick Actions</div>
+          <div class="quick-actions-list">
+
+            <div class="quick-action-card" onclick="window.location.href='lost-found.html'">
+              <div class="qa-icon-wrap red-bg">
+                <img src="../images/icons/qa-file.svg" alt="" class="qa-icon"/>
+              </div>
+              <div class="qa-text">
+                <div class="qa-title">File New Lost Report</div>
+                <div class="qa-desc">Alert local clinics immediately</div>
+              </div>
+              <img src="../images/icons/icon-chevron-right.svg" alt="" class="qa-arrow"/>
+            </div>
+
+            <div class="quick-action-card" onclick="window.location.href='book-appointment.html'">
+              <div class="qa-icon-wrap blue-bg">
+                <img src="../images/icons/qa-book.svg" alt="" class="qa-icon"/>
+              </div>
+              <div class="qa-text">
+                <div class="qa-title">Book Appointment</div>
+                <div class="qa-desc">Schedule checkups &amp; more</div>
+              </div>
+              <img src="../images/icons/icon-chevron-right.svg" alt="" class="qa-arrow"/>
+            </div>
+
+            <div class="quick-action-card" onclick="window.location.href='lost-found.html'">
+              <div class="qa-icon-wrap green-bg">
+                <img src="../images/icons/qa-search.svg" alt="" class="qa-icon"/>
+              </div>
+              <div class="qa-text">
+                <div class="qa-title">Search Found Pets</div>
+                <div class="qa-desc">Browse database of recovered pets</div>
+              </div>
+              <img src="../images/icons/icon-chevron-right.svg" alt="" class="qa-arrow"/>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /page-body -->
+
+  </div><!-- /hero-wrapper -->
+
+</main>
+  <!-- ══ SCRIPTS — auth.js MUST be first ══ -->
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    /* Route guard — redirects wrong role to their home */
+    guardPage([ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/account-profile.js"></script>
+</body>
+</html>

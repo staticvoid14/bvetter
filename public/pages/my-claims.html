@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<!--
+  Page:    my-claims.html
+  Feature: My Claims — table list + slide-in detail panel
+  CSS:     variables.css → components.css → lost-found.css → my-claims.css
+  JS:      nav.js → api.js → my-claims.js
+
+  FIX LOG:
+  - Hero/navbar no longer gets cut off when detail panel opens:
+    detail panel is position:fixed so it overlays, body scroll is locked,
+    navbar and hero stay in full view at the top.
+  - Detail panel header is sticky inside the panel's own scroll container.
+
+  TODO backend:
+  - Table rows: api.getClaims() to populate dynamically
+  - Filter: api.getClaims({ status }) on dropdown change
+  - "Mark as Resolved": api.resolveClaim(claimId)
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER — My Claims</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/lost-found.css"/>
+  <link rel="stylesheet" href="../css/my-claims.css"/>
+</head>
+<body>
+
+  <!-- ══════════ NAVBAR ══════════ -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+      <ul class="nav-links">
+        <li><a href="landing.html">Home</a></li>
+        <li><a href="book-appointment.html">Book An Appointment</a></li>
+        <li><a href="lost-found.html" class="active">Lost And Found</a></li>
+      </ul>
+    </div>
+    <div class="nav-right nav-right-auth">
+      <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+        <span class="nav-notif-dot"></span>
+      </button>
+      <div class="nav-user-pill" onclick="toggleUserMenu()">
+        <div class="nav-user-info">
+          <span class="nav-user-name">Sheena Ramos</span>
+          <span class="nav-user-role">Pet Owner</span>
+        </div>
+        <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+      </div>
+      <div class="nav-user-dropdown" id="userDropdown">
+        <a href="account-profile.html" class="dropdown-item">
+          <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+        </a>
+        <a href="account-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+        </a>
+        <a href="notification-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+        </a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+          <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════ HERO ══════════
+       Full-width hero — never cut off because the detail
+       panel is position:fixed and overlays, not pushes content.
+  ══════════ -->
+  <div class="mc-hero-wrap">
+    <section class="mc-hero">
+      <div class="mc-hero-left">
+        <span class="mc-hero-tag">MY CLAIMS</span>
+        <h1>Ownership Claims</h1>
+        <p>Track the status of every claim you've submitted. Once approved, you'll receive step-by-step instructions to safely coordinate the return of your pet.</p>
+      </div>
+      <div class="mc-hero-stats">
+        <div class="mc-hero-stat">
+          <span class="mc-hero-stat-num">2</span>
+          <span class="mc-hero-stat-label">Total Claims</span>
+        </div>
+        <div class="mc-hero-stat-divider"></div>
+        <div class="mc-hero-stat">
+          <span class="mc-hero-stat-num green">1</span>
+          <span class="mc-hero-stat-label">Approved</span>
+        </div>
+        <div class="mc-hero-stat-divider"></div>
+        <div class="mc-hero-stat">
+          <span class="mc-hero-stat-num yellow">1</span>
+          <span class="mc-hero-stat-label">Pending</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ STATS ROW ══════════ -->
+  <div class="lf-stats-wrap">
+    <section class="lf-stats">
+      <div class="stat-card white">
+        <span class="stat-label">Success Rate</span>
+        <span class="stat-big green">84%</span>
+        <span class="stat-desc">Pets reunited in the last 30 days thanks to the Vetra community.</span>
+      </div>
+      <div class="stat-card green-card">
+        <span class="stat-label">Reunited</span>
+        <span class="stat-big dark">142</span>
+        <img src="../images/icons/icon-heart.svg" alt="" class="stat-icon-img"/>
+      </div>
+      <div class="stat-card navy-card">
+        <span class="stat-label white-text">Active Alerts</span>
+        <span class="stat-big white-text">28</span>
+        <img src="../images/icons/icon-bell.svg" alt="" class="stat-icon-img"/>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ FILTER TABS ══════════ -->
+  <section class="lf-filters">
+    <div class="filter-tabs">
+      <button class="tab" onclick="window.location.href='lost-found.html'">All Reports</button>
+      <button class="tab" onclick="window.location.href='lost-found.html?filter=lost'">Lost</button>
+      <button class="tab" onclick="window.location.href='lost-found.html?filter=found'">Found</button>
+      <button class="tab" onclick="window.location.href='lost-found.html?tab=myreports'">My Reports</button>
+      <button class="tab active">My Claims</button>
+    </div>
+    <!-- Status filter -->
+    <div class="mc-filter-right">
+      <span class="mc-filter-label">Filter by Status</span>
+      <div class="mc-filter-select-wrap">
+        <select class="mc-filter-select" id="statusFilter" onchange="filterClaims(this.value)">
+          <option value="all">All Status</option>
+          <option value="approved">Approved</option>
+          <option value="pending">Pending</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="mc-sel-arrow">
+          <path d="M3 4.5l3 3 3-3" stroke="#424750" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ MY CLAIMS TABLE ══════════ -->
+  <section class="mc-section">
+    <div class="mc-header">
+      <h2 class="mc-title">My Claims</h2>
+      <p class="mc-sub">Manage and track your submitted pet ownership claims</p>
+    </div>
+
+    <div class="mc-table-wrap">
+      <div class="mc-table">
+
+        <div class="mc-table-header">
+          <span>PET</span>
+          <span>DATE FILED</span>
+          <span>UPLOADED BY</span>
+          <span>STATUS</span>
+          <span>ACTION</span>
+        </div>
+
+        <!-- Row 1 — Approved -->
+        <div class="mc-table-row" data-status="approved" data-claim="jefferson"
+             onclick="openClaimDetail('jefferson')">
+          <div class="mc-pet-cell">
+            <img src="../images/img/pet-3.jpg" alt="Jefferson" class="mc-pet-thumb"/>
+            <div class="mc-pet-info">
+              <span class="mc-pet-name">Jefferson</span>
+              <span class="mc-pet-breed">Golden Retriever</span>
+            </div>
+          </div>
+          <span class="mc-cell mc-date">October 12, 2026</span>
+          <span class="mc-cell">Veterinary Clinic</span>
+          <span class="mc-cell">
+            <span class="mc-status-badge approved">Approved</span>
+          </span>
+          <span class="mc-cell">
+            <button class="mc-action-btn approved"
+                    onclick="event.stopPropagation(); openClaimDetail('jefferson')">
+              View Claim Instructions
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 6h7M6.5 3.5L9 6l-2.5 2.5" stroke="currentColor" stroke-width="1.2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </span>
+        </div>
+
+        <!-- Row 2 — Pending -->
+        <div class="mc-table-row" data-status="pending" data-claim="charlie"
+             onclick="openClaimDetail('charlie')">
+          <div class="mc-pet-cell">
+            <img src="../images/img/pet-2.jpg" alt="Charlie" class="mc-pet-thumb"/>
+            <div class="mc-pet-info">
+              <span class="mc-pet-name">Charlie</span>
+              <span class="mc-pet-breed">Mixed Breed</span>
+            </div>
+          </div>
+          <span class="mc-cell mc-date">October 05, 2026</span>
+          <span class="mc-cell">Sheena Ramos</span>
+          <span class="mc-cell">
+            <span class="mc-status-badge pending">Pending</span>
+          </span>
+          <span class="mc-cell">
+            <button class="mc-action-btn pending"
+                    onclick="event.stopPropagation(); openClaimDetail('charlie')">
+              View Details
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 6h7M6.5 3.5L9 6l-2.5 2.5" stroke="currentColor" stroke-width="1.2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </span>
+        </div>
+
+      </div><!-- /mc-table -->
+
+      <div class="mc-table-footer">
+        <span class="mc-showing" id="claimsShowing">Showing 1 to 2 of 2 results</span>
+        <div class="mc-pagination">
+          <button class="mc-page-btn active">1</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════
+       DETAIL PANEL — JEFFERSON (Approved)
+       position:fixed — overlays page, does NOT push/cut hero
+  ══════════════════════════════════════════════ -->
+  <div class="mc-detail-overlay" id="detailJefferson"
+       onclick="closeDetailOutside(event,'detailJefferson')">
+    <div class="mc-detail-panel" role="dialog" aria-modal="true"
+         aria-label="Claim detail — Jefferson">
+
+      <!-- Sticky header inside panel scroll -->
+      <div class="mc-detail-panel-header">
+        <div>
+          <h2 class="mc-detail-panel-title">Claim Details</h2>
+          <span class="mc-detail-panel-sub">Case #LF-2024-0892 · Jefferson</span>
+        </div>
+        <button class="mc-detail-close" onclick="closeDetail('detailJefferson')"
+                aria-label="Close panel">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="#424750" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Scrollable body -->
+      <div class="mc-detail-body">
+
+        <!-- Approved banner -->
+        <div class="mc-approved-banner">
+          <div class="mc-approved-check">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M4 10l4 4 8-8" stroke="#005312" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="mc-approved-title">Claim Approved!</h3>
+            <p class="mc-approved-sub">Great news! The administrator has verified your claim. You can now coordinate with the uploader to bring your pet home.</p>
+          </div>
+        </div>
+
+        <div class="mc-detail-cols">
+
+          <!-- Left: Step-by-step instructions -->
+          <div class="mc-detail-left">
+            <div class="mc-instructions-header">
+              <span class="mc-instructions-label">Claim Instructions</span>
+              <span class="mc-case-id-badge">CASE #LF-2024-0892</span>
+            </div>
+
+            <div class="mc-steps">
+
+              <!-- Step 1 -->
+              <div class="mc-step">
+                <div class="mc-step-num">1</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">
+                    <a href="#" class="mc-step-link">Contact the uploader</a>
+                  </h4>
+                  <p class="mc-step-desc">Reach out to introduce yourself and coordinate the return process.</p>
+                  <!-- TODO backend: fill from api.getClaims() uploader contact -->
+                  <div class="mc-step-contact-box">
+                    <div class="mc-contact-row">
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                        <path d="M6.5 1a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 6.5 1zm0 3a1.25 1.25 0 1 1 0 2.5A1.25 1.25 0 0 1 6.5 4zm0 7c-1.55 0-2.93-.79-3.75-2 .02-.625 2.5-1.875 3.75-1.875 1.25 0 3.73 1.25 3.75 1.875-.82 1.21-2.2 2-3.75 2z" fill="#424750"/>
+                      </svg>
+                      <span class="mc-contact-label">UPLOADER</span>
+                      <span class="mc-contact-value">Baliwag Vet Clinic</span>
+                    </div>
+                    <div class="mc-contact-row">
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                        <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h.25c.41 0 .75.33.75.75v1.5c0 .41-.34.75-.75.75H3a.5.5 0 0 0-.5.5v.5c0 1.93 1.57 3.5 3.5 3.5h.5a.5.5 0 0 0 .5-.5v-.25c0-.41.34-.75.75-.75h1.5c.41 0 .75.34.75.75V9.5A1.5 1.5 0 0 1 9.5 11h-.025C5.13 11 2 7.87 2 4.525V3.5z" fill="#424750"/>
+                      </svg>
+                      <span class="mc-contact-label">PHONE</span>
+                      <span class="mc-contact-value phone-link">+1 (555) 012-3456</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mc-step-connector"></div>
+
+              <div class="mc-step">
+                <div class="mc-step-num pending-num">2</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">Verify pet identity</h4>
+                  <p class="mc-step-desc">Bring proof of ownership (vet records, photos, or ID) to ensure a safe handover.</p>
+                </div>
+              </div>
+
+              <div class="mc-step-connector"></div>
+
+              <div class="mc-step">
+                <div class="mc-step-num pending-num">3</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">Agree on meet-up</h4>
+                  <p class="mc-step-desc">Coordinate a safe, public location. We recommend your local vet clinic or a police station safe-zone.</p>
+                </div>
+              </div>
+
+              <div class="mc-step-connector"></div>
+
+              <div class="mc-step">
+                <div class="mc-step-num pending-num">4</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">Receive your pet</h4>
+                  <p class="mc-step-desc">Complete the exchange! Once you have your pet back, click resolve below to close the case.</p>
+                </div>
+              </div>
+
+            </div><!-- /mc-steps -->
+
+            <!-- TODO backend: api.resolveClaim(claimId) -->
+            <button class="mc-resolve-btn" onclick="handleResolved('jefferson')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8l4 4 6-6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Mark as Resolved
+            </button>
+          </div>
+
+          <!-- Right: Found pet card -->
+          <div class="mc-detail-right">
+            <div class="mc-found-pet-card">
+              <div class="mc-found-pet-img-wrap">
+                <img src="../images/img/pet-3.jpg" alt="Jefferson" class="mc-found-pet-img"/>
+                <span class="mc-found-pet-badge">FOUND PET</span>
+              </div>
+              <div class="mc-found-pet-details">
+                <h3 class="mc-found-pet-name">Golden Retriever</h3>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Found Date</span>
+                  <span class="mc-found-detail-value">Oct 12, 2023</span>
+                </div>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Location</span>
+                  <span class="mc-found-detail-value">Tangos, Baliwag</span>
+                </div>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Gender</span>
+                  <span class="mc-found-detail-value">Male</span>
+                </div>
+                <div class="mc-found-traits-label">Key Characteristics</div>
+                <div class="mc-found-traits">
+                  <span class="mc-trait-tag">Brown</span>
+                  <span class="mc-trait-tag">Large</span>
+                  <span class="mc-trait-tag">Microchipped</span>
+                </div>
+                <div class="mc-important-note">
+                  <div class="mc-note-header">
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <circle cx="6.5" cy="6.5" r="5.5" stroke="#856404" stroke-width="1.2"/>
+                      <path d="M6.5 6v3M6.5 4h.007" stroke="#856404" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                    <span>Important Note</span>
+                  </div>
+                  <p>For your safety, always meet in public locations. If the uploader asks for money before handover, please report it to our staff immediately.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /mc-detail-cols -->
+      </div><!-- /mc-detail-body -->
+    </div><!-- /mc-detail-panel -->
+  </div><!-- /#detailJefferson -->
+
+
+  <!-- ══════════════════════════════════════════════
+       DETAIL PANEL — CHARLIE (Pending)
+  ══════════════════════════════════════════════ -->
+  <div class="mc-detail-overlay" id="detailCharlie"
+       onclick="closeDetailOutside(event,'detailCharlie')">
+    <div class="mc-detail-panel" role="dialog" aria-modal="true"
+         aria-label="Claim detail — Charlie">
+
+      <div class="mc-detail-panel-header">
+        <div>
+          <h2 class="mc-detail-panel-title">Claim Details</h2>
+          <span class="mc-detail-panel-sub">Case #LF-2024-0901 · Charlie</span>
+        </div>
+        <button class="mc-detail-close" onclick="closeDetail('detailCharlie')"
+                aria-label="Close panel">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="#424750" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="mc-detail-body">
+
+        <!-- Pending banner -->
+        <div class="mc-pending-banner">
+          <div class="mc-pending-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="8" stroke="#856404" stroke-width="1.5"/>
+              <path d="M10 6v4l3 3" stroke="#856404" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="mc-pending-title">Claim Under Review</h3>
+            <p class="mc-pending-sub">Your claim is currently being reviewed by our admin team. You'll be notified once a decision is made — usually within 24 hours.</p>
+          </div>
+        </div>
+
+        <div class="mc-detail-cols">
+
+          <div class="mc-detail-left">
+            <div class="mc-instructions-header">
+              <span class="mc-instructions-label">What Happens Next</span>
+              <span class="mc-case-id-badge pending-badge">CASE #LF-2024-0901</span>
+            </div>
+
+            <div class="mc-steps">
+              <div class="mc-step">
+                <div class="mc-step-num active-num">1</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">
+                    Admin Review
+                    <span class="mc-in-progress-tag">In Progress</span>
+                  </h4>
+                  <p class="mc-step-desc">Our team is verifying the proof of ownership you submitted. This usually takes up to 24 hours.</p>
+                </div>
+              </div>
+              <div class="mc-step-connector"></div>
+              <div class="mc-step">
+                <div class="mc-step-num pending-num">2</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">Decision Notification</h4>
+                  <p class="mc-step-desc">You'll receive an in-app and email notification once your claim is approved or rejected.</p>
+                </div>
+              </div>
+              <div class="mc-step-connector"></div>
+              <div class="mc-step">
+                <div class="mc-step-num pending-num">3</div>
+                <div class="mc-step-content">
+                  <h4 class="mc-step-title">Coordinate Pickup</h4>
+                  <p class="mc-step-desc">If approved, you'll receive step-by-step instructions to safely coordinate the return of your pet.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pending info box -->
+            <div class="mc-pending-info-box">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="6" stroke="#856404" stroke-width="1.2"/>
+                <path d="M7 4.5v3M7 9h.007" stroke="#856404" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              <p>While your claim is under review, the found pet is being cared for. You'll be contacted as soon as a decision is made.</p>
+            </div>
+          </div>
+
+          <div class="mc-detail-right">
+            <div class="mc-found-pet-card">
+              <div class="mc-found-pet-img-wrap">
+                <img src="../images/img/pet-2.jpg" alt="Charlie" class="mc-found-pet-img"/>
+                <span class="mc-found-pet-badge">FOUND PET</span>
+              </div>
+              <div class="mc-found-pet-details">
+                <h3 class="mc-found-pet-name">Mixed Breed</h3>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Found Date</span>
+                  <span class="mc-found-detail-value">Oct 05, 2023</span>
+                </div>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Location</span>
+                  <span class="mc-found-detail-value">Poblacion, Baliwag</span>
+                </div>
+                <div class="mc-found-detail-row">
+                  <span class="mc-found-detail-label">Gender</span>
+                  <span class="mc-found-detail-value">Female</span>
+                </div>
+                <div class="mc-found-traits-label">Key Characteristics</div>
+                <div class="mc-found-traits">
+                  <span class="mc-trait-tag">Orange</span>
+                  <span class="mc-trait-tag">Medium</span>
+                  <span class="mc-trait-tag">Friendly</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div><!-- /#detailCharlie -->
+
+
+  <!-- ══════════ RESOLVED SUCCESS MODAL ══════════ -->
+  <div class="modal-overlay" id="resolvedModal"
+       onclick="closeModalOutside(event,'resolvedModal')">
+    <div class="modal-box success-modal-box">
+      <div class="success-icon-wrap green-glow">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <path d="M5 14l6 6L23 8" stroke="#005312" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 class="success-title">Case Resolved! 🎉</h2>
+      <p class="success-subtitle">So glad you and Jefferson are reunited! This case has been marked as resolved and closed.</p>
+      <button class="btn-success-primary" onclick="window.location.href='lost-found.html'">
+        Back to Lost &amp; Found
+      </button>
+      <button class="btn-success-secondary" onclick="closeModal('resolvedModal')">
+        Stay on My Claims
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════ FOOTER ══════════ -->
+  <footer class="footer">
+    <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <h3>Baliwag Veterinary Services</h3>
+        <p>Leading the future of veterinary medicine through precision technology and heartfelt dedication.</p>
+      </div>
+      <div class="footer-links">
+        <h4>QUICK LINKS</h4>
+        <ul>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Emergency Care</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>CONTACT</h4>
+        <p>AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026</p>
+        <p class="footer-email">BaliwagtVC@gmail.com</p>
+        <p class="footer-phone">09959210640</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Baliwag Veterinary Services. Precision in Medicine, Vitality in Life</span>
+      <div class="footer-socials">
+        <a href="#" class="social-btn">f</a>
+        <a href="#" class="social-btn">in</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    if (window.VBetterAuth && window.ROLES) guardPage([ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/my-claims.js"></script>
+</body>
+</html>

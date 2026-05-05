@@ -1,0 +1,624 @@
+/* =============================================
+   BVETTER — account-settings.css
+   Page: Account settings — profile edit, password, 2FA, deactivation.
+   Depends: variables.css (must load first in HTML)
+
+   Path from public/html/[page].html:
+     <link rel="stylesheet" href="../css/variables.css"/>
+     <link rel="stylesheet" href="../css/account-settings.css"/>
+
+   All colors use CSS custom properties from variables.css.
+   To change a color: edit variables.css only — not this file.
+   ============================================= */
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Manrope', sans-serif;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    min-height: 100vh;
+}
+
+
+/* ── PAGE ──────────────────────────────────── */
+.page-body {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 36px 40px 60px;
+}
+
+.page-title {
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--color-navy);
+    margin-bottom: 6px;
+}
+
+.page-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+    line-height: 1.5;
+}
+
+/* ── CARDS — green background as per Figma ── */
+.settings-card {
+    background: var(--color-green-pale);
+    /* light sage green matching Figma */
+    border-radius: 16px;
+    border: 1px solid var(--color-green-pale);
+    padding: 26px 28px;
+    margin-bottom: 16px;
+}
+
+/* ── PROFILE CARD ──────────────────────────── */
+.profile-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 22px;
+}
+
+.card-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 3px;
+}
+
+.card-desc {
+    font-size: 12px;
+    color: var(--text-body);
+}
+
+.btn-save {
+    padding: 10px 22px;
+    background: var(--color-green);
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.btn-save:hover {
+    background: var(--color-green);
+}
+
+.profile-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 28px;
+}
+
+.avatar-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.avatar-wrap {
+    width: 88px;
+    height: 88px;
+    position: relative;
+}
+
+.profile-avatar {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--color-green-pale);
+    border: 3px solid rgba(255, 255, 255, 0.7);
+    display: block;
+}
+
+.avatar-upload-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: 'Manrope', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-green-dark);
+    padding: 0;
+    transition: opacity 0.2s;
+}
+
+.avatar-upload-btn:hover {
+    opacity: 0.7;
+}
+
+.avatar-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.profile-fields {
+    flex: 1;
+}
+
+.fields-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.form-group.full {
+    grid-column: 1 / -1;
+}
+
+.form-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+
+.form-input {
+    padding: 10px 14px;
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: 'Manrope', sans-serif;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.75);
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.form-input:focus {
+    border-color: var(--color-green-dark);
+    background: #fff;
+}
+
+.form-input::placeholder {
+    color: var(--text-faint);
+}
+
+.phone-row {
+    display: flex;
+    gap: 8px;
+}
+
+.select-wrap {
+    position: relative;
+}
+
+.phone-code-wrap {
+    flex-shrink: 0;
+}
+
+.form-select {
+    width: 100%;
+    padding: 10px 28px 10px 12px;
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: 'Manrope', sans-serif;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.75);
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.form-select:focus {
+    border-color: var(--color-green-dark);
+}
+
+.phone-code {
+    width: 72px;
+}
+
+.phone-num {
+    flex: 1;
+}
+
+.sel-icon {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* ── SECURITY ROW ──────────────────────────── */
+.security-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 0;
+}
+
+.security-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.sec-icon-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+.sec-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+.lock-bg {
+    background: #D6E3FF;
+}
+
+.shield-bg {
+    background: var(--color-green-light);
+}
+
+.twofa-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0;
+}
+
+.twofa-top .sec-icon-wrap {
+    margin-bottom: 0;
+}
+
+.twofa-badge {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    padding: 3px 10px;
+    border-radius: 6px;
+}
+
+.twofa-badge.enabled {
+    background: var(--color-green-dark);
+    color: var(--color-green-light);
+}
+
+.twofa-badge.disabled {
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--text-muted);
+}
+
+.security-card .twofa-top {
+    margin-bottom: 16px;
+}
+
+.sec-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.sec-desc {
+    font-size: 12px;
+    color: var(--text-body);
+    line-height: 1.6;
+    margin-bottom: 18px;
+    flex: 1;
+}
+
+.btn-sec {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 16px;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1.5px solid rgba(255, 255, 255, 0.9);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: var(--color-green-dark);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: auto;
+}
+
+.btn-sec:hover {
+    background: #fff;
+    border-color: var(--color-green-dark);
+}
+
+.btn-arrow {
+    width: 13px;
+    height: 13px;
+    object-fit: contain;
+}
+
+/* ── DANGER ────────────────────────────────── */
+.danger-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
+.btn-deactivate {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: var(--color-red);
+    padding: 6px 0;
+    transition: opacity 0.2s;
+}
+
+.btn-deactivate:hover {
+    opacity: 0.7;
+}
+
+.danger-icon {
+    width: 13px;
+    height: 13px;
+    object-fit: contain;
+}
+
+/* ── MODALS ────────────────────────────────── */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal-overlay.open {
+    display: flex;
+}
+
+.modal-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 28px 24px;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+
+.modal-box.narrow {
+    max-width: 400px;
+    text-align: center;
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--text-primary);
+}
+
+.modal-title.center {
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.modal-close-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.close-icon {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    opacity: 0.5;
+}
+
+.modal-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.pw-wrap {
+    position: relative;
+}
+
+.pw-eye {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 2px;
+}
+
+.eye-icon {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    opacity: 0.45;
+}
+
+.pw-eye:hover .eye-icon {
+    opacity: 0.85;
+}
+
+.pw-wrap .form-input {
+    padding-right: 42px;
+    background: var(--bg-input);
+    border-color: var(--border-default);
+}
+
+.pw-wrap .form-input:focus {
+    border-color: var(--color-navy);
+    background: #fff;
+}
+
+.modal-footer-row {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.modal-footer-row.centered {
+    justify-content: center;
+}
+
+.modal-icon-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.danger-wrap .modal-icon-lg {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+
+.modal-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    margin-bottom: 20px;
+}
+
+.modal-desc.center {
+    text-align: center;
+}
+
+.btn-modal-cancel {
+    padding: 10px 22px;
+    background: #fff;
+    border: 1.5px solid var(--border-default);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: var(--text-body);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.btn-modal-cancel:hover {
+    border-color: var(--text-body);
+}
+
+.btn-modal-confirm {
+    padding: 10px 22px;
+    background: var(--color-navy);
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-modal-confirm:hover {
+    background: var(--color-navy-mid);
+}
+
+.btn-modal-danger {
+    padding: 10px 22px;
+    background: var(--color-red);
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-modal-danger:hover {
+    background: var(--color-red);
+}
+
+/* ── TOAST ─────────────────────────────────── */
+.toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: var(--text-primary);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+.toast.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.toast.success {
+    background: var(--color-green-dark);
+}
+
+.toast.error {
+    background: var(--color-red);
+}

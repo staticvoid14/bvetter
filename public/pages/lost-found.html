@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<!--
+  Page:    lost-found.html
+  Feature: Lost & Found hub — public grid + My Reports (with matches) + My Claims tab
+  CSS:     variables.css → components.css → lost-found.css
+  JS:      nav.js → api.js → lost-found.js
+
+  LOGIC:
+  - Public grid: anyone can browse & view details (read-only modal)
+  - My Reports tab: only shows user's own reports + matching suggestions per report
+  - Matching suggestions are ONLY visible inside a user's own report card (not public)
+  - My Claims: redirects to my-claims.html
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Lost &amp; Found Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/lost-found.css"/>
+</head>
+<body>
+
+  <!-- ══════════ NAVBAR ══════════ -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+      <ul class="nav-links">
+        <li><a href="landing.html">Home</a></li>
+        <li><a href="book-appointment.html">Book An Appointment</a></li>
+        <li><a href="lost-found.html" class="active">Lost And Found</a></li>
+      </ul>
+    </div>
+    <div class="nav-right nav-right-auth">
+      <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+        <span class="nav-notif-dot"></span>
+      </button>
+      <div class="nav-user-pill" onclick="toggleUserMenu()">
+        <div class="nav-user-info">
+          <span class="nav-user-name">Mark Depa</span>
+          <span class="nav-user-role">Pet Owner</span>
+        </div>
+        <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+      </div>
+      <div class="nav-user-dropdown" id="userDropdown">
+        <a href="account-profile.html" class="dropdown-item active-item">
+          <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+        </a>
+        <a href="account-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+        </a>
+        <a href="notification-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+        </a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+          <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══════════ HERO ══════════ -->
+  <div class="lf-hero-wrap">
+    <section class="lf-hero">
+      <div class="lf-hero-left">
+        <span class="lf-tag">COMMUNITY SUPPORT</span>
+        <h1>Lost &amp; Found Hub</h1>
+        <p>Helping our community reunite pets with their families. If you've lost a companion or found a pet in your neighborhood, let's work together to bring them home.</p>
+      </div>
+      <div class="lf-hero-right">
+        <button class="btn-report light" onclick="openModal('lost')">
+          <img src="../images/icons/report.svg" alt="" class="btn-report-icon-img"/>
+          Report a Lost Pet
+        </button>
+        <button class="btn-report dark" onclick="openModal('found')">
+          <img src="../images/icons/report.svg" alt="" class="btn-report-icon-img"/>
+          Report Found Pet
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ STATS ══════════ -->
+  <div class="lf-stats-wrap">
+    <section class="lf-stats">
+      <div class="stat-card white">
+        <span class="stat-label">Success Rate</span>
+        <span class="stat-big green">84%</span>
+        <span class="stat-desc">Pets reunited in the last 30 days thanks to the Vetra community.</span>
+      </div>
+      <div class="stat-card green-card">
+        <span class="stat-label">Reunited</span>
+        <span class="stat-big dark">142</span>
+        <img src="../images/icons/icon-heart.svg" alt="" class="stat-icon-img"/>
+      </div>
+      <div class="stat-card navy-card">
+        <span class="stat-label white-text">Active Alerts</span>
+        <span class="stat-big white-text">28</span>
+        <img src="../images/icons/icon-bell.svg" alt="" class="stat-icon-img"/>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ FILTER TABS ══════════ -->
+  <section class="lf-filters">
+    <div class="filter-tabs">
+      <button class="tab active" id="tab-all"      onclick="filterPets('all', this)">All Reports</button>
+      <button class="tab"        id="tab-lost"     onclick="filterPets('lost', this)">Lost</button>
+      <button class="tab"        id="tab-found"    onclick="filterPets('found', this)">Found</button>
+      <button class="tab"        id="tab-myreports" onclick="showMyReports(this)">My Reports</button>
+      <button class="tab plain"                    onclick="window.location.href='my-claims.html'">My Claims</button>
+    </div>
+    <div class="filter-panel-wrap">
+      <div class="filter-location" onclick="toggleFilterPanel()" id="filterBtn">
+        <img src="../images/icons/icon-filter.svg" alt="" class="filter-icon-img"/>
+        Filter
+        <img src="../images/icons/icon-chevron-down.svg" alt="" class="filter-chevron-img"/>
+      </div>
+      <div class="filter-dropdown" id="filterDropdown">
+        <p class="filter-dropdown-title">Filter Reports</p>
+        <div class="filter-section">
+          <span class="filter-section-label">Barangay</span>
+          <div class="filter-chips">
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tangos</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Poblacion</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Sabang</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Caniogan</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Pagala</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Subic</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tibag</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tilapayong</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Sta. Barbara</button>
+            <button class="filter-chip" onclick="toggleChip(this,'barangay')">San Jose</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="filter-section-label">Animal Type</span>
+          <div class="filter-chips">
+            <button class="filter-chip" onclick="toggleChip(this,'type')">Canine</button>
+            <button class="filter-chip" onclick="toggleChip(this,'type')">Feline</button>
+            <button class="filter-chip" onclick="toggleChip(this,'type')">Bird</button>
+            <button class="filter-chip" onclick="toggleChip(this,'type')">Other</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="filter-section-label">Date Reported</span>
+          <div class="filter-chips">
+            <button class="filter-chip" onclick="toggleChip(this,'date')">Today</button>
+            <button class="filter-chip" onclick="toggleChip(this,'date')">This Week</button>
+            <button class="filter-chip" onclick="toggleChip(this,'date')">This Month</button>
+          </div>
+        </div>
+        <div class="filter-dropdown-footer">
+          <button class="btn-filter-clear" onclick="clearFilters()">Clear All</button>
+          <button class="btn-filter-apply" onclick="applyFilters()">Apply Filters</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ PUBLIC PET GRID ══════════ -->
+  <section class="lf-grid-section" id="petGridSection">
+    <div class="lf-grid" id="petGrid">
+
+      <div class="pet-card" data-status="lost">
+        <div class="pet-card-img-wrap">
+          <span class="pet-badge lost">Lost</span>
+          <img src="../images/img/pet-1.jpg" alt="" class="pet-card-img"/>
+        </div>
+        <div class="pet-card-body">
+          <div class="pet-card-title-row">
+            <span class="pet-card-name">Unknown</span>
+            <span class="pet-breed-tag">Beagle</span>
+          </div>
+          <div class="pet-card-meta">
+            <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Tangos</span>
+            <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 24, 2024</span>
+          </div>
+          <button class="btn-view-details" onclick="viewDetails(0)">View Details</button>
+        </div>
+      </div>
+
+      <div class="pet-card" data-status="found">
+        <div class="pet-card-img-wrap">
+          <span class="pet-badge found">Found</span>
+          <img src="../images/img/pet-2.jpg" alt="" class="pet-card-img"/>
+        </div>
+        <div class="pet-card-body">
+          <div class="pet-card-title-row">
+            <span class="pet-card-name">Unknown</span>
+            <span class="pet-breed-tag tuxedo">Tuxedo Cat</span>
+          </div>
+          <div class="pet-card-meta">
+            <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Poblacion</span>
+            <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 25, 2024</span>
+          </div>
+          <button class="btn-view-details" onclick="viewDetails(1)">View Details</button>
+        </div>
+      </div>
+
+      <div class="pet-card" data-status="lost">
+        <div class="pet-card-img-wrap">
+          <span class="pet-badge lost">Lost</span>
+          <img src="../images/img/pet-3.jpg" alt="" class="pet-card-img"/>
+        </div>
+        <div class="pet-card-body">
+          <div class="pet-card-title-row">
+            <span class="pet-card-name">Unknown</span>
+            <span class="pet-breed-tag retriever">Retriever</span>
+          </div>
+          <div class="pet-card-meta">
+            <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Sabang</span>
+            <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 22, 2024</span>
+          </div>
+          <button class="btn-view-details" onclick="viewDetails(2)">View Details</button>
+        </div>
+      </div>
+
+      <div class="pet-card" data-status="found">
+        <div class="pet-card-img-wrap">
+          <span class="pet-badge found">Found</span>
+          <img src="../images/img/pet-4.png" alt="" class="pet-card-img"/>
+        </div>
+        <div class="pet-card-body">
+          <div class="pet-card-title-row">
+            <span class="pet-card-name">Unknown</span>
+            <span class="pet-breed-tag persian">Persian</span>
+          </div>
+          <div class="pet-card-meta">
+            <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Sta. Barbara</span>
+            <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 26, 2024</span>
+          </div>
+          <button class="btn-view-details" onclick="viewDetails(3)">View Details</button>
+        </div>
+      </div>
+
+    </div>
+    <div class="load-more-wrap">
+      <button class="btn-load-more">Load More</button>
+    </div>
+  </section>
+
+  <!-- ══════════ MY REPORTS SECTION ══════════
+       Only visible when user clicks "My Reports" tab.
+       Matching suggestions are ONLY shown here, inside the
+       user's own report — NOT in the public grid.
+  ══════════ -->
+  <section class="my-reports-section" id="myReportsSection" style="display:none;">
+    <div class="my-reports-header">
+      <h2>My Active Reports</h2>
+      <p>Monitor the real-time status of your lost and found cases. Our clinical matching engine is scanning the network for potential updates.</p>
+    </div>
+
+    <div class="my-reports-grid">
+
+      <!-- ── Active Report Card: Cooper (has matches) ── -->
+      <div class="active-report-card has-matches" id="reportCard-cooper">
+        <div class="active-report-img-wrap">
+          <span class="pet-badge lost">Lost</span>
+          <img src="../images/img/pet-1.jpg" alt="" class="active-report-img"/>
+        </div>
+        <div class="active-report-body">
+          <h3 class="active-report-name">Cooper</h3>
+          <span class="active-report-location">
+            <img src="../images/icons/icon-location.svg" alt="" class="meta-icon-sm"/> Last seen in Tangos
+          </span>
+          <div class="active-report-status-row">
+            <span class="status-label">CURRENT STATUS</span>
+            <span class="status-value matching">
+              <img src="../images/icons/matching-progress.svg" alt="" class="status-icon"/> Matching in Progress
+            </span>
+          </div>
+          <!-- Match badge — only shows when system found potential matches -->
+          <div class="match-alert-badge">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <circle cx="6.5" cy="6.5" r="5.5" fill="#005312" fill-opacity="0.12"/>
+              <path d="M4 6.5l1.8 1.8L9 4" stroke="#005312" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            2 Potential Matches Found
+          </div>
+          <button class="btn-active-details" onclick="openMyReportMatches('cooper')">
+            View Potential Matches
+            <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Active Report Card: Found Unknown (no matches yet) ── -->
+      <div class="active-report-card" id="reportCard-found1">
+        <div class="active-report-img-wrap">
+          <span class="pet-badge found">Found</span>
+          <img src="../images/img/pet-3.jpg" alt="" class="active-report-img"/>
+        </div>
+        <div class="active-report-body">
+          <h3 class="active-report-name">Unknown</h3>
+          <span class="active-report-location">
+            <img src="../images/icons/icon-location.svg" alt="" class="meta-icon-sm"/> Found near SM Baliwag
+          </span>
+          <div class="active-report-status-row">
+            <span class="status-label">CURRENT STATUS</span>
+            <span class="status-value review">
+              <img src="../images/icons/admin-review.svg" alt="" class="status-icon"/> Admin Review
+            </span>
+          </div>
+          <button class="btn-active-details outline">
+            View Details
+            <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Create New Report Card ── -->
+      <div class="create-report-card">
+        <div class="create-report-plus">
+          <img src="../images/icons/create-new-report.svg" alt="+" class="create-plus-icon"/>
+        </div>
+        <h3 class="create-report-title">Create New Report</h3>
+        <p class="create-report-desc">File a new lost or found animal report to start the recovery process.</p>
+        <button class="btn-start-report" onclick="openModal('lost')">Start Report</button>
+      </div>
+
+    </div>
+
+    <!-- ── Report History ── -->
+    <div class="report-history">
+      <h3 class="history-title">Report History</h3>
+      <div class="history-table">
+        <div class="history-header">
+          <span>DATE</span><span>PET NAME</span><span>TYPE</span><span>FINAL STATUS</span><span>ACTION</span>
+        </div>
+        <div class="history-row">
+          <span class="history-date">Oct 24, 2023</span>
+          <span class="history-pet"><img src="../images/img/pet-1.jpg" alt="" class="history-pet-img"/> Bella</span>
+          <span><span class="type-tag lost-tag">LOST</span></span>
+          <span><span class="final-status reunited"><img src="../images/icons/icon-check-circle.svg" alt="" class="status-icon"/> Reunited</span></span>
+          <span><button class="btn-view-case">View Case</button></span>
+        </div>
+        <div class="history-row">
+          <span class="history-date">Sep 12, 2023</span>
+          <span class="history-pet"><img src="../images/img/pet-2.jpg" alt="" class="history-pet-img"/> Found Cat #12</span>
+          <span><span class="type-tag found-tag">FOUND</span></span>
+          <span><span class="final-status pending">Pending</span></span>
+          <span><button class="btn-view-case">View Case</button></span>
+        </div>
+        <div class="history-row">
+          <span class="history-date">Aug 05, 2023</span>
+          <span class="history-pet"><img src="../images/img/pet-5.jpg" alt="" class="history-pet-img"/> Max</span>
+          <span><span class="type-tag lost-tag">LOST</span></span>
+          <span><span class="final-status reunited"><img src="../images/icons/icon-check-circle.svg" alt="" class="status-icon"/> Reunited</span></span>
+          <span><button class="btn-view-case">View Case</button></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ MY REPORT MATCHES PANEL (slide-in)
+       Shown ONLY when user clicks "View Potential Matches"
+       on their own report card. Never shown publicly.
+  ══════════ -->
+  <div class="matches-panel-overlay" id="matchesPanelOverlay" onclick="closeMatchesPanel(event)">
+    <div class="matches-panel" id="matchesPanel">
+
+      <div class="matches-panel-header">
+        <div>
+          <h2 class="matches-panel-title">Potential Matches</h2>
+          <p class="matches-panel-sub">System-detected matches for <strong id="matchesPetName">Cooper</strong></p>
+        </div>
+        <button class="matches-panel-close" onclick="closeMatchesPanelDirect()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="#424750" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="matches-panel-body">
+
+        <div class="matches-notice">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="6" stroke="#005312" stroke-width="1.2"/>
+            <path d="M7 4.5v3M7 9h.007" stroke="#005312" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          <p>These matches were identified by our system based on breed, color, size, sex, and location similarity. Only you can see these matches.</p>
+        </div>
+
+        <!-- Match Card 1 — 94% -->
+        <div class="lf-match-card high" data-match-id="match-001">
+          <div class="lf-match-top">
+            <span class="lf-match-label">Potential Match 1</span>
+            <div class="lf-match-score-wrap">
+              <div class="lf-match-bar-track">
+                <div class="lf-match-bar" data-width="94" style="width:0%"></div>
+              </div>
+              <span class="lf-match-pct high">94%</span>
+            </div>
+          </div>
+          <div class="lf-match-pets">
+            <div class="lf-match-pet-card owner">
+              <img src="../images/img/pet-1.jpg" alt="Cooper" class="lf-match-pet-img"/>
+              <div class="lf-match-pet-info">
+                <h4 class="lf-match-pet-name">Cooper</h4>
+                <p class="lf-match-pet-meta">Dog · Brown &amp; White · Male</p>
+                <p class="lf-match-pet-meta">Owner: Mark Depa</p>
+                <span class="lf-match-tag lost-tag">Lost (Your Report)</span>
+              </div>
+            </div>
+            <div class="lf-match-vs">
+              <div class="lf-match-vs-line"></div>
+              <div class="lf-match-vs-icon">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3.5 7h7M7.5 4.5L10 7l-2.5 2.5" stroke="#737781" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="lf-match-vs-line"></div>
+            </div>
+            <div class="lf-match-pet-card admin">
+              <img src="../images/img/pet-1.jpg" alt="Found Dog #1" class="lf-match-pet-img"/>
+              <div class="lf-match-pet-info">
+                <h4 class="lf-match-pet-name">Found Dog #1</h4>
+                <p class="lf-match-pet-meta">Mixed · Brown · Male</p>
+                <p class="lf-match-pet-meta">Source: Admin Upload</p>
+                <span class="lf-match-tag found-tag">Found (Admin)</span>
+              </div>
+            </div>
+          </div>
+          <div class="lf-match-similarity-tags">
+            <span class="lf-sim-tag">Same Breed Type</span>
+            <span class="lf-sim-tag">Same Color</span>
+            <span class="lf-sim-tag">Same Sex</span>
+            <span class="lf-sim-tag">Same Barangay</span>
+            <span class="lf-sim-tag">Same Size</span>
+          </div>
+          <div class="lf-match-actions">
+            <button class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
+            <button class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
+          </div>
+        </div>
+
+        <!-- Match Card 2 — 69% -->
+        <div class="lf-match-card mid" data-match-id="match-002">
+          <div class="lf-match-top">
+            <span class="lf-match-label">Potential Match 2</span>
+            <div class="lf-match-score-wrap">
+              <div class="lf-match-bar-track">
+                <div class="lf-match-bar mid-bar" data-width="69" style="width:0%"></div>
+              </div>
+              <span class="lf-match-pct mid">69%</span>
+            </div>
+          </div>
+          <div class="lf-match-pets">
+            <div class="lf-match-pet-card owner">
+              <img src="../images/img/pet-1.jpg" alt="Cooper" class="lf-match-pet-img"/>
+              <div class="lf-match-pet-info">
+                <h4 class="lf-match-pet-name">Cooper</h4>
+                <p class="lf-match-pet-meta">Dog · Brown &amp; White · Male</p>
+                <p class="lf-match-pet-meta">Owner: Mark Depa</p>
+                <span class="lf-match-tag lost-tag">Lost (Your Report)</span>
+              </div>
+            </div>
+            <div class="lf-match-vs">
+              <div class="lf-match-vs-line"></div>
+              <div class="lf-match-vs-icon">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3.5 7h7M7.5 4.5L10 7l-2.5 2.5" stroke="#737781" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="lf-match-vs-line"></div>
+            </div>
+            <div class="lf-match-pet-card admin">
+              <img src="../images/img/pet-3.jpg" alt="Found Dog #2" class="lf-match-pet-img"/>
+              <div class="lf-match-pet-info">
+                <h4 class="lf-match-pet-name">Found Dog #2</h4>
+                <p class="lf-match-pet-meta">Mixed · Brown · Male</p>
+                <p class="lf-match-pet-meta">Source: Community Report</p>
+                <span class="lf-match-tag found-tag">Found (Admin)</span>
+              </div>
+            </div>
+          </div>
+          <div class="lf-match-similarity-tags">
+            <span class="lf-sim-tag">Same Breed Type</span>
+            <span class="lf-sim-tag">Same Color</span>
+            <span class="lf-sim-tag">Same Barangay</span>
+          </div>
+          <div class="lf-match-actions">
+            <button class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
+            <button class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
+          </div>
+        </div>
+
+        <!-- Empty state (hidden, shown when all matches dismissed) -->
+        <div class="lf-no-matches" id="noMatchesState" style="display:none;">
+          <div class="lf-no-matches-icon">🔍</div>
+          <h3>No More Matches</h3>
+          <p>The system will notify you when new found pets are reported in your area.</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ REPORT LOST/FOUND MODAL ══════════ -->
+  <div class="modal-overlay" id="reportModal" onclick="closeModalOutside(event,'reportModal')">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">
+            <img src="../images/icons/report-paw.svg" alt="" class="modal-header-icon-img"/>
+          </div>
+          <div>
+            <h2 class="modal-title" id="modalTitle">Report Lost Pet</h2>
+            <p class="modal-subtitle">Create a clinical entry for the Lost &amp; Found database</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('reportModal')">
+          <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- LEFT COL -->
+        <div class="modal-col">
+          <div class="modal-section-label">PET IDENTIFICATION PHOTO</div>
+          <div class="upload-box" onclick="document.getElementById('petPhoto').click()">
+            <img src="../images/icons/report-upload.svg" alt="" class="upload-cam-icon"/>
+            <span class="upload-text">Upload Clear Portrait</span>
+            <span class="upload-hint">High-res JPG or PNG preferred</span>
+            <input type="file" id="petPhoto" accept=".jpg,.jpeg,.png" style="display:none"/>
+          </div>
+          <div class="modal-section-label" id="petDetailsLabel">PET DETAILS</div>
+          <div class="form-row" id="petNameRow">
+            <div class="form-group full">
+              <label>Pet Name</label>
+              <input type="text" placeholder="e.g. Max" class="form-input"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Type</label>
+              <div class="select-wrap">
+                <select class="form-select">
+                  <option>Canine</option><option>Feline</option><option>Bird</option><option>Other</option>
+                </select>
+                <img src="../images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img"/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Breed</label>
+              <input type="text" placeholder="e.g. Golden Retriever" class="form-input"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Sex</label>
+              <div class="sex-toggle">
+                <button class="sex-btn active" onclick="setSex(this)">Male</button>
+                <button class="sex-btn" onclick="setSex(this)">Female</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Size</label>
+              <div class="select-wrap">
+                <select class="form-select">
+                  <option>Small (Under 10kg)</option>
+                  <option>Medium (10-25kg)</option>
+                  <option>Large (25kg+)</option>
+                </select>
+                <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-arrow-img"/>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group full">
+              <label>Color / Markings</label>
+              <input type="text" placeholder="e.g. White with brown patches, black collar" class="form-input"/>
+            </div>
+          </div>
+        </div>
+        <!-- RIGHT COL -->
+        <div class="modal-col">
+          <div class="modal-section-label" id="incidentLabel">INCIDENT DETAILS</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label id="dateLostLabel">Date Lost</label>
+              <input type="date" class="form-input"/>
+            </div>
+            <div class="form-group">
+              <label>Barangay Last Seen</label>
+              <div class="select-wrap">
+                <select class="form-select">
+                  <option value="">Select Barangay</option>
+                  <option>Bagong Nayon</option><option>Burol</option><option>Calasag</option>
+                  <option>Camalig</option><option>Canalate</option><option>Caniogan</option>
+                  <option>Entablado</option><option>Lote</option><option>Maasim</option>
+                  <option>Pagala</option><option>Paitan</option><option>Poblacion</option>
+                  <option>Sabang</option><option>San Jose</option><option>San Roque</option>
+                  <option>Sta. Barbara</option><option>Subic</option><option>Tangos</option>
+                  <option>Tibag</option><option>Tilapayong</option>
+                </select>
+                <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-arrow-img"/>
+              </div>
+            </div>
+          </div>
+          <a href="#" class="view-map-link">View Map</a>
+          <div class="form-group" style="margin-top:8px;">
+            <label id="notesLabel">Additional Details</label>
+            <textarea class="form-textarea" placeholder="Last behavior, collar color, chip ID if known..."></textarea>
+          </div>
+          <div class="contact-box">
+            <div class="contact-box-header">
+              <img src="../images/icons/report-contact-inf.svg" alt="" class="contact-icon-img"/>
+              <span class="modal-section-label" style="margin:0;">YOUR CONTACT INFO</span>
+            </div>
+            <button class="use-account-btn" onclick="toggleAccountInfo(this)" type="button">
+              <div class="toggle-switch" id="accountToggle"><div class="toggle-knob"></div></div>
+              <span class="use-account-label">Use Account Information</span>
+            </button>
+            <div class="input-icon-row">
+              <img src="../images/icons/report-user.svg" alt="" class="inp-icon-img"/>
+              <input type="text" id="contactName" placeholder="Full Name" class="form-input"/>
+            </div>
+            <div class="input-icon-row">
+              <img src="../images/icons/report-phone.svg" alt="" class="inp-icon-img"/>
+              <input type="tel" id="contactPhone" placeholder="Mobile Number" class="form-input"/>
+            </div>
+            <div class="input-icon-row">
+              <img src="../images/icons/report-mail.svg" alt="" class="inp-icon-img"/>
+              <input type="email" id="contactEmail" placeholder="Email Address" class="form-input"/>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-save-draft">Save Draft</button>
+        <div class="modal-footer-right">
+          <button class="btn-cancel" onclick="closeModal('reportModal')">Cancel</button>
+          <button class="btn-submit" onclick="submitReport()">
+            <span id="submitText">Submit Lost Pet Report</span>
+            <img src="../images/icons/report-submit.svg" alt="" class="btn-icon-img"/>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ VIEW DETAILS — LOST PET (public, read-only) ══════════ -->
+  <div class="modal-overlay" id="detailsLostModal" onclick="closeModalOutside(event,'detailsLostModal')">
+    <div class="modal-box details-modal-box">
+      <div class="details-img-side">
+        <img src="" alt="" class="details-pet-img" id="detailsPetImg"/>
+        <div class="details-status-badge lost">Lost</div>
+      </div>
+      <div class="details-info-side">
+        <div class="details-info-header">
+          <div>
+            <h2 class="details-pet-name" id="detailsPetName">Unknown</h2>
+            <span class="details-case-id" id="detailsCaseId">—</span>
+          </div>
+          <button class="modal-close" onclick="closeModal('detailsLostModal')">
+            <img src="../images/icons/report-close.svg" alt="close" class="close-icon-img"/>
+          </button>
+        </div>
+        <div class="details-tags">
+          <div class="details-tag"><span class="tag-label">BREED</span><span class="tag-value" id="dBreed">—</span></div>
+          <div class="details-tag"><span class="tag-label">AGE</span><span class="tag-value" id="dAge">—</span></div>
+          <div class="details-tag"><span class="tag-label">SIZE</span><span class="tag-value" id="dSize">—</span></div>
+          <div class="details-tag"><span class="tag-label">SEX</span><span class="tag-value" id="dSex">—</span></div>
+        </div>
+        <div class="details-section">
+          <h4 class="details-section-title">Unique Markings</h4>
+          <p class="details-section-text" id="dMarkings">—</p>
+        </div>
+        <div class="details-section">
+          <h4 class="details-section-title green">LAST SEEN LOCATION</h4>
+          <div class="details-map-placeholder">
+            <img src="../images/img/map.png" alt="Map" class="details-map-img"/>
+          </div>
+          <div class="details-location-info">
+            <img src="../images/icons/icon-location.svg" alt="" class="details-loc-icon"/>
+            <div>
+              <span class="details-date" id="dDate">—</span>
+              <span class="details-location-text" id="dLocation">—</span>
+            </div>
+          </div>
+        </div>
+        <div class="details-footer">
+          <button class="btn-details-close" onclick="closeModal('detailsLostModal')">Close</button>
+          <button class="btn-details-action" onclick="openSightingModal()">
+            <img src="../images/icons/report-icon.svg" alt="" class="btn-icon-sm"/> I've Seen / Found This Pet
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ VIEW DETAILS — FOUND PET (public, read-only) ══════════ -->
+  <div class="modal-overlay" id="detailsFoundModal" onclick="closeModalOutside(event,'detailsFoundModal')">
+    <div class="modal-box details-modal-box">
+      <div class="details-img-side">
+        <img src="" alt="" class="details-pet-img" id="detailsFoundImg"/>
+        <div class="details-status-badge found">Found</div>
+      </div>
+      <div class="details-info-side">
+        <div class="details-info-header">
+          <div>
+            <h2 class="details-pet-name" id="detailsFoundName">Unknown</h2>
+            <span class="details-case-id" id="dReportId">Report ID: —</span>
+          </div>
+          <button class="modal-close" onclick="closeModal('detailsFoundModal')">
+            <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
+          </button>
+        </div>
+        <div class="found-details-grid">
+          <div class="found-detail-item">
+            <img src="../images/icons/icon-location.svg" alt="" class="found-detail-icon-img"/>
+            <div><span class="found-detail-label">FOUND AT</span><span class="found-detail-value" id="dFoundAt">—</span></div>
+          </div>
+          <div class="found-detail-item">
+            <img src="../images/icons/icon-calendar.svg" alt="" class="found-detail-icon-img"/>
+            <div><span class="found-detail-label">DATE FOUND</span><span class="found-detail-value" id="dDateFound">—</span></div>
+          </div>
+          <div class="found-detail-item">
+            <img src="../images/icons/icon-size.svg" alt="" class="found-detail-icon-img"/>
+            <div><span class="found-detail-label">SIZE</span><span class="found-detail-value" id="dFoundSize">—</span></div>
+          </div>
+          <div class="found-detail-item">
+            <img src="../images/icons/icon-sex.svg" alt="" class="found-detail-icon-img"/>
+            <div><span class="found-detail-label">SEX</span><span class="found-detail-value" id="dFoundSex">—</span></div>
+          </div>
+          <div class="found-detail-item full-span">
+            <img src="../images/icons/icon-color.svg" alt="" class="found-detail-icon-img"/>
+            <div><span class="found-detail-label">COLOR/MARKING</span><span class="found-detail-value" id="dFoundColor">—</span></div>
+          </div>
+        </div>
+        <div class="found-notes-box" id="dFoundNotes">—</div>
+        <div class="details-footer">
+          <button class="btn-details-close" onclick="closeModal('detailsFoundModal')">Close</button>
+          <button class="btn-details-action" onclick="openClaimModal()">
+  <img src="../images/icons/report-icon.svg" alt="" class="btn-icon-sm"/> This is My Pet
+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ SIGHTING MODAL ══════════ -->
+  <div class="modal-overlay" id="sightingModal" onclick="closeModalOutside(event,'sightingModal')">
+    <div class="modal-box sighting-modal-box">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon green-icon">
+            <img src="../images/icons/icon-sigthing.svg" alt="" class="modal-header-icon-img"/>
+          </div>
+          <div>
+            <h2 class="modal-title">Submit Sighting Report</h2>
+            <p class="modal-subtitle">Help bring a pet home with accurate details.</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('sightingModal')">
+          <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
+        </button>
+      </div>
+      <div class="sighting-body">
+        <div class="matching-banner">
+          <span class="matching-label">Matching Report Linked</span>
+          <p class="matching-text">Your sighting will be automatically matched to the lost report. The owner will be notified immediately upon admin approval.</p>
+        </div>
+        <div class="form-row" style="margin-top:16px;">
+          <div class="form-group">
+            <label>DATE SPOTTED</label>
+            <input type="date" class="form-input"/>
+          </div>
+          <div class="form-group">
+            <label>BARANGAY (LOCATION)</label>
+            <div class="select-wrap">
+              <select class="form-select">
+                <option value="">Select Barangay</option>
+                <option>Bagong Nayon</option><option>Burol</option><option>Caniogan</option>
+                <option>Entablado</option><option>Pagala</option><option>Poblacion</option>
+                <option>Sabang</option><option>San Jose</option><option>Subic</option>
+                <option>Tangos</option><option>Tibag</option><option>Tilapayong</option>
+              </select>
+              <img src="../images/icons/icon-chevron-down.svg" alt="" class="sel-arrow-img"/>
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px;">
+          <label>SPECIFIC LANDMARKS</label>
+          <div class="input-icon-wrap-full">
+            <img src="../images/icons/report-landmark.svg" alt="" class="inp-icon-left-img"/>
+            <input type="text" placeholder="e.g. Near the blue gate, beside the convenience store..." class="form-input with-left-icon"/>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px;">
+          <label>PHOTO EVIDENCE (OPTIONAL)</label>
+          <div class="upload-box-wide" onclick="document.getElementById('sightingPhoto').click()">
+            <img src="../images/icons/report-upload.svg" alt="" class="upload-cam-lg-img"/>
+            <span class="upload-text">Click to upload or drag image</span>
+            <span class="upload-hint">High resolution clear photos help identification</span>
+            <input type="file" id="sightingPhoto" accept=".jpg,.jpeg,.png" style="display:none"/>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:20px;">
+          <label>ADDITIONAL DETAILS</label>
+          <textarea class="form-textarea" placeholder="Was the pet wearing a collar? What was its temperament?"></textarea>
+        </div>
+        <div class="sighting-footer">
+          <button class="btn-cancel" onclick="closeModal('sightingModal')">Cancel</button>
+          <button class="btn-submit" onclick="submitSighting()">
+            Submit Sighting
+            <img src="../images/icons/report-submit.svg" alt="" class="btn-icon-img"/>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CLAIM MODAL (from matches panel) ══════════ -->
+  <div class="modal-overlay" id="claimModal" onclick="closeModalOutside(event,'claimModal')">
+    <div class="modal-box claim-modal-box">
+      <div class="claim-header">
+        <div class="claim-header-left">
+          <div class="claim-header-icon">
+            <img src="../images/icons/verify-ownership.svg" alt="" class="claim-header-icon-img"/>
+          </div>
+          <div>
+            <h2 class="claim-title">Verify Ownership</h2>
+            <p class="claim-subtitle">Please provide documentation to confirm your relationship with the animal.</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('claimModal')">
+          <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
+        </button>
+      </div>
+      <div class="claim-body">
+        <label class="claim-section-label">SELECT PROOF OF OWNERSHIP</label>
+        <div class="proof-grid">
+          <button class="proof-option active" onclick="selectProof(this)">
+            <img src="../images/icons/report-photo.svg" alt="" class="proof-icon-img"/> Photo Evidence
+          </button>
+          <button class="proof-option" onclick="selectProof(this)">
+            <img src="../images/icons/report-records.svg" alt="" class="proof-icon-img"/> Vet Records
+          </button>
+          <button class="proof-option" onclick="selectProof(this)">
+            <img src="../images/icons/report-license.svg" alt="" class="proof-icon-img"/> Registration/License
+          </button>
+          <button class="proof-option" onclick="selectProof(this)">
+            <img src="../images/icons/report-video.svg" alt="" class="proof-icon-img"/> Video Proof
+          </button>
+        </div>
+        <label class="claim-section-label" style="margin-top:20px;">UPLOAD DOCUMENTS</label>
+        <div class="upload-box-wide large" onclick="document.getElementById('claimDoc').click()">
+          <img src="../images/icons/report-upload.svg" alt="" class="upload-doc-icon-img"/>
+          <p class="upload-text">Drop your files here, or <span class="upload-browse">browse</span></p>
+          <span class="upload-hint">Supports JPG, PNG, PDF (Max 10MB)</span>
+          <input type="file" id="claimDoc" accept=".jpg,.png,.pdf" style="display:none"/>
+        </div>
+        <div class="form-row" style="margin-top:20px;">
+          <div class="form-group">
+            <label>FULL NAME</label>
+            <input type="text" placeholder="Owner's Legal Name" class="form-input"/>
+          </div>
+          <div class="form-group">
+            <label>PHONE NUMBER</label>
+            <input type="tel" placeholder="+63 9XX XXX XXXX" class="form-input"/>
+          </div>
+        </div>
+      </div>
+      <div class="claim-footer">
+        <button class="btn-save-draft">Save Draft</button>
+        <div class="modal-footer-right">
+          <button class="btn-cancel" onclick="closeModal('claimModal')">Cancel</button>
+          <button class="btn-submit" onclick="submitClaim()">Submit Verification</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ SUCCESS MODALS ══════════ -->
+  <div class="modal-overlay" id="lostSuccessModal" onclick="closeModalOutside(event,'lostSuccessModal')">
+    <div class="modal-box success-modal-box">
+      <div class="success-icon-wrap green-glow">
+        <img src="../images/icons/report-submitted.svg" alt="" class="success-check-img"/>
+      </div>
+      <h2 class="success-title">Lost Pet Report Submitted!</h2>
+      <p class="success-subtitle">Your report is queued for admin review before it goes live on the board.</p>
+      <div class="success-steps">
+        <div class="success-step active-step">
+          <div class="step-icon-badge green-badge"><img src="../images/icons/lf-step-1.svg" alt="" class="step-badge-icon"/></div>
+          <div class="step-text"><span class="step-label-sm">STEP 1</span><h4 class="step-title">Admin Review</h4><span class="step-sub-green">REVIEW WITHIN 24 HOURS</span></div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="success-step">
+          <div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-2.svg" alt="" class="step-badge-icon"/></div>
+          <div class="step-text"><span class="step-label-sm">STEP 2</span><h4 class="step-title">Matching</h4><p class="step-desc">System automatically compares reports</p></div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="success-step">
+          <div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-3.svg" alt="" class="step-badge-icon"/></div>
+          <div class="step-text"><span class="step-label-sm">STEP 3</span><h4 class="step-title">Public Posting &amp; Community Alert</h4><p class="step-desc">Broadcasting to local users</p></div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="success-step">
+          <div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-4.svg" alt="" class="step-badge-icon"/></div>
+          <div class="step-text"><span class="step-label-sm">STEP 4</span><h4 class="step-title">You'll Get Notified</h4><p class="step-desc">Instant alerts on matches</p></div>
+        </div>
+      </div>
+      <button class="btn-success-primary" onclick="closeAll(); showMyReports(document.getElementById('tab-myreports'))">View My Reports</button>
+      <button class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="foundSuccessModal" onclick="closeModalOutside(event,'foundSuccessModal')">
+    <div class="modal-box success-modal-box">
+      <div class="success-icon-wrap green-glow">
+        <img src="../images/icons/report-submitted.svg" alt="" class="success-check-img"/>
+      </div>
+      <h2 class="success-title">Found Animal Report Submitted!</h2>
+      <p class="success-subtitle">Thank you for helping! Your report will be reviewed before being posted publicly.</p>
+      <div class="success-steps">
+        <div class="success-step active-step"><div class="step-icon-badge green-badge"><img src="../images/icons/lf-step-1.svg" alt="" class="step-badge-icon"/></div><div class="step-text"><span class="step-label-sm">STEP 1</span><h4 class="step-title">Admin Review</h4></div></div>
+        <div class="step-connector"></div>
+        <div class="success-step"><div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-2.svg" alt="" class="step-badge-icon"/></div><div class="step-text"><span class="step-label-sm">STEP 2</span><h4 class="step-title">Matching</h4></div></div>
+        <div class="step-connector"></div>
+        <div class="success-step"><div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-3.svg" alt="" class="step-badge-icon"/></div><div class="step-text"><span class="step-label-sm">STEP 3</span><h4 class="step-title">Public Posting</h4></div></div>
+        <div class="step-connector"></div>
+        <div class="success-step"><div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-4.svg" alt="" class="step-badge-icon"/></div><div class="step-text"><span class="step-label-sm">STEP 4</span><h4 class="step-title">You'll Get Notified</h4></div></div>
+      </div>
+      <button class="btn-success-primary" onclick="closeAll()">View My Report</button>
+      <button class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="sightingSuccessModal" onclick="closeModalOutside(event,'sightingSuccessModal')">
+  <div class="modal-box success-modal-box">
+    <div class="success-icon-wrap green-glow">
+      <img src="../images/icons/report-submitted.svg" alt="" class="success-check-img"/>
+    </div>
+    <h2 class="success-title">Sighting Report<br/>Received!</h2>
+    <p class="success-subtitle">Your tip has been sent to the admin for review.</p>
+    <div class="success-steps">
+      <div class="success-step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <div class="step-icon-wrap">
+            <img src="../images/icons/icon-clipboard.svg" alt="" class="step-icon-img"/>
+          </div>
+          <div>
+            <h4 class="step-title">Admin Review</h4>
+            <p class="step-desc">Staff will look at location, date, and description to verify the sighting details.</p>
+          </div>
+        </div>
+      </div>
+      <div class="success-step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <div class="step-icon-wrap">
+            <img src="../images/icons/icon-bell.svg" alt="" class="step-icon-img"/>
+          </div>
+          <div>
+            <h4 class="step-title">Owner is Notified</h4>
+            <p class="step-desc">Once approved, the pet owner will receive an immediate alert with your information.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="btn-success-primary" onclick="closeAll()">View Report Details</button>
+    <button class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
+  </div>
+</div>
+
+
+  <div class="modal-overlay" id="claimSuccessModal" onclick="closeModalOutside(event,'claimSuccessModal')">
+  <div class="modal-box success-modal-box">
+    <div class="success-icon-wrap green-glow">
+      <img src="../images/icons/report-submitted.svg" alt="" class="success-check-img"/>
+    </div>
+    <h2 class="success-title">Ownership<br/>Claim Submitted!</h2>
+    <p class="success-subtitle">Your claim has been sent to the admin for review.</p>
+    <div class="success-steps">
+      <div class="success-step">
+        <div class="step-num navy-num">1</div>
+        <div class="step-content">
+          <div class="step-icon-wrap navy-icon">
+            <img src="../images/icons/icon-paw.svg" alt="" class="step-icon-img"/>
+          </div>
+          <div>
+            <span class="step-label-sm">STEP 1</span>
+            <h4 class="step-title">Admin Review</h4>
+            <p class="step-desc">A veterinary specialist will verify the proof provided to ensure a safe reunion.</p>
+          </div>
+        </div>
+      </div>
+      <div class="success-step">
+        <div class="step-num navy-num">2</div>
+        <div class="step-content">
+          <div class="step-icon-wrap gray-icon">
+            <img src="../images/icons/icon-bell.svg" alt="" class="step-icon-img"/>
+          </div>
+          <div>
+            <span class="step-label-sm">STEP 2</span>
+            <h4 class="step-title">Finder is Notified</h4>
+            <p class="step-desc">Once verified, the temporary guardian will receive your contact details securely.</p>
+          </div>
+        </div>
+      </div>
+      <div class="success-step">
+        <div class="step-num navy-num">3</div>
+        <div class="step-content">
+          <div class="step-icon-wrap gray-icon">
+            <img src="../images/icons/icon-paw.svg" alt="" class="step-icon-img"/>
+          </div>
+          <div>
+            <span class="step-label-sm">STEP 3</span>
+            <h4 class="step-title">Pickup / Meetup Coordinated</h4>
+            <p class="step-desc">Safe location options will be provided to finalize the handover process.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="btn-success-primary" onclick="window.location.href='my-claims.html'">View My Claims</button>
+    <button class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
+  </div>
+</div>
+
+  <!-- ══════════ FOOTER ══════════ -->
+  <footer class="footer">
+    <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <h3>Baliwag Veterinary Services</h3>
+        <p>Leading the future of veterinary medicine through precision technology and heartfelt dedication.</p>
+      </div>
+      <div class="footer-links">
+        <h4>QUICK LINKS</h4>
+        <ul>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Emergency Care</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>CONTACT</h4>
+        <p>AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026</p>
+        <p class="footer-email">BaliwagtVC@gmail.com</p>
+        <p class="footer-phone">09959210640</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Baliwag Veterinary Services. Precision in Medicine, Vitality in Life</span>
+      <div class="footer-socials">
+        <a href="#" class="social-btn">f</a>
+        <a href="#" class="social-btn">in</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    if (window.VBetterAuth) guardPage && guardPage([ROLES && ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/lost-found.js"></script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<!--
+  Page:    notification-settings.html
+  Feature: Notification preferences
+  CSS:     variables.css → components.css → notification-settings.css
+  JS:      nav.js → api.js → notification-settings.js
+
+  TODO backend:
+  - On load: api.getNotifPrefs() to restore checkbox states
+  - On change: api.updateNotifPrefs(prefs)
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Notification Preferences</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Shared components -->
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/notification-settings.css"/>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-left">
+    <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+    <ul class="nav-links">
+      <li><a href="landing.html">Home</a></li>
+      <li><a href="book-appointment.html">Book An Appointment</a></li>
+      <li><a href="lost-found.html" class="active">Lost And Found</a></li>
+    </ul>
+  </div>
+  <div class="nav-right nav-right-auth">
+    <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+      <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+      <span class="nav-notif-dot"></span>
+    </button>
+    <div class="nav-user-pill" onclick="toggleUserMenu()">
+      <div class="nav-user-info">
+        <span class="nav-user-name">Mark Depa</span>
+        <span class="nav-user-role">Pet Owner</span>
+      </div>
+      <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+    </div>
+    <div class="nav-user-dropdown" id="userDropdown">
+      <a href="account-profile.html" class="dropdown-item active-item">
+        <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+      </a>
+      <a href="account-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+      </a>
+      <a href="notification-settings.html" class="dropdown-item">
+        <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+        <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+<main class="page-main">
+  <div class="page-body">
+
+    <h1 class="page-title">Notification Preferences</h1>
+    <p class="page-sub">Manage how you receive updates about your clinic, patients, and community alerts.<br/>Changes are applied instantly across all devices.</p>
+
+    <!-- Communication Channels -->
+    <div class="notif-card">
+      <div class="notif-card-head">
+        <div class="notif-card-title">Communication Channels</div>
+        <div class="notif-card-desc">Toggle preferred contact methods for each alert category.</div>
+      </div>
+
+      <div class="channels-table">
+        <div class="table-head-row">
+          <div class="th-notif-type">NOTIFICATION TYPE</div>
+          <div class="th-channel">EMAIL</div>
+          <div class="th-channel">SMS</div>
+          <div class="th-channel">APP</div>
+        </div>
+
+        <!-- Row: Lost/Found Alerts -->
+        <div class="table-row">
+          <div class="notif-type-cell">
+            <div class="notif-type-icon green-icon-bg">
+              <img src="../images/icons/notif-alerts.svg" alt="" class="notif-type-icon-img"/>
+            </div>
+            <div>
+              <div class="notif-type-name">Lost/Found Alerts</div>
+              <div class="notif-type-desc">Community missing pet broadcasts</div>
+            </div>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="lf" data-channel="email"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="lf" data-channel="sms"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="lf" data-channel="app"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Row: Appointment Reminders -->
+        <div class="table-row">
+          <div class="notif-type-cell">
+            <div class="notif-type-icon blue-icon-bg">
+              <img src="../images/icons/notif-reminders.svg" alt="" class="notif-type-icon-img"/>
+            </div>
+            <div>
+              <div class="notif-type-name">Appointment Reminders</div>
+              <div class="notif-type-desc">Booking confirmations and 24h notices</div>
+            </div>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="ar" data-channel="email"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="ar" data-channel="sms"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" data-row="ar" data-channel="app"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Row: Claim Updates -->
+        <div class="table-row">
+          <div class="notif-type-cell">
+            <div class="notif-type-icon teal-icon-bg">
+              <img src="../images/icons/notif-updates.svg" alt="" class="notif-type-icon-img"/>
+            </div>
+            <div>
+              <div class="notif-type-name">Claim Updates</div>
+              <div class="notif-type-desc">Insurance processing and payout status</div>
+            </div>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="cu" data-channel="email"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" data-row="cu" data-channel="sms"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+          <div class="check-cell">
+            <label class="custom-check">
+              <input type="checkbox" checked data-row="cu" data-channel="app"/>
+              <span class="checkmark"></span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom row: Recent History + Quiet Hours -->
+    <div class="bottom-row">
+
+      <!-- Recent History -->
+      <div class="history-card">
+        <div class="history-card-head">
+          <div class="history-card-title">Recent History</div>
+          <button class="btn-clear-all">Clear All</button>
+        </div>
+
+        <div class="history-list">
+
+          <div class="history-item">
+            <div class="hist-dot-wrap green-dot">
+              <img src="../images/icons/notif-report-found.svg" alt="" class="hist-dot-icon"/>
+            </div>
+            <div class="hist-content">
+              <div class="hist-title">Lost Pet Found Near Sector 4</div>
+              <div class="hist-desc">A Border Collie matching your watch profile was found.</div>
+              <div class="hist-time">2 HOURS AGO</div>
+            </div>
+          </div>
+
+          <div class="history-item">
+            <div class="hist-dot-wrap blue-dot">
+              <img src="../images/icons/notif-appointment-confirmed.svg" alt="" class="hist-dot-icon"/>
+            </div>
+            <div class="hist-content">
+              <div class="hist-title">Appointment Confirmed</div>
+              <div class="hist-desc">Dr. Aris will see 'Max' tomorrow at 10:30 AM.</div>
+              <div class="hist-time">YESTERDAY</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Quiet Hours -->
+      <div class="quiet-card">
+        <div class="quiet-card-head">
+          <div class="quiet-icon-wrap">
+            <img src="../images/icons/notif-quiet-hours.svg" alt="" class="quiet-icon"/>
+          </div>
+          <div class="quiet-title">Quiet Hours</div>
+        </div>
+        <p class="quiet-desc">Prevent clinical alerts from disturbing you during rest hours. Critical emergency alerts bypass this setting automatically.</p>
+
+        <div class="quiet-schedule-row">
+          <div class="quiet-schedule-label">SCHEDULE</div>
+          <div class="quiet-schedule-value">22:00 — 07:00</div>
+        </div>
+
+        <button class="btn-configure">Configure Schedule</button>
+      </div>
+
+    </div>
+
+  </div>
+</main>
+  <!-- ══ SCRIPTS — auth.js MUST be first ══ -->
+  <script src="../../shared/js/auth.js"></script>
+  <script>
+    /* Route guard — redirects wrong role to their home */
+    guardPage([ROLES.PET_OWNER]);
+  </script>
+  <script src="../js/nav.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/notification-settings.js"></script>
+</body>
+</html>

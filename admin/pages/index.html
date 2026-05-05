@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Admin Dashboard</title>
+    <link rel="stylesheet" href="../../shared/css/sidebar.css">
+    <link rel="stylesheet" href="../css/index.css">
+</head>
+<body>
+    <div class="main-holder">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/admin/pages/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section: sidebar.js shows these only for admin role -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <div class="mainContent">
+            <!-- TOP HEADER -->
+            <div class="topHeader">
+                <div class="searchField">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                    </svg>
+                    <input type="text" placeholder="Search accounts, users, or settings...">
+                </div>
+                <div class="rightSide">
+                    <div class="iconheader">
+                        <button class="icon-btn" id="notification-icon-btn" type="button" aria-label="Open notifications">
+                            <img src="/vet/images/notif.png" alt="Notifications">
+                        </button>
+                        <button class="icon-btn" type="button" aria-label="Settings">
+                            <img src="/vet/images/setting.png" alt="Settings">
+                        </button>
+                        <button class="icon-btn" id="about-help-btn" type="button" aria-label="About us and help">
+                            <img src="/vet/images/aboutus.png" alt="About Us">
+                        </button>
+                    </div>
+                    <div class="header-divider"></div>
+                    <div class="buttonHolder">
+                        <button class="btn btn-secondary" id="add-account-btn" type="button">Add Account</button>
+                        <button class="btn btn-secondary" id="manage-accounts-btn" type="button">Manage Accounts</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dashboard-content">
+                <!-- GREETING -->
+                <div class="Greetings">
+                    <div class="greet-left">
+                        <div class="admin-badge">Administrator</div>
+                        <h1>Good Day, Admin!</h1>
+                        <p class="greet-sub">Full system overview — accounts, clinic operations, and module activity.</p>
+                    </div>
+                    <div class="greet-right">
+                        <div class="greet-stat">
+                            <span class="greet-stat-val">38</span>
+                            <span class="greet-stat-lbl">Total Accounts</span>
+                        </div>
+                        <div class="greet-divider"></div>
+                        <div class="greet-stat">
+                            <span class="greet-stat-val">34</span>
+                            <span class="greet-stat-lbl">Active</span>
+                        </div>
+                        <div class="greet-divider"></div>
+                        <div class="greet-stat">
+                            <span class="greet-stat-val">06</span>
+                            <span class="greet-stat-lbl">Pending</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KPI CARDS -->
+                <div class="KPI">
+                    <div class="kpi-card">
+                        <p class="kpi-label">Total Accounts</p>
+                        <h2 class="kpi-value">38</h2>
+                        <div class="kpi-trend">
+                            <span class="trend-icon">↑</span>
+                            <span class="trend-text">4 this month</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label">Pending Approvals</p>
+                        <h2 class="kpi-value">06</h2>
+                        <div class="urgent-badge">Needs Action</div>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label">System Alerts</p>
+                        <h2 class="kpi-value">03</h2>
+                        <div class="kpi-trend warn">
+                            <span class="trend-icon">↓</span>
+                            <span class="trend-text">2 resolved today</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label success">Clinic Vaccination Rate</p>
+                        <div class="vaccination-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 94%;"></div>
+                            </div>
+                            <h2 class="kpi-value">94%</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAIN CONTENT GRID -->
+                <div class="content-grid">
+                    <div class="left-content">
+
+                        <!-- Account Registrations Chart -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Account Registrations</h3>
+                                    <p class="card-subtitle">Monthly new accounts created in the system</p>
+                                </div>
+                                <div class="card-tabs">
+                                    <button class="tab active">Monthly</button>
+                                    <button class="tab">Quarterly</button>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="registrationChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Recent Accounts Table -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Recent Accounts</h3>
+                                    <p class="card-subtitle">Latest registered users in the system</p>
+                                </div>
+                                <a href="/admin/pages/account-management.html" class="view-all-link">View All</a>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="accounts-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Role</th>
+                                            <th>Email</th>
+                                            <th>Status</th>
+                                            <th>Joined</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="user-cell">
+                                                <div class="user-avatar">MS</div>
+                                                <span>Dr. Maria Santos</span>
+                                            </td>
+                                            <td><span class="role-badge vet">Vet</span></td>
+                                            <td class="email-cell">m.santos@vbetter.local</td>
+                                            <td><span class="status-pill active">Active</span></td>
+                                            <td class="date-cell">Apr 28</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="user-cell">
+                                                <div class="user-avatar">JC</div>
+                                                <span>Juan dela Cruz</span>
+                                            </td>
+                                            <td><span class="role-badge vet">Vet</span></td>
+                                            <td class="email-cell">j.delacruz@vbetter.local</td>
+                                            <td><span class="status-pill active">Active</span></td>
+                                            <td class="date-cell">Apr 25</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="user-cell">
+                                                <div class="user-avatar admin-av">AR</div>
+                                                <span>Ana Reyes</span>
+                                            </td>
+                                            <td><span class="role-badge admin">Admin</span></td>
+                                            <td class="email-cell">a.reyes@vbetter.local</td>
+                                            <td><span class="status-pill active">Active</span></td>
+                                            <td class="date-cell">Apr 22</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="user-cell">
+                                                <div class="user-avatar">MV</div>
+                                                <span>Mark Villanueva</span>
+                                            </td>
+                                            <td><span class="role-badge vet">Vet</span></td>
+                                            <td class="email-cell">m.villanueva@vbetter.local</td>
+                                            <td><span class="status-pill inactive">Inactive</span></td>
+                                            <td class="date-cell">Apr 18</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="user-cell">
+                                                <div class="user-avatar">CO</div>
+                                                <span>Carla Ocampo</span>
+                                            </td>
+                                            <td><span class="role-badge vet">Vet</span></td>
+                                            <td class="email-cell">c.ocampo@vbetter.local</td>
+                                            <td><span class="status-pill active">Active</span></td>
+                                            <td class="date-cell">Apr 14</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Module Usage -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Module Usage by Vets</h3>
+                                    <p class="card-subtitle">Percentage of sessions accessing each module</p>
+                                </div>
+                            </div>
+                            <div class="module-bars">
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Appointment Management</span>
+                                        <span class="module-pct">78%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill" style="width:78%"></div></div>
+                                </div>
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Patient Records</span>
+                                        <span class="module-pct">65%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill" style="width:65%"></div></div>
+                                </div>
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Disease Analytics</span>
+                                        <span class="module-pct">52%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill blue" style="width:52%"></div></div>
+                                </div>
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Mass Vaccination</span>
+                                        <span class="module-pct">44%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill blue" style="width:44%"></div></div>
+                                </div>
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Lost and Found</span>
+                                        <span class="module-pct">31%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill muted" style="width:31%"></div></div>
+                                </div>
+                                <div class="module-bar-item">
+                                    <div class="module-bar-label">
+                                        <span class="module-name">Chatbot Management</span>
+                                        <span class="module-pct">22%</span>
+                                    </div>
+                                    <div class="module-track"><div class="module-fill muted" style="width:22%"></div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT SIDE -->
+                    <div class="right-content">
+
+                        <!-- Pending Approvals Card -->
+                        <div class="card pending-card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Pending Approvals</h3>
+                                    <p class="card-subtitle">Accounts awaiting review</p>
+                                </div>
+                                <span class="pending-count">6</span>
+                            </div>
+                            <div class="pending-list">
+                                <div class="pending-item">
+                                    <div class="user-avatar small">RD</div>
+                                    <div class="pending-info">
+                                        <p class="pending-name">Rico Domingo</p>
+                                        <p class="pending-role">Veterinarian • Applied Apr 30</p>
+                                    </div>
+                                    <div class="pending-actions">
+                                        <button class="btn-approve">✓</button>
+                                        <button class="btn-reject">✕</button>
+                                    </div>
+                                </div>
+                                <div class="pending-item">
+                                    <div class="user-avatar small">LG</div>
+                                    <div class="pending-info">
+                                        <p class="pending-name">Liza Gutierrez</p>
+                                        <p class="pending-role">Veterinarian • Applied Apr 29</p>
+                                    </div>
+                                    <div class="pending-actions">
+                                        <button class="btn-approve">✓</button>
+                                        <button class="btn-reject">✕</button>
+                                    </div>
+                                </div>
+                                <div class="pending-item">
+                                    <div class="user-avatar small admin-av">BM</div>
+                                    <div class="pending-info">
+                                        <p class="pending-name">Ben Morales</p>
+                                        <p class="pending-role">Administrator • Applied Apr 28</p>
+                                    </div>
+                                    <div class="pending-actions">
+                                        <button class="btn-approve">✓</button>
+                                        <button class="btn-reject">✕</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-view-all-pending">View All 6 Pending</button>
+                        </div>
+
+                        <!-- Clinic Snapshot -->
+                        <div class="card snapshot-card">
+                            <h3 class="card-title" style="margin-bottom:4px;">Clinic Snapshot</h3>
+                            <p class="card-subtitle" style="margin-bottom:16px;">Key operational numbers today</p>
+                            <div class="snapshot-grid">
+                                <div class="snapshot-item">
+                                    <p class="snapshot-label">Appointments Today</p>
+                                    <h4 class="snapshot-val">24</h4>
+                                    <p class="snapshot-trend up">↑ 12% vs yesterday</p>
+                                </div>
+                                <div class="snapshot-item">
+                                    <p class="snapshot-label">Active Lost Reports</p>
+                                    <h4 class="snapshot-val">08</h4>
+                                    <p class="snapshot-trend neutral">San Jose District</p>
+                                </div>
+                                <div class="snapshot-item">
+                                    <p class="snapshot-label">Chatbot Queries</p>
+                                    <h4 class="snapshot-val">183</h4>
+                                    <p class="snapshot-trend neutral">Last 24 hours</p>
+                                </div>
+                                <div class="snapshot-item">
+                                    <p class="snapshot-label">Pending Actions</p>
+                                    <h4 class="snapshot-val">42</h4>
+                                    <p class="snapshot-trend down">↑ Urgent</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Feed -->
+                        <div class="card activity-card">
+                            <h3 class="card-title" style="margin-bottom:4px;">Recent Activity</h3>
+                            <p class="card-subtitle" style="margin-bottom:16px;">System-wide account events</p>
+                            <div class="activity-feed">
+                                <div class="activity-item">
+                                    <div class="activity-dot green"></div>
+                                    <div class="activity-body">
+                                        <p class="activity-text"><strong>Dr. Santos</strong> logged in successfully.</p>
+                                        <span class="activity-time">2 mins ago</span>
+                                    </div>
+                                </div>
+                                <div class="activity-item">
+                                    <div class="activity-dot blue"></div>
+                                    <div class="activity-body">
+                                        <p class="activity-text"><strong>Admin Ana</strong> created a new announcement.</p>
+                                        <span class="activity-time">18 mins ago</span>
+                                    </div>
+                                </div>
+                                <div class="activity-item">
+                                    <div class="activity-dot red"></div>
+                                    <div class="activity-body">
+                                        <p class="activity-text"><strong>Mark Villanueva</strong>'s account was deactivated.</p>
+                                        <span class="activity-time">1 hour ago</span>
+                                    </div>
+                                </div>
+                                <div class="activity-item">
+                                    <div class="activity-dot green"></div>
+                                    <div class="activity-body">
+                                        <p class="activity-text"><strong>Carla Ocampo</strong> registered as a new vet account.</p>
+                                        <span class="activity-time">3 hours ago</span>
+                                    </div>
+                                </div>
+                                <div class="activity-item">
+                                    <div class="activity-dot blue"></div>
+                                    <div class="activity-body">
+                                        <p class="activity-text"><strong>System</strong> flagged 3 pending account approvals.</p>
+                                        <span class="activity-time">5 hours ago</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="../../shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['admin']);</script>
+    <script src="../../shared/js/sidebar.js"></script>
+    <script src="../js/index.js"></script>
+</body>
+</html>

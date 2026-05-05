@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Dashboard</title>
+    <link rel="stylesheet" href="/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/vet/css/index.css">
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="main-holder">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section: sidebar.js hides these for vet role -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <div class="mainContent">
+            <!-- TOP HEADER -->
+            <div class="topHeader">
+                <div class="searchField">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                    </svg>
+                    <input type="text" placeholder="Search patients, records, or vaccines...">
+                </div>
+                <div class="rightSide">
+                    <div class="iconheader">
+                        <button class="icon-btn" id="notification-icon-btn" type="button" aria-label="Open notifications">
+                            <img src="/vet/images/notif.png" alt="Notifications">
+                        </button>
+                        <button class="icon-btn" type="button" aria-label="Settings">
+                            <img src="/vet/images/setting.png" alt="Settings">
+                        </button>
+                        <button class="icon-btn" id="about-help-btn" type="button" aria-label="About us and help">
+                            <img src="/vet/images/aboutus.png" alt="About Us">
+                        </button>
+                    </div>
+                    <div class="header-divider"></div>
+                    <div class="buttonHolder">
+                        <button class="btn btn-secondary" id="create-announcement-btn" type="button">Create Announcement</button>
+                        <button class="btn btn-secondary" id="manage-announcement-btn" type="button">Manage Announcement</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dashboard-content">
+                <!-- GREETING -->
+                <div class="Greetings">
+                    <h1>Good Day, Dr. Igaya!</h1>
+                </div>
+
+                <!-- KPI CARDS -->
+                <div class="KPI">
+                    <div class="kpi-card">
+                        <p class="kpi-label">Total Appointments</p>
+                        <h2 class="kpi-value">1,284</h2>
+                        <div class="kpi-trend">
+                            <span class="trend-icon">↑</span>
+                            <span class="trend-text">12%</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label">Pending Actions</p>
+                        <h2 class="kpi-value">42</h2>
+                        <div class="urgent-badge">Urgent</div>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label">Active Lost Reports</p>
+                        <h2 class="kpi-value">08</h2>
+                        <p class="kpi-location">San Jose District</p>
+                    </div>
+                    <div class="kpi-card">
+                        <p class="kpi-label success">Vaccination Rate</p>
+                        <div class="vaccination-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 94%;"></div>
+                            </div>
+                            <h2 class="kpi-value">94%</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAIN CONTENT GRID -->
+                <div class="content-grid">
+                    <div class="left-content">
+
+                        <!-- Patient Volume Chart -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Patient Volume</h3>
+                                    <p class="card-subtitle">Monthly growth and intake patterns</p>
+                                </div>
+                                <div class="card-tabs">
+                                    <button class="tab active">Weekly</button>
+                                    <button class="tab">Monthly</button>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="patientVolumeChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Disease Cases Chart -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <h3 class="card-title">Disease Cases by Barangay</h3>
+                                </div>
+                                <button class="dropdown-btn">All</button>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="diseaseChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Vaccine Cards -->
+                        <div class="vaccine-section">
+                            <div class="vaccine-card">
+                                <p class="card-label">Animals Vaccinated</p>
+                                <div class="chart-container vaccine-chart-container">
+                                    <canvas id="vaccinatedChart"></canvas>
+                                </div>
+                                <div class="vaccine-legend">
+                                    <span class="legend-item"><span class="dot green"></span>Rabies</span>
+                                    <span class="legend-item"><span class="dot gray"></span>Parvo</span>
+                                </div>
+                            </div>
+
+                            <div class="vaccine-demand-card">
+                                <p class="card-label">Estimated Vaccine Demand (Next 30 Days)</p>
+                                <div class="vaccine-items">
+                                    <div class="vaccine-item">
+                                        <p class="vaccine-item-label">Rabies</p>
+                                        <h4 class="vaccine-item-value">450</h4>
+                                        <p class="vaccine-item-required">Units Required</p>
+                                    </div>
+                                    <div class="vaccine-item">
+                                        <p class="vaccine-item-label">Parvo</p>
+                                        <h4 class="vaccine-item-value">280</h4>
+                                        <p class="vaccine-item-required">Units Required</p>
+                                    </div>
+                                    <div class="vaccine-item">
+                                        <p class="vaccine-item-label">Distemper</p>
+                                        <h4 class="vaccine-item-value">195</h4>
+                                        <p class="vaccine-item-required">Units Required</p>
+                                    </div>
+                                </div>
+                                <div class="alert-box">
+                                    <p><strong>Inventory Alert:</strong> Rabies stock is 12% below projected demand. Reorder suggested.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chatbot Insights -->
+                        <div class="card insights-card">
+                            <div class="insights-header">
+                                <h3 class="card-title">Chatbot Insights: Most Asked Symptoms</h3>
+                                <p class="real-time-label">Real-time Logs</p>
+                            </div>
+                            <div class="insights-list">
+                                <div class="insight-item">
+                                    <div class="insight-header">
+                                        <span class="insight-name">Loss of Appetite</span>
+                                        <span class="insight-percentage">42% of queries</span>
+                                    </div>
+                                    <div class="insight-bar"><div class="insight-bar-fill" style="width: 42%;"></div></div>
+                                </div>
+                                <div class="insight-item">
+                                    <div class="insight-header">
+                                        <span class="insight-name">Lethargy / Weakness</span>
+                                        <span class="insight-percentage">28% of queries</span>
+                                    </div>
+                                    <div class="insight-bar"><div class="insight-bar-fill" style="width: 28%;"></div></div>
+                                </div>
+                                <div class="insight-item">
+                                    <div class="insight-header">
+                                        <span class="insight-name">Vomiting</span>
+                                        <span class="insight-percentage">15% of queries</span>
+                                    </div>
+                                    <div class="insight-bar"><div class="insight-bar-fill" style="width: 15%;"></div></div>
+                                </div>
+                                <div class="insight-item">
+                                    <div class="insight-header">
+                                        <span class="insight-name">Itchy Skin / Redness</span>
+                                        <span class="insight-percentage">10% of queries</span>
+                                    </div>
+                                    <div class="insight-bar"><div class="insight-bar-fill" style="width: 10%;"></div></div>
+                                </div>
+                            </div>
+                            <p class="insights-note">Insight: Predictive patterns suggest a seasonal increase in skin-related queries.</p>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT SIDE -->
+                    <div class="right-content">
+
+                        <!-- Calendar -->
+                        <div class="card calendar-card">
+                            <div class="calendar-header">
+                                <h3>April 2026</h3>
+                                <div class="calendar-nav">
+                                    <button class="nav-arrow">←</button>
+                                    <button class="nav-arrow">→</button>
+                                </div>
+                            </div>
+                            <div id="calendar"></div>
+                        </div>
+
+                        <!-- Today's Timeline -->
+                        <div class="card timeline-card">
+                            <div class="timeline-header">
+                                <h3>Today's Timeline</h3>
+                                <p class="timeline-date">Apr 24</p>
+                            </div>
+                            <div class="timeline-container">
+                                <div class="timeline-item">
+                                    <div class="timeline-marker completed"><span class="marker-dot"></span></div>
+                                    <div class="timeline-event completed">
+                                        <p class="event-time">09:00 AM</p>
+                                        <h4 class="event-title">Deworming: Cooper</h4>
+                                        <p class="event-location">Dr. Aris (Room 402)</p>
+                                    </div>
+                                </div>
+                                <div class="timeline-item">
+                                    <div class="timeline-marker pending"><span class="marker-dot pending"></span></div>
+                                    <div class="timeline-event pending">
+                                        <p class="event-time">11:30 AM</p>
+                                        <h4 class="event-title">Vaccination: Buddy</h4>
+                                        <p class="event-location">Dr. Santos (Room 101)</p>
+                                    </div>
+                                </div>
+                                <div class="timeline-item">
+                                    <div class="timeline-marker"><span class="marker-dot"></span></div>
+                                    <div class="timeline-event">
+                                        <p class="event-time">02:45 PM</p>
+                                        <h4 class="event-title">Consultation: Felix</h4>
+                                        <p class="event-location">Dr. Aris (Consultation Hall)</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-add-appointment">+ Add Appointment</button>
+                        </div>
+
+                        <!-- Next Event -->
+                        <div class="card event-card">
+                            <p class="event-label">NEXT MAJOR EVENT</p>
+                            <h3 class="event-title">Annual Anti-Rabies Mass Vaccination</h3>
+                            <p class="event-date">Nov 12-14 • Barangay Plaza Centers</p>
+                            <button class="btn btn-manage-event">Manage Event</button>
+                        </div>
+
+                        <!-- Recent Patient -->
+                        <div class="card patient-card">
+                            <div class="patient-header">
+                                <h3 class="card-title">Recent Patient Appointment</h3>
+                                <a href="#" class="view-link">View Directory</a>
+                            </div>
+                            <div class="patient-item">
+                                <div class="patient-info">
+                                    <img src="https://via.placeholder.com/48" alt="Cooper" class="patient-avatar">
+                                    <div>
+                                        <h4 class="patient-name">Cooper</h4>
+                                        <p class="patient-details">Golden Retriever • Male • 3yrs</p>
+                                    </div>
+                                </div>
+                                <div class="patient-status">
+                                    <span class="status-badge">Stable</span>
+                                    <p class="patient-date">Adm: Apr 24, 2026</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard modal root -->
+    <div id="dashboard-modal-root" hidden></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="/shared/js/sidebar.js"></script>
+    <script src="/vet/js/index.js"></script>
+</body>
+</html>

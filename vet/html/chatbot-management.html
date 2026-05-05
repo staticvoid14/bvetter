@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VBetter | Chatbot Management</title>
+    <link rel="stylesheet" href="/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/vet/css/chatbot-management.css">
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0" defer></script>
+    <script src="/shared/js/sidebar.js" defer></script>
+    <script src="/vet/js/chatbot-management.js" defer></script> -->
+</head>
+
+<body>
+    <div class="main-holder chatbot-layout">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="/vet/images/logo.png" alt="VBetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="/vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="/vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <!-- ADMIN-ONLY section -->
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="/admin/pages/account-management.html" class="nav-item" title="Account Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="/admin/pages/website-settings.html" class="nav-item" title="Website Management"
+                    data-roles="admin">
+                    <img src="/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <img src="https://via.placeholder.com/40" alt="Profile" class="profile-pic">
+                <span class="nav-label">Chatbot Management</span>
+            </div>
+        </div>
+
+        <main class="content-holder chatbot-content">
+            <header class="hero-shell">
+                <div class="hero-copy">
+                    <h1>Chatbot Management</h1>
+                    <p>Switch between the dashboard, inquiry rules, and consultation rules. The page uses local dummy
+                        data for now so the backend can be attached later.</p>
+                </div>
+            </header>
+
+            <div class="Menu-holder" role="tablist" aria-label="Chatbot management sections">
+                <button type="button" class="tab-btn" data-tab-target="home" aria-selected="false">Home</button>
+                <button type="button" class="tab-btn active" data-tab-target="inquiry" aria-selected="true">Inquiry
+                    Management</button>
+                <button type="button" class="tab-btn" data-tab-target="consultation" aria-selected="false">Consultation
+                    Management</button>
+            </div>
+
+            <section class="tab-panel" data-panel="home" aria-label="Chatbot dashboard">
+                <section class="summary-grid" aria-label="Chatbot summary metrics">
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Total Online Consultations</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="value-online-consult">120</strong>
+                        <small class="summary-note positive">2% higher compared last month</small>
+                    </article>
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Total Online Inquiry</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="value-online-inquiry">50</strong>
+                        <small class="summary-note negative">-2% lower compared last month</small>
+                    </article>
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Most Common Symptom</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="value-most-common-symptom">Fever (32 cases/chats)</strong>
+                        <small class="summary-note positive">Mostly dogs and cats</small>
+                    </article>
+                </section>
+
+                <section class="dashboard-grid" aria-label="Chatbot management charts">
+                    <article class="chart-panel chart-panel-wide">
+                        <div class="panel-head">
+                            <h2>Total Consultations and Inquiry</h2>
+                            <select id="sourceFilter" class="panel-select" aria-label="Source filter">
+                                <option value="all">All Sources</option>
+                                <option value="consultation">Consultation</option>
+                                <option value="inquiry">Inquiry</option>
+                            </select>
+                        </div>
+                        <div class="chart-canvas-wrap chart-canvas-tall">
+                            <canvas id="consultationInquiryChart"
+                                aria-label="Consultation and inquiry trend chart"></canvas>
+                        </div>
+                    </article>
+
+                    <article class="chart-panel">
+                        <div class="panel-head">
+                            <h2>Inquiry Type Distribution</h2>
+                        </div>
+                        <div class="chart-canvas-wrap">
+                            <canvas id="inquiryTypeChart" aria-label="Inquiry type distribution chart"></canvas>
+                        </div>
+                    </article>
+
+                    <article class="chart-panel location-panel" aria-label="User location analysis panel">
+                        <div class="panel-head">
+                            <h2>User Location (Barangay Analysis)</h2>
+                            <a href="#" class="panel-link">View detailed map</a>
+                        </div>
+                        <div class="location-body">
+                            <div class="map-mock" aria-hidden="true">
+                                <div class="heat heat-1"></div>
+                                <div class="heat heat-2"></div>
+                                <div class="heat heat-3"></div>
+                            </div>
+                            <ul class="location-legend" id="locationLegend"></ul>
+                        </div>
+                    </article>
+
+                    <article class="chart-panel">
+                        <div class="panel-head">
+                            <h2>Most Common Symptoms</h2>
+                            <select id="petTypeFilter" class="panel-select" aria-label="Pet type filter">
+                                <option value="all">Pet Type</option>
+                                <option value="dog">Dog</option>
+                                <option value="cat">Cat</option>
+                            </select>
+                        </div>
+                        <div class="chart-canvas-wrap">
+                            <canvas id="symptomsChart" aria-label="Most common symptoms chart"></canvas>
+                        </div>
+                    </article>
+                </section>
+            </section>
+
+            <section class="tab-panel active" data-panel="inquiry" aria-label="Inquiry management">
+                <section class="summary-grid inquiry-summary-grid" aria-label="Inquiry summary metrics">
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Total Online Inquiry</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="inquiry-total-count">50</strong>
+                        <small class="summary-note negative">-2% lower compared last month</small>
+                    </article>
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Avg response Time</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="inquiry-average-response">&lt; 2s</strong>
+                        <small class="summary-note positive">Optimized</small>
+                    </article>
+                    <article class="summary-card">
+                        <div class="summary-head">
+                            <p>Bot Success Rate</p>
+                            <span class="metric-icon">i</span>
+                        </div>
+                        <strong id="inquiry-success-rate">92.8%</strong>
+                        <small class="summary-note positive">High accuracy</small>
+                    </article>
+                </section>
+
+                <section class="management-toolbar" aria-label="Inquiry management controls">
+                    <div class="search-shell">
+                        <span class="search-icon" aria-hidden="true">⌕</span>
+                        <input type="search" id="inquiry-search" placeholder="Search inquiry type, response, or action"
+                            aria-label="Search inquiry rules">
+                    </div>
+                    <div class="toolbar-actions">
+                        <select id="inquiry-sort" class="panel-select light-select" aria-label="Sort inquiry rules">
+                            <option value="default">Sort: Default</option>
+                            <option value="most-used">Most used</option>
+                            <option value="recent">Recently updated</option>
+                            <option value="name">Name A to Z</option>
+                        </select>
+                        <button type="button" class="primary-action" id="open-inquiry-modal">+ Add new Inquiry
+                            Type</button>
+                    </div>
+                </section>
+
+                <section class="table-card">
+                    <div class="table-head">
+                        <div>
+                            <h2>Chatbot Inquiry Management</h2>
+                            <p>Manage the local inquiry rules used by the chatbot.</p>
+                        </div>
+                        <span class="table-badge">Live dummy data</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="rules-table">
+                            <thead>
+                                <tr>
+                                    <th>Inquiry Name</th>
+                                    <th>Response</th>
+                                    <th>Last Updated</th>
+                                    <th>Inquiry Count</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inquiry-table-body"></tbody>
+                        </table>
+                    </div>
+                    <footer class="table-footer">
+                        <p id="inquiry-summary">Showing 0 of 0 Categories</p>
+                        <div class="pagination">
+                            <button type="button" class="page-btn" id="inquiry-prev"
+                                aria-label="Previous page">Prev</button>
+                            <span id="inquiry-page" class="page-state">1</span>
+                            <button type="button" class="page-btn" id="inquiry-next"
+                                aria-label="Next page">Next</button>
+                        </div>
+                    </footer>
+                </section>
+            </section>
+
+            <section class="tab-panel consultation-panel active" data-panel="consultation"
+                aria-label="Consultation management">
+                <section class="consultation-view active" data-consultation-view="list">
+                    <section class="summary-grid consultation-summary-grid" aria-label="Consultation summary metrics">
+                        <article class="summary-card">
+                            <div class="summary-head">
+                                <p>Total Online Consultation</p>
+                                <span class="metric-icon">i</span>
+                            </div>
+                            <strong id="consultation-total-count">50</strong>
+                            <small class="summary-note negative">-2% lower compared last month</small>
+                        </article>
+                        <article class="summary-card">
+                            <div class="summary-head">
+                                <p>Avg response Time</p>
+                                <span class="metric-icon">i</span>
+                            </div>
+                            <strong id="consultation-average-response">&lt; 2s</strong>
+                            <small class="summary-note positive">Optimized</small>
+                        </article>
+                        <article class="summary-card">
+                            <div class="summary-head">
+                                <p>Bot Success Rate</p>
+                                <span class="metric-icon">i</span>
+                            </div>
+                            <strong id="consultation-success-rate">92.8%</strong>
+                            <small class="summary-note positive">High accuracy</small>
+                        </article>
+                    </section>
+
+                    <section class="management-toolbar consultation-toolbar"
+                        aria-label="Consultation management controls">
+                        <div class="search-shell">
+                            <span class="search-icon" aria-hidden="true">⌕</span>
+                            <input type="search" id="consultation-search"
+                                placeholder="Search pet type, symptoms, or condition"
+                                aria-label="Search consultation rules">
+                        </div>
+                        <div class="toolbar-actions">
+                            <select id="consultation-sort" class="panel-select light-select"
+                                aria-label="Sort consultation rules">
+                                <option value="default">Sort: Default</option>
+                                <option value="recent">Recently updated</option>
+                                <option value="severity">Severity priority</option>
+                                <option value="petType">Pet type A to Z</option>
+                            </select>
+                            <button type="button" class="primary-action" id="open-consultation-builder">+ Create New
+                                Rules</button>
+                        </div>
+                    </section>
+
+                    <section class="table-card">
+                        <div class="table-head">
+                            <div>
+                                <h2>Chatbot Consultation Rules</h2>
+                                <p>Manage the symptom rules that drive the consultation assistant.</p>
+                            </div>
+                            <span class="table-badge">Live dummy data</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="rules-table consultation-rules-table">
+                                <thead>
+                                    <tr>
+                                        <th>Pet Type</th>
+                                        <th>Symptoms</th>
+                                        <th>Symptoms Duration</th>
+                                        <th>Possible Condition</th>
+                                        <th>Severity</th>
+                                        <th>Recommendation</th>
+                                        <th>Last Update</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="consultation-table-body"></tbody>
+                            </table>
+                        </div>
+                        <footer class="table-footer">
+                            <p id="consultation-summary">Showing 0 of 0 Results</p>
+                            <div class="pagination">
+                                <button type="button" class="page-btn" id="consultation-prev"
+                                    aria-label="Previous page">Prev</button>
+                                <span id="consultation-page" class="page-state">1</span>
+                                <button type="button" class="page-btn" id="consultation-next"
+                                    aria-label="Next page">Next</button>
+                            </div>
+                        </footer>
+                    </section>
+                </section>
+
+                <section class="consultation-view" data-consultation-view="builder">
+                    <div class="builder-shell">
+                        <button type="button" class="back-link" id="consultation-back-btn">← Back to Consultation
+                            Management</button>
+                        <header class="builder-header">
+                            <p class="eyebrow subtle">Chatbot Analytics · Chatbot Consultation Management · Add New rule
+                            </p>
+                            <h2 id="consultation-builder-title">Add New Consultation Rule</h2>
+                            <p>Define automated diagnostic logic for pet symptoms and triage actions.</p>
+                        </header>
+
+                        <form id="consultation-builder-form" class="builder-form">
+                            <section class="builder-step">
+                                <div class="step-title-row">
+                                    <h3>1. Select Animal Type</h3>
+                                    <span class="step-hint">Choose the species this diagnostic rule applies to.</span>
+                                </div>
+                                <div class="choice-grid animal-grid" id="consultation-animal-grid">
+                                    <button type="button" class="choice-card" data-animal="Dog"
+                                        aria-pressed="false">Dog</button>
+                                    <button type="button" class="choice-card" data-animal="Cats"
+                                        aria-pressed="false">Cats</button>
+                                    <button type="button" class="choice-card" data-animal="Birds"
+                                        aria-pressed="false">Birds</button>
+                                    <button type="button" class="choice-card" data-animal="Others"
+                                        aria-pressed="false">Others</button>
+                                </div>
+                            </section>
+
+                            <section class="builder-step">
+                                <div class="step-title-row">
+                                    <h3>2. Select Symptoms</h3>
+                                    <span class="step-hint">Select all symptoms that trigger this rule.</span>
+                                </div>
+                                <div class="choice-grid symptom-grid" id="consultation-symptom-grid">
+                                    <button type="button" class="choice-chip" data-symptom="Fever">Fever</button>
+                                    <button type="button" class="choice-chip" data-symptom="Vomiting">Vomiting</button>
+                                    <button type="button" class="choice-chip" data-symptom="Diarrhea">Diarrhea</button>
+                                    <button type="button" class="choice-chip" data-symptom="Coughing">Coughing</button>
+                                    <button type="button" class="choice-chip" data-symptom="Limping">Limping</button>
+                                    <button type="button" class="choice-chip" data-symptom="Loss of Appetite">Loss of
+                                        Appetite</button>
+                                    <button type="button" class="choice-chip" data-symptom="Itching">Itching</button>
+                                    <button type="button" class="choice-chip" data-symptom="Seizures">Seizures</button>
+                                </div>
+                                <button type="button" class="chip-action" id="open-symptom-modal">+ Add New
+                                    symptoms</button>
+                            </section>
+
+                            <section class="builder-step builder-step-divider">
+                                <div class="step-title-row">
+                                    <h3>3. Symptoms Duration</h3>
+                                    <span class="step-hint">Potential diagnosis or clinical term.</span>
+                                </div>
+                                <div class="duration-row" id="consultation-duration-group">
+                                    <button type="button" class="duration-option" data-duration="Less Than 24 Hours">
+                                        <small>Short Term</small>
+                                        <strong>Less Than 24 Hours</strong>
+                                    </button>
+                                    <button type="button" class="duration-option active" data-duration="1-3 Days">
+                                        <small>Typical</small>
+                                        <strong>1-3 DAYS</strong>
+                                    </button>
+                                    <button type="button" class="duration-option" data-duration="More than 3 days">
+                                        <small>Persistent</small>
+                                        <strong>More than 3 days</strong>
+                                    </button>
+                                </div>
+                            </section>
+
+                            <section class="builder-step">
+                                <div class="step-title-row">
+                                    <h3>4. Possible Condition</h3>
+                                    <span class="step-hint">Potential diagnosis or clinical term.</span>
+                                </div>
+                                <label class="field span-2 field-tight" for="consultation-condition">
+                                    <input id="consultation-condition" name="condition" type="text"
+                                        placeholder="e.g. Acute Gastritis, Kennel Cough...">
+                                </label>
+                            </section>
+
+                            <section class="builder-step builder-step-two-cols">
+                                <div class="mini-card">
+                                    <div class="step-title-row">
+                                        <h3>5. Severity Level</h3>
+                                        <span class="step-hint">Pet's overall state</span>
+                                    </div>
+                                    <select id="consultation-severity" name="severity" class="builder-select">
+                                        <option value="">Select severity</option>
+                                        <option value="Critical">Critical</option>
+                                        <option value="Active">Active</option>
+                                        <option value="Moderate">Moderate</option>
+                                    </select>
+                                </div>
+
+                                <div class="mini-card">
+                                    <div class="step-title-row">
+                                        <h3>6. Recommended Action</h3>
+                                        <span class="step-hint">Chatbot's suggested next step</span>
+                                    </div>
+                                    <textarea id="consultation-recommendation" name="recommendation"
+                                        class="builder-textarea" placeholder="Write a response..."></textarea>
+                                </div>
+                            </section>
+
+                            <div class="builder-actions">
+                                <button type="button" class="btn btn-soft"
+                                    id="consultation-builder-cancel">Cancel</button>
+                                <button type="submit" class="btn btn-primary" id="consultation-builder-submit">Save
+                                    Rule</button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="modal-overlay" hidden>
+        <section class="modal-shell" id="modal-shell" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <button type="button" class="modal-close" id="modal-close" aria-label="Close modal">×</button>
+            <div id="modal-content"></div>
+        </section>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
+    <script src="/shared/js/auth.js"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="/shared/js/sidebar.js"></script>
+    <script src="/vet/js/chatbot-management.js"></script>
+
+</body>
+
+</html>

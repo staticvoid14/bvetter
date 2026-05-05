@@ -1,0 +1,235 @@
+/**
+ * VBetter – Shared Sidebar Controller  (shared/js/sidebar.js)
+ * ─────────────────────────────────────────────────────────────
+ * FIXES:
+ *  1. All nav routes are ABSOLUTE so they work from /vet/html/
+ *     AND /admin/pages/ — no more "Cannot GET" errors.
+ *  2. Profile card is always built from sessionStorage, so the
+ *     real name (Dr. Kizea) always shows — never "Guest".
+ *  3. data-roles hides admin-only items from vet users.
+ *  4. Dashboard route is role-aware — admin goes to
+ *     /admin/pages/index.html, vet goes to /vet/html/index.html.
+ * ─────────────────────────────────────────────────────────────
+ */
+
+(function () {
+    'use strict';
+
+    /* ── Absolute routes — work from ANY page in ANY folder ─── */
+    const ROUTES = {
+        'appointment management': '/vet/html/appointment.html',
+        'patient records':        '/vet/html/patient-records.html',
+        'report':                 '/vet/html/report.html',
+        'disease analytics':      '/vet/html/disease-analytics.html',
+        'lost and found':         '/vet/html/lost-and-found.html',
+        'chatbot management':     '/vet/html/chatbot-management.html',
+        'mass vaccination':       '/vet/html/mass-vaccination.html',
+        // Admin-only — absolute paths
+        'account management':     '/admin/pages/account-management.html',
+        'website management':     '/admin/pages/website-settings.html',
+    };
+
+    const ACTIVE_ICON_CAPABLE = new Set([
+        'dashboard',
+        'appointment',
+        'patient-records',
+        'report',
+        'disease-analytics',
+        'lost-found',
+        'chatbot',
+        'mass-vacc',
+        'acc-management',
+        'web-settings'
+    ]);
+
+    /* ── Bootstrap ──────────────────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', init);
+
+    function init() {
+        const sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+
+        const session = readSession();
+        const role    = session ? session.role : null;
+
+        applyRoleVisibility(sidebar, role);
+        buildToggleButton(sidebar);
+        buildProfileCard(sidebar, session);
+
+        const navItems = Array.from(sidebar.querySelectorAll('.nav-item'));
+        hydrateNavItems(navItems, role);
+        wireExpand(sidebar);
+        syncToggleState(sidebar);
+    }
+
+    /* ── Read session — works with or without VBetterAuth ────── */
+    function readSession() {
+        try {
+            if (window.VBetterAuth && window.VBetterAuth.getSession) {
+                return window.VBetterAuth.getSession();
+            }
+            const raw = sessionStorage.getItem('vbetter_session');
+            return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+    }
+
+    /* ── Role visibility ─────────────────────────────────────── */
+    function applyRoleVisibility(sidebar, role) {
+        sidebar.querySelectorAll('[data-roles]').forEach(el => {
+            const allowed = el.getAttribute('data-roles').split(' ');
+            if (role === 'admin') return; // admin sees everything
+            if (!role || !allowed.includes(role)) {
+                el.style.display = 'none';
+            }
+        });
+    }
+
+    /* ── Toggle button ──────────────────────────────────────── */
+    function buildToggleButton(sidebar) {
+        const header = sidebar.querySelector('.sidebar-header');
+        if (!header) return;
+
+        let btn = document.getElementById('sidebar-toggle');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type      = 'button';
+            btn.className = 'sidebar-toggle';
+            btn.id        = 'sidebar-toggle';
+            btn.setAttribute('aria-label', 'Toggle sidebar');
+            btn.innerHTML = '&#9776;';
+            header.prepend(btn);
+        }
+
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.innerWidth <= 768) {
+                sidebar.classList.toggle('mobile-open');
+                return;
+            }
+            sidebar.classList.toggle('expanded');
+            syncToggleState(sidebar);
+        });
+    }
+
+    /* ── Profile card — ALWAYS from session, never "Guest" ───── */
+    function buildProfileCard(sidebar, session) {
+        const footer = sidebar.querySelector('.sidebar-footer');
+        if (!footer) return;
+
+        const name      = (session && session.name)      ? session.name      : 'Unknown';
+        const role      = (session && session.role)      ? session.role      : '';
+        const avatarUrl = (session && session.avatarUrl) ? session.avatarUrl : '';
+        const avatar    = avatarUrl || defaultAvatar(role);
+        const roleLabel = roleDisplayLabel(role);
+
+        footer.innerHTML =
+            '<article class="sidebar-profile-card" data-role="' + role + '" aria-label="' + name + ' profile">' +
+            '<img src="' + avatar + '" alt="' + name + '" class="sidebar-profile-avatar" ' +
+            'onerror="this.src=\'https://i.pravatar.cc/120?img=' + (role === 'admin' ? '12' : '47') + '\'">' +
+            '<div class="sidebar-profile-meta">' +
+            '<strong class="sidebar-profile-name">' + name + '</strong>' +
+            '<span class="sidebar-profile-role">' + roleLabel + '</span>' +
+            '</div>' +
+            '</article>';
+
+        const card = footer.querySelector('.sidebar-profile-card');
+        if (card) {
+            card.addEventListener('click', function () {
+                const dest = role === 'admin'
+                    ? '/admin/pages/profile.html'
+                    : '/vet/html/profile.html';
+                if (!window.location.pathname.toLowerCase().endsWith('profile.html')) {
+                    window.location.href = dest;
+                }
+            });
+        }
+    }
+
+    function defaultAvatar(role) {
+        const seed = { vet: '47', admin: '12', owner: '33' }[role] || '10';
+        return 'https://i.pravatar.cc/120?img=' + seed;
+    }
+
+    function roleDisplayLabel(role) {
+        return { vet: 'Vet III', admin: 'Administrator', owner: 'Pet Owner' }[role] || '';
+    }
+
+    /* ── Hydrate nav links & active state ────────────────────── */
+    function hydrateNavItems(navItems, role) {
+        const currentPath = window.location.pathname.toLowerCase();
+
+        // Dashboard route depends on role — admin gets admin dashboard
+        ROUTES['dashboard'] = (role === 'admin')
+            ? '/admin/pages/index.html'
+            : '/vet/html/index.html';
+
+        navItems.forEach(function (item) {
+            if (item.style.display === 'none') return;
+
+            const labelEl  = item.querySelector('.nav-label');
+            const rawLabel = (labelEl ? labelEl.textContent : '').trim().toLowerCase();
+            const route    = ROUTES[rawLabel];
+
+            if (route) item.setAttribute('href', route);
+
+            const isActive = Boolean(route) && currentPath === route.toLowerCase();
+            item.classList.toggle('active', isActive);
+            swapIcon(item, isActive);
+
+            item.addEventListener('click', function () {
+                if (window.innerWidth <= 768) {
+                    const sb = document.querySelector('.sidebar');
+                    if (sb) sb.classList.remove('mobile-open');
+                }
+            });
+        });
+    }
+
+    /* ── Icon swap ──────────────────────────────────────────── */
+    function swapIcon(item, isActive) {
+        const icon = item.querySelector('.nav-icon');
+        if (!icon) return;
+
+        const src        = icon.getAttribute('src') || '';
+        const fileName   = src.split('/').pop() || '';
+        const dot        = fileName.lastIndexOf('.');
+        const base       = dot >= 0 ? fileName.slice(0, dot) : fileName;
+        const ext        = dot >= 0 ? fileName.slice(dot) : '';
+        const normalBase = base.endsWith('-active') ? base.slice(0, -7) : base;
+
+        if (!ACTIVE_ICON_CAPABLE.has(normalBase)) return;
+
+        const folder  = src.substring(0, src.lastIndexOf('/') + 1);
+        const newFile = isActive ? (normalBase + '-active' + ext) : (normalBase + ext);
+        icon.setAttribute('src', folder + newFile);
+    }
+
+    /* ── Expand / collapse ──────────────────────────────────── */
+    function wireExpand(sidebar) {
+        sidebar.addEventListener('click', function (e) {
+            if (window.innerWidth <= 768) return;
+            if (e.target.closest('.nav-item') || e.target.closest('#sidebar-toggle')) return;
+            sidebar.classList.toggle('expanded');
+            syncToggleState(sidebar);
+        });
+
+        document.addEventListener('click', function (e) {
+            if (window.innerWidth > 768) return;
+            if (!sidebar.contains(e.target)) sidebar.classList.remove('mobile-open');
+        });
+
+        window.addEventListener('resize', function () {
+            if (window.innerWidth > 768) sidebar.classList.remove('mobile-open');
+            syncToggleState(sidebar);
+        });
+    }
+
+    function syncToggleState(sidebar) {
+        const btn = document.getElementById('sidebar-toggle');
+        if (!btn) return;
+        btn.setAttribute('aria-expanded',
+            sidebar.classList.contains('expanded') ? 'true' : 'false');
+    }
+
+}());

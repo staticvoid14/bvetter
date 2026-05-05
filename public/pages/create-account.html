@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<!--
+  Page:    create-account.html
+  Feature: 3-step user registration
+  CSS:     variables.css → signup.css
+  JS:      signup.js (no nav.js — unauthenticated page)
+
+  TODO backend:
+  - Step 3 submit: api.register(data) → get reference number
+  - Upload proof: send as FormData with api.register()
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BVETTER - Create Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- 1. Design tokens (ALWAYS first) -->
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <!-- 2. Page-specific (no navbar on auth pages) -->
+  <link rel="stylesheet" href="../css/signup.css"/>
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+      <div class="form-container">
+
+        <img src="../images/logos/logo-color.png" alt="Baliwag City Veterinary Services" class="logo"/>
+        <h2>Create An Account</h2>
+
+        <!-- STEPPER -->
+        <div class="stepper">
+          <div class="step">
+            <div class="step-circle active" id="circle-1">1</div>
+            <span class="step-label">Account Detail</span>
+          </div>
+          <div class="step-line" id="line-1"></div>
+          <div class="step">
+            <div class="step-circle" id="circle-2">2</div>
+            <span class="step-label">Proof</span>
+          </div>
+          <div class="step-line" id="line-2"></div>
+          <div class="step">
+            <div class="step-circle" id="circle-3">3</div>
+            <span class="step-label">Review</span>
+          </div>
+        </div>
+
+        <!-- STEP 1: Account Details -->
+        <div class="form-step active" id="step-1">
+
+          <div class="form-group">
+            <label>FULL NAME</label>
+            <div class="input-wrapper">
+              <img src="../images/icons/icon-user.svg" alt="" class="input-icon"/>
+              <input type="text" id="reg_fullname" name="full_name" placeholder="Full Name" autocomplete="name"/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>EMAIL ADDRESS</label>
+            <div class="input-wrapper">
+              <img src="../images/icons/icon-email.svg" alt="" class="input-icon"/>
+              <input type="email" id="reg_email" name="email" placeholder="your@email.com" autocomplete="email"/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>PASSWORD <span class="hint">Minimum 8 characters</span></label>
+            <div class="input-wrapper">
+              <img src="../images/icons/icon-password.svg" alt="" class="input-icon"/>
+              <input type="password" id="reg_pw1" name="password" placeholder="••••••••" autocomplete="new-password"/>
+              <img src="../images/icons/icon-eye.svg" alt="show" class="toggle-pw" onclick="togglePw('reg_pw1')"/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>CONFIRM PASSWORD <span class="hint">Must match password above</span></label>
+            <div class="input-wrapper">
+              <img src="../images/icons/icon-password.svg" alt="" class="input-icon"/>
+              <input type="password" id="reg_pw2" name="password_confirmation" placeholder="••••••••" autocomplete="new-password"/>
+              <img src="../images/icons/icon-eye.svg" alt="show" class="toggle-pw" onclick="togglePw('reg_pw2')"/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>BARANGAY</label>
+            <div class="select-wrapper">
+              <select id="reg_barangay" name="barangay">
+                <option value="">Select Barangay</option>
+                <option value="bagong_nayon">Bagong Nayon</option>
+                <option value="burol">Burol</option>
+                <option value="calasag">Calasag</option>
+                <option value="camalig">Camalig</option>
+                <option value="canalate">Canalate</option>
+                <option value="caniogan">Caniogan</option>
+                <option value="entablado">Entablado</option>
+                <option value="lote">Lote</option>
+                <option value="maasim">Maasim</option>
+                <option value="pagala">Pagala</option>
+                <option value="paitan">Paitan</option>
+                <option value="piel">Piel</option>
+                <option value="pinagbarilan">Pinagbarilan</option>
+                <option value="poblacion">Poblacion</option>
+                <option value="san_jose">San Jose</option>
+                <option value="san_roque">San Roque</option>
+                <option value="santissima_trinidad">Santissima Trinidad</option>
+                <option value="santo_cristo">Santo Cristo</option>
+                <option value="subic">Subic</option>
+                <option value="tangos">Tangos</option>
+                <option value="tibag">Tibag</option>
+                <option value="tilapayong">Tilapayong</option>
+              </select>
+              <span class="chevron">&#8964;</span>
+            </div>
+          </div>
+
+          <div class="checkbox-row">
+            <input type="checkbox" id="reg_terms" name="terms"/>
+            <label for="reg_terms">
+              I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+            </label>
+          </div>
+
+          <button class="btn-primary" onclick="goTo(2)">
+            Next Step
+            <img src="../images/icons/icon-arrow-right.png" alt="" class="btn-icon"/>
+          </button>
+
+          <p class="alt-link">Already have an account? <a href="login.html">Login</a></p>
+        </div>
+
+        <!-- STEP 2: Proof of Residency -->
+        <div class="form-step" id="step-2">
+
+          <div class="form-group">
+            <label>UPLOAD DOCUMENT (PROOF OF RESIDENCY)</label>
+            <div class="upload-box" onclick="document.getElementById('reg_proof').click()">
+              <p>Click to upload or drag &amp; drop</p>
+              <span>PDF, JPG or PNG (Max. 5MB)</span>
+              <input type="file" id="reg_proof" name="proof_document" style="display:none" accept=".pdf,.jpg,.jpeg,.png"/>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="goTo(1)">Back</button>
+            <button class="btn-primary btn-flex" onclick="goTo(3)">
+              Next
+              <img src="../images/icons/icon-arrow-right.png" alt="" class="btn-icon"/>
+            </button>
+          </div>
+
+          <p class="alt-link">Already have an account? <a href="login.html">Login</a></p>
+        </div>
+
+        <!-- STEP 3: Review -->
+        <div class="form-step" id="step-3">
+
+          <div class="form-group">
+            <label>Full Name</label>
+            <div class="input-wrapper">
+              <input type="text" id="rv_fullname" class="no-icon" readonly/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Email Address</label>
+            <div class="input-wrapper">
+              <input type="email" id="rv_email" class="no-icon" readonly/>
+            </div>
+          </div>
+
+          <div class="form-row two-col">
+            <div class="form-group">
+              <label>Password</label>
+              <div class="input-wrapper">
+                <input type="password" id="rv_pw" class="no-icon" readonly/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Confirm Password</label>
+              <div class="input-wrapper">
+                <input type="password" id="rv_pw2" class="no-icon" readonly/>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>BARANGAY</label>
+            <div class="input-wrapper">
+              <input type="text" id="rv_barangay" class="no-icon" readonly/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="upload-label-row">
+              <label>PROOF OF RESIDENCY</label>
+              <img src="../images/icons/icon-edit.svg" alt="edit" class="edit-icon-sm" onclick="goTo(2)"/>
+            </div>
+            <div class="upload-box">
+              <p id="rv_proof_name">No file selected</p>
+              <span>PDF, JPG or PNG (Max. 5MB)</span>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="goTo(2)">Back</button>
+            <button class="btn-primary btn-flex" onclick="goTo(4)">
+              Confirm &amp; Submit
+              <img src="../images/icons/icon-arrow-right.png" alt="" class="btn-icon"/>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 4: Success -->
+        <div class="form-step" id="step-4">
+          <div class="success-card">
+            <div class="success-top">
+              <div class="success-icon">
+                <img src="../images/icons/icon-success.svg" alt="success" class="success-check"/>
+              </div>
+              <span class="success-label">Registration Complete</span>
+            </div>
+            <div class="success-body">
+              <h3>Account Request Submitted!</h3>
+              <p>Your account is now pending administrative verification. Our team will review your submitted documents shortly.</p>
+
+              <div class="ref-box">
+                <span class="ref-label">Reference Number</span>
+                <div class="ref-row">
+                  <span class="ref-number" id="reg_ref_number">#ACC-2025-0000</span>
+                  <img src="../images/icons/icon-copy.svg" alt="copy" class="copy-icon" onclick="copyRef()"/>
+                </div>
+                <span class="ref-hint">Save this number to track your application status.</span>
+              </div>
+
+              <button class="btn-back-login" onclick="window.location.href='login.html'">
+                Back to Login
+                <img src="../images/icons/icon-back.svg" alt="" class="btn-icon"/>
+              </button>
+              <button class="btn-close-text" onclick="window.location.href='login.html'">Close</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+      <img src="../images/logos/logo-white.png" alt="Baliwag City Veterinary Services" class="right-logo"/>
+      <img src="../images/backgrounds/green-bg.png" alt="" class="bg-image"/>
+      <div class="right-content">
+        <h1>Join Baliwag Vet Services and keep your pet's health on track.</h1>
+        <p>BOOK APPOINTMENTS, VIEW RECORDS, AND TRACK YOUR PET'S WELLNESS JOURNEY.</p>
+      </div>
+      <div class="cross-deco cross-1">+</div>
+      <div class="cross-deco cross-2">+</div>
+    </div>
+
+  </div>
+  <!-- ══ SCRIPTS — unauthenticated page ══ -->
+  <script src="../js/api.js"></script>
+  <script src="../js/signup.js"></script>
+</body>
+</html>
