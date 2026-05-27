@@ -175,7 +175,10 @@ const api = {
    */
   getMyReports: () =>
     lostFoundRequest('my_reports'),
-
+  getTotalReports: () =>
+    lostFoundRequest('get_total_reports'),
+  getActiveReports: () =>
+    lostFoundRequest('get_active_reports'),
   /**
    * Get Jaccard Similarity matches for a lost report
    * @param {string} reportId

@@ -38,13 +38,13 @@
       </ul>
     </div>
     <div class="nav-right nav-right-auth">
-      <button class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
+      <button type="button" class="nav-notif-btn" onclick="window.location.href='notification-settings.html'">
         <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
         <span class="nav-notif-dot"></span>
       </button>
       <div class="nav-user-pill" onclick="toggleUserMenu()">
         <div class="nav-user-info">
-          <span class="nav-user-name">Mark Depa</span>
+          <span class="nav-user-name"></span>
           <span class="nav-user-role">Pet Owner</span>
         </div>
         <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
@@ -76,11 +76,11 @@
         <p>Helping our community reunite pets with their families. If you've lost a companion or found a pet in your neighborhood, let's work together to bring them home.</p>
       </div>
       <div class="lf-hero-right">
-        <button class="btn-report light" onclick="openModal('lost')">
+        <button type="button" class="btn-report light" onclick="openModal('lost')">
           <img src="../images/icons/report.svg" alt="" class="btn-report-icon-img"/>
           Report a Lost Pet
         </button>
-        <button class="btn-report dark" onclick="openModal('found')">
+        <button type="button" class="btn-report dark" onclick="openModal('found')">
           <img src="../images/icons/report.svg" alt="" class="btn-report-icon-img"/>
           Report Found Pet
         </button>
@@ -93,17 +93,17 @@
     <section class="lf-stats">
       <div class="stat-card white">
         <span class="stat-label">Success Rate</span>
-        <span class="stat-big green">84%</span>
+        <span class="stat-big green" id="successRate">84%</span>
         <span class="stat-desc">Pets reunited in the last 30 days thanks to the Vetra community.</span>
       </div>
       <div class="stat-card green-card">
         <span class="stat-label">Reunited</span>
-        <span class="stat-big dark">142</span>
+        <span class="stat-big dark" id="ResolvedCases">142</span>
         <img src="../images/icons/icon-heart.svg" alt="" class="stat-icon-img"/>
       </div>
       <div class="stat-card navy-card">
         <span class="stat-label white-text">Active Alerts</span>
-        <span class="stat-big white-text">28</span>
+        <span class="stat-big white-text" id="ActiveAlerts">28</span>
         <img src="../images/icons/icon-bell.svg" alt="" class="stat-icon-img"/>
       </div>
     </section>
@@ -112,11 +112,11 @@
   <!-- ══════════ FILTER TABS ══════════ -->
   <section class="lf-filters">
     <div class="filter-tabs">
-      <button class="tab active" id="tab-all"      onclick="filterPets('all', this)">All Reports</button>
-      <button class="tab"        id="tab-lost"     onclick="filterPets('lost', this)">Lost</button>
-      <button class="tab"        id="tab-found"    onclick="filterPets('found', this)">Found</button>
-      <button class="tab"        id="tab-myreports" onclick="showMyReports(this)">My Reports</button>
-      <button class="tab plain"                    onclick="window.location.href='my-claims.html'">My Claims</button>
+      <button type="button" class="tab active" id="tab-all"      onclick="filterPets('all', this)">All Reports</button>
+      <button type="button" class="tab"        id="tab-lost"     onclick="filterPets('lost', this)">Lost</button>
+      <button type="button" class="tab"        id="tab-found"    onclick="filterPets('found', this)">Found</button>
+      <button type="button" class="tab"        id="tab-myreports" onclick="showMyReports(this)">My Reports</button>
+      <button type="button" class="tab plain"                    onclick="window.location.href='my-claims.html'">My Claims</button>
     </div>
     <div class="filter-panel-wrap">
       <div class="filter-location" onclick="toggleFilterPanel()" id="filterBtn">
@@ -129,37 +129,37 @@
         <div class="filter-section">
           <span class="filter-section-label">Barangay</span>
           <div class="filter-chips">
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tangos</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Poblacion</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Sabang</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Caniogan</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Pagala</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Subic</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tibag</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Tilapayong</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">Sta. Barbara</button>
-            <button class="filter-chip" onclick="toggleChip(this,'barangay')">San Jose</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Tangos</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Poblacion</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Sabang</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Caniogan</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Pagala</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Subic</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Tibag</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Tilapayong</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">Sta. Barbara</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">San Jose</button>
           </div>
         </div>
         <div class="filter-section">
           <span class="filter-section-label">Animal Type</span>
           <div class="filter-chips">
-            <button class="filter-chip" onclick="toggleChip(this,'type')">Dog</button>
-            <button class="filter-chip" onclick="toggleChip(this,'type')">Cat</button>
-            <button class="filter-chip" onclick="toggleChip(this,'type')">Other</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'type')">Dog</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'type')">Cat</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'type')">Other</button>
           </div>
         </div>
         <div class="filter-section">
           <span class="filter-section-label">Date Reported</span>
           <div class="filter-chips">
-            <button class="filter-chip" onclick="toggleChip(this,'date')">Today</button>
-            <button class="filter-chip" onclick="toggleChip(this,'date')">This Week</button>
-            <button class="filter-chip" onclick="toggleChip(this,'date')">This Month</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'date')">Today</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'date')">This Week</button>
+            <button type="button" class="filter-chip" onclick="toggleChip(this,'date')">This Month</button>
           </div>
         </div>
         <div class="filter-dropdown-footer">
-          <button class="btn-filter-clear" onclick="clearFilters()">Clear All</button>
-          <button class="btn-filter-apply" onclick="applyFilters()">Apply Filters</button>
+          <button type="button" class="btn-filter-clear" onclick="clearFilters()">Clear All</button>
+          <button type="button" class="btn-filter-apply" onclick="applyFilters()">Apply Filters</button>
         </div>
       </div>
     </div>
@@ -183,7 +183,7 @@
             <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Tangos</span>
             <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 24, 2024</span>
           </div>
-          <button class="btn-view-details" onclick="viewDetails(0)">View Details</button>
+          <button type="button" class="btn-view-details" onclick="viewDetails(0)">View Details</button>
         </div>
       </div>
 
@@ -201,7 +201,7 @@
             <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Poblacion</span>
             <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 25, 2024</span>
           </div>
-          <button class="btn-view-details" onclick="viewDetails(1)">View Details</button>
+          <button type="button" class="btn-view-details" onclick="viewDetails(1)">View Details</button>
         </div>
       </div>
 
@@ -219,7 +219,7 @@
             <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Sabang</span>
             <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 22, 2024</span>
           </div>
-          <button class="btn-view-details" onclick="viewDetails(2)">View Details</button>
+          <button type="button" class="btn-view-details" onclick="viewDetails(2)">View Details</button>
         </div>
       </div>
 
@@ -237,13 +237,13 @@
             <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> Sta. Barbara</span>
             <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> Oct 26, 2024</span>
           </div>
-          <button class="btn-view-details" onclick="viewDetails(3)">View Details</button>
+          <button type="button" class="btn-view-details" onclick="viewDetails(3)">View Details</button>
         </div>
       </div>
 
     </div>
     <div class="load-more-wrap">
-      <button class="btn-load-more">Load More</button>
+      <button type="button" class="btn-load-more">Load More</button>
     </div>
   </section>
 
@@ -285,7 +285,7 @@
             </svg>
             2 Potential Matches Found
           </div>
-          <button class="btn-active-details" onclick="openMyReportMatches('cooper')">
+          <button type="button" class="btn-active-details" onclick="openMyReportMatches('cooper')">
             View Potential Matches
             <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
           </button>
@@ -309,7 +309,7 @@
               <img src="../images/icons/admin-review.svg" alt="" class="status-icon"/> Admin Review
             </span>
           </div>
-          <button class="btn-active-details outline">
+          <button type="button" class="btn-active-details outline">
             View Details
             <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
           </button>
@@ -323,7 +323,7 @@
         </div>
         <h3 class="create-report-title">Create New Report</h3>
         <p class="create-report-desc">File a new lost or found animal report to start the recovery process.</p>
-        <button class="btn-start-report" onclick="openModal('lost')">Start Report</button>
+        <button type="button" class="btn-start-report" onclick="openModal('lost')">Start Report</button>
       </div>
 
     </div>
@@ -340,21 +340,21 @@
           <span class="history-pet"><img src="../images/img/pet-1.jpg" alt="" class="history-pet-img"/> Bella</span>
           <span><span class="type-tag lost-tag">LOST</span></span>
           <span><span class="final-status reunited"><img src="../images/icons/icon-check-circle.svg" alt="" class="status-icon"/> Reunited</span></span>
-          <span><button class="btn-view-case">View Case</button></span>
+          <span><button type="button" class="btn-view-case">View Case</button></span>
         </div>
         <div class="history-row">
           <span class="history-date">Sep 12, 2023</span>
           <span class="history-pet"><img src="../images/img/pet-2.jpg" alt="" class="history-pet-img"/> Found Cat #12</span>
           <span><span class="type-tag found-tag">FOUND</span></span>
           <span><span class="final-status pending">Pending</span></span>
-          <span><button class="btn-view-case">View Case</button></span>
+          <span><button type="button" class="btn-view-case">View Case</button></span>
         </div>
         <div class="history-row">
           <span class="history-date">Aug 05, 2023</span>
           <span class="history-pet"><img src="../images/img/pet-5.jpg" alt="" class="history-pet-img"/> Max</span>
           <span><span class="type-tag lost-tag">LOST</span></span>
           <span><span class="final-status reunited"><img src="../images/icons/icon-check-circle.svg" alt="" class="status-icon"/> Reunited</span></span>
-          <span><button class="btn-view-case">View Case</button></span>
+          <span><button type="button" class="btn-view-case">View Case</button></span>
         </div>
       </div>
     </div>
@@ -372,7 +372,7 @@
           <h2 class="matches-panel-title">Potential Matches</h2>
           <p class="matches-panel-sub">System-detected matches for <strong id="matchesPetName">Cooper</strong></p>
         </div>
-        <button class="matches-panel-close" onclick="closeMatchesPanelDirect()">
+        <button type="button" class="matches-panel-close" onclick="closeMatchesPanelDirect()">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M4 4l8 8M12 4l-8 8" stroke="#424750" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
@@ -437,8 +437,8 @@
             <span class="lf-sim-tag">Same Size</span>
           </div>
           <div class="lf-match-actions">
-            <button class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
-            <button class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
+            <button type="button" class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
+            <button type="button" class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
           </div>
         </div>
 
@@ -488,8 +488,8 @@
             <span class="lf-sim-tag">Same Barangay</span>
           </div>
           <div class="lf-match-actions">
-            <button class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
-            <button class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
+            <button type="button" class="lfd-btn-notmine" onclick="handleNotMine(this)">NOT MY PET</button>
+            <button type="button" class="lfd-btn-claim" onclick="handleClaim(this)">CLAIM THIS PET</button>
           </div>
         </div>
 
@@ -517,7 +517,7 @@
             <p class="modal-subtitle">Create a clinical entry for the Lost &amp; Found database</p>
           </div>
         </div>
-        <button class="modal-close" onclick="closeModal('reportModal')">
+        <button type="button" class="modal-close" onclick="closeModal('reportModal')">
           <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
         </button>
       </div>
@@ -525,12 +525,12 @@
         <!-- LEFT COL -->
         <div class="modal-col">
           <div class="modal-section-label">PET IDENTIFICATION PHOTO</div>
-          <div class="upload-box" onclick="document.getElementById('petPhoto').click()">
-            <img src="../images/icons/report-upload.svg" alt="" class="upload-cam-icon"/>
-            <span class="upload-text">Upload Clear Portrait</span>
-            <span class="upload-hint">High-res JPG or PNG preferred</span>
-            <input type="file" id="petPhoto" accept=".jpg,.jpeg,.png" style="display:none"/>
-          </div>
+      <div class="upload-box" onclick="document.getElementById('petPhoto').click()">
+    <img src="../images/icons/report-upload.svg" alt="" class="upload-cam-icon"/>
+    <span class="upload-text">Upload Clear Portrait</span>
+    <span class="upload-hint">High-res JPG or PNG preferred</span>
+    <input type="file" id="petPhoto" accept=".jpg,.jpeg,.png" style="display:none"/>
+</div>
           <div class="modal-section-label" id="petDetailsLabel">PET DETAILS</div>
           <div class="form-row" id="petNameRow">
             <div class="form-group full">
@@ -557,8 +557,8 @@
             <div class="form-group">
               <label>Sex</label>
               <div class="sex-toggle">
-                <button class="sex-btn active" onclick="setSex(this)">Male</button>
-                <button class="sex-btn" onclick="setSex(this)">Female</button>
+                <button type="button" class="sex-btn active" onclick="setSex(this)">Male</button>
+                <button type="button" class="sex-btn" onclick="setSex(this)">Female</button>
               </div>
             </div>
             <div class="form-group">
@@ -631,10 +631,10 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-save-draft">Save Draft</button>
+        <button type="button" class="btn-save-draft">Save Draft</button>
         <div class="modal-footer-right">
-          <button class="btn-cancel" onclick="closeModal('reportModal')">Cancel</button>
-          <button class="btn-submit" onclick="submitReport()">
+          <button type="button" class="btn-cancel" onclick="closeModal('reportModal')">Cancel</button>
+          <button type="button" class="btn-submit" onclick="submitReport()">
             <span id="submitText">Submit Lost Pet Report</span>
             <img src="../images/icons/report-submit.svg" alt="" class="btn-icon-img"/>
           </button>
@@ -656,7 +656,7 @@
             <h2 class="details-pet-name" id="detailsPetName">Unknown</h2>
             <span class="details-case-id" id="detailsCaseId">—</span>
           </div>
-          <button class="modal-close" onclick="closeModal('detailsLostModal')">
+          <button type="button" class="modal-close" onclick="closeModal('detailsLostModal')">
             <img src="../images/icons/report-close.svg" alt="close" class="close-icon-img"/>
           </button>
         </div>
@@ -672,9 +672,7 @@
         </div>
         <div class="details-section">
           <h4 class="details-section-title green">LAST SEEN LOCATION</h4>
-          <div class="details-map-placeholder">
-            <img src="../images/img/map.png" alt="Map" class="details-map-img"/>
-          </div>
+          <div class="details-map-placeholder" id="detailsLostMap" style="height:180px;"></div>
           <div class="details-location-info">
             <img src="../images/icons/icon-location.svg" alt="" class="details-loc-icon"/>
             <div>
@@ -684,8 +682,8 @@
           </div>
         </div>
         <div class="details-footer">
-          <button class="btn-details-close" onclick="closeModal('detailsLostModal')">Close</button>
-          <button class="btn-details-action" onclick="openSightingModal()">
+          <button type="button" class="btn-details-close" onclick="closeModal('detailsLostModal')">Close</button>
+          <button type="button" class="btn-details-action" onclick="openSightingModal()">
             <img src="../images/icons/report-icon.svg" alt="" class="btn-icon-sm"/> I've Seen / Found This Pet
           </button>
         </div>
@@ -706,7 +704,7 @@
             <h2 class="details-pet-name" id="detailsFoundName">Unknown</h2>
             <span class="details-case-id" id="dReportId">Report ID: —</span>
           </div>
-          <button class="modal-close" onclick="closeModal('detailsFoundModal')">
+          <button type="button" class="modal-close" onclick="closeModal('detailsFoundModal')">
             <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
           </button>
         </div>
@@ -732,10 +730,14 @@
             <div><span class="found-detail-label">COLOR/MARKING</span><span class="found-detail-value" id="dFoundColor">—</span></div>
           </div>
         </div>
+        <div class="details-section">
+          <h4 class="details-section-title green">FOUND LOCATION</h4>
+          <div class="details-map-placeholder" id="detailsFoundMap" style="height:180px;"></div>
+        </div>
         <div class="found-notes-box" id="dFoundNotes">—</div>
         <div class="details-footer">
-          <button class="btn-details-close" onclick="closeModal('detailsFoundModal')">Close</button>
-          <button class="btn-details-action" onclick="openClaimModal()">
+          <button type="button" class="btn-details-close" onclick="closeModal('detailsFoundModal')">Close</button>
+          <button type="button" class="btn-details-action" onclick="openClaimModal()">
   <img src="../images/icons/report-icon.svg" alt="" class="btn-icon-sm"/> This is My Pet
 </button>
         </div>
@@ -756,7 +758,7 @@
             <p class="modal-subtitle">Help bring a pet home with accurate details.</p>
           </div>
         </div>
-        <button class="modal-close" onclick="closeModal('sightingModal')">
+        <button type="button" class="modal-close" onclick="closeModal('sightingModal')">
           <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
         </button>
       </div>
@@ -780,6 +782,12 @@
             </div>
           </div>
         </div>
+        <div class="details-section">
+          <h4 class="details-section-title green">SIGHTING LOCATION</h4>
+          <div class="details-map-placeholder" id="sightingMap" style="height:180px;"></div>
+          <input type="hidden" id="sightingLatInput" value="14.9577"/>
+          <input type="hidden" id="sightingLngInput" value="120.9055"/>
+        </div>
         <div class="form-group" style="margin-bottom:14px;">
           <label>SPECIFIC LANDMARKS</label>
           <div class="input-icon-wrap-full">
@@ -801,8 +809,8 @@
           <textarea class="form-textarea" placeholder="Was the pet wearing a collar? What was its temperament?"></textarea>
         </div>
         <div class="sighting-footer">
-          <button class="btn-cancel" onclick="closeModal('sightingModal')">Cancel</button>
-          <button class="btn-submit" onclick="submitSighting()">
+          <button type="button" class="btn-cancel" onclick="closeModal('sightingModal')">Cancel</button>
+          <button type="button" class="btn-submit" onclick="submitSighting()">
             Submit Sighting
             <img src="../images/icons/report-submit.svg" alt="" class="btn-icon-img"/>
           </button>
@@ -824,23 +832,23 @@
             <p class="claim-subtitle">Please provide documentation to confirm your relationship with the animal.</p>
           </div>
         </div>
-        <button class="modal-close" onclick="closeModal('claimModal')">
+        <button type="button" class="modal-close" onclick="closeModal('claimModal')">
           <img src="../images/icons/icon-close.svg" alt="close" class="close-icon-img"/>
         </button>
       </div>
       <div class="claim-body">
         <label class="claim-section-label">SELECT PROOF OF OWNERSHIP</label>
         <div class="proof-grid">
-          <button class="proof-option active" onclick="selectProof(this)">
+          <button type="button" class="proof-option active" onclick="selectProof(this)">
             <img src="../images/icons/report-photo.svg" alt="" class="proof-icon-img"/> Photo Evidence
           </button>
-          <button class="proof-option" onclick="selectProof(this)">
+          <button type="button" class="proof-option" onclick="selectProof(this)">
             <img src="../images/icons/report-records.svg" alt="" class="proof-icon-img"/> Vet Records
           </button>
-          <button class="proof-option" onclick="selectProof(this)">
+          <button type="button" class="proof-option" onclick="selectProof(this)">
             <img src="../images/icons/report-license.svg" alt="" class="proof-icon-img"/> Registration/License
           </button>
-          <button class="proof-option" onclick="selectProof(this)">
+          <button type="button" class="proof-option" onclick="selectProof(this)">
             <img src="../images/icons/report-video.svg" alt="" class="proof-icon-img"/> Video Proof
           </button>
         </div>
@@ -863,10 +871,10 @@
         </div>
       </div>
       <div class="claim-footer">
-        <button class="btn-save-draft">Save Draft</button>
+        <button type="button" class="btn-save-draft">Save Draft</button>
         <div class="modal-footer-right">
-          <button class="btn-cancel" onclick="closeModal('claimModal')">Cancel</button>
-          <button class="btn-submit" onclick="submitClaim()">Submit Verification</button>
+          <button type="button" class="btn-cancel" onclick="closeModal('claimModal')">Cancel</button>
+          <button type="button" class="btn-submit" onclick="submitClaim()">Submit Verification</button>
         </div>
       </div>
     </div>
@@ -901,8 +909,8 @@
           <div class="step-text"><span class="step-label-sm">STEP 4</span><h4 class="step-title">You'll Get Notified</h4><p class="step-desc">Instant alerts on matches</p></div>
         </div>
       </div>
-      <button class="btn-success-primary" onclick="closeAll(); showMyReports(document.getElementById('tab-myreports'))">View My Reports</button>
-      <button class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
+      <button type="button" class="btn-success-primary" onclick="closeAll(); showMyReports(document.getElementById('tab-myreports'))">View My Reports</button>
+      <button type="button" class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
     </div>
   </div>
 
@@ -922,8 +930,8 @@
         <div class="step-connector"></div>
         <div class="success-step"><div class="step-icon-badge gray-badge"><img src="../images/icons/lf-step-4.svg" alt="" class="step-badge-icon"/></div><div class="step-text"><span class="step-label-sm">STEP 4</span><h4 class="step-title">You'll Get Notified</h4></div></div>
       </div>
-      <button class="btn-success-primary" onclick="closeAll()">View My Report</button>
-      <button class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
+      <button type="button" class="btn-success-primary" onclick="closeAll()">View My Report</button>
+      <button type="button" class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
     </div>
   </div>
 
@@ -960,8 +968,8 @@
         </div>
       </div>
     </div>
-    <button class="btn-success-primary" onclick="closeAll()">View Report Details</button>
-    <button class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
+    <button type="button" class="btn-success-primary" onclick="closeAll()">View Report Details</button>
+    <button type="button" class="btn-success-secondary" onclick="closeAll()">Back to Dashboard</button>
   </div>
 </div>
 
@@ -1014,8 +1022,8 @@
         </div>
       </div>
     </div>
-    <button class="btn-success-primary" onclick="window.location.href='my-claims.html'">View My Claims</button>
-    <button class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
+    <button type="button" class="btn-success-primary" onclick="window.location.href='my-claims.html'">View My Claims</button>
+    <button type="button" class="btn-success-secondary" onclick="closeAll()">Back to Lost &amp; Found</button>
   </div>
 </div>
 
@@ -1062,5 +1070,6 @@
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
           crossorigin=""></script>
   <script src="../js/lost-found.js"></script>
+   <script src="../js/landing.js"></script>
 </body>
 </html>

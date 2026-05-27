@@ -1,5 +1,17 @@
 const STORAGE_KEY = 'vbetter.patient-records';
 
+function appBasePath() {
+	const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/vet/js/patient-records.js'));
+	const path = script?.src ? new URL(script.src).pathname : window.location.pathname;
+	const jsMarker = '/vet/js/patient-records.js';
+	if (path.includes(jsMarker)) return path.slice(0, path.indexOf(jsMarker));
+	const pageMarker = '/vet/html/';
+	if (path.includes(pageMarker)) return path.slice(0, path.indexOf(pageMarker));
+	return '/Final-backend(VBETTER)/Final-Backend';
+}
+
+const PATIENT_API = `${appBasePath()}/backend/patient-records/patient_records.php`;
+
 const ICONS = {
 	eye: `
 		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -146,7 +158,13 @@ const defaultRecords = [
 ];
 
 const state = {
-	records: loadRecords(),
+	records: [],
+	metrics: {
+		totalPatients: 0,
+		visitsThisMonth: 0,
+		infectiousCases: 0,
+		followUpsDue: 0
+	},
 	mode: 'list',
 	selectedId: null,
 	detailTab: 'patient-info',
@@ -166,19 +184,39 @@ function clone(value) {
 	return JSON.parse(JSON.stringify(value));
 }
 
-function loadRecords() {
+async function patientRequest(action, payload = {}) {
+	const response = await fetch(PATIENT_API, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ action, ...payload })
+	});
+	const result = await response.json();
+	if (!response.ok || !result.success) {
+		throw new Error(result.message || 'Patient records request failed.');
+	}
+	return result;
+}
+
+async function loadRecords() {
 	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return clone(defaultRecords);
-		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed) && parsed.length ? parsed : clone(defaultRecords);
+		const result = await patientRequest('list');
+		state.records = Array.isArray(result.data) ? result.data : [];
+		state.metrics = result.metrics || state.metrics;
 	} catch (error) {
-		return clone(defaultRecords);
+		console.warn('Using local patient records fallback because backend failed:', error);
+		state.records = clone(defaultRecords);
+		state.metrics = {
+			totalPatients: state.records.length,
+			visitsThisMonth: state.records.reduce((sum, record) => sum + Number(record.recordCount || 0), 0),
+			infectiousCases: 0,
+			followUpsDue: state.records.filter((record) => record.alert && record.alert !== '0').length
+		};
 	}
 }
 
-function saveRecords() {
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
+async function reloadRecords() {
+	await loadRecords();
+	render();
 }
 
 function escapeHtml(value) {
@@ -502,12 +540,12 @@ function renderList() {
 			</header>
             	<div class="metrics-grid">
 					<article class="metric-card">
-                        <div class="metric-label">Total Patients <span class="metric-badge">+12%</span></div>
-                        <div class="metric-value">1,284</div>
+                        <div class="metric-label">Total Patients <span class="metric-badge">Live</span></div>
+                        <div class="metric-value">${Number(state.metrics.totalPatients || total).toLocaleString()}</div>
                         </article>
-					<article class="metric-card"><div class="metric-label">Visits This Month <span class="metric-badge orange">Steady</span></div><div class="metric-value">342</div></article>
-					<article class="metric-card"><div class="metric-label">Infectious Cases<span class="metric-badge red">-3%</span></div><div class="metric-value">14</div></article>
-					<article class="metric-card"><div class="metric-label">Follow-ups Due <span class="metric-badge green">Due Now</span></div><div class="metric-value">28</div></article>
+					<article class="metric-card"><div class="metric-label">Visits This Month <span class="metric-badge orange">Live</span></div><div class="metric-value">${Number(state.metrics.visitsThisMonth || 0).toLocaleString()}</div></article>
+					<article class="metric-card"><div class="metric-label">Infectious Cases<span class="metric-badge red">Live</span></div><div class="metric-value">${Number(state.metrics.infectiousCases || 0).toLocaleString()}</div></article>
+					<article class="metric-card"><div class="metric-label">Follow-ups Due <span class="metric-badge green">Due Now</span></div><div class="metric-value">${Number(state.metrics.followUpsDue || alerts).toLocaleString()}</div></article>
 				</div>
 
 			<section class="records-card">
@@ -955,21 +993,15 @@ function closeModal() {
 	state.pendingDeleteId = null;
 }
 
-function updateRecord(id, changes) {
-	const index = state.records.findIndex((record) => record.id === id);
-	if (index < 0) return null;
-	state.records[index] = {
-		...state.records[index],
-		...changes,
-		statusType: changes.status === 'Monitoring' ? 'warning' : changes.status === 'Critical' ? 'danger' : 'success'
-	};
-	saveRecords();
-	return state.records[index];
+async function updateRecord(id, changes) {
+	await patientRequest('update', { id, ...changes });
+	await loadRecords();
+	return getRecordById(id);
 }
 
-function deleteRecord(id) {
-	state.records = state.records.filter((record) => record.id !== id);
-	saveRecords();
+async function deleteRecord(id) {
+	await patientRequest('delete', { id });
+	await loadRecords();
 }
 
 function getFormData(form) {
@@ -1006,31 +1038,19 @@ function getFormData(form) {
 	};
 }
 
-function handleAddSubmit(event) {
+async function handleAddSubmit(event) {
 	event.preventDefault();
 	const data = getFormData(event.currentTarget);
+	const patientId = state.selectedId || 0;
 
-	const record = {
-		...buildBlankRecord(),
-		...data,
-		id: Date.now(),
-		statusType: data.status === 'Monitoring' ? 'warning' : data.status === 'Critical' ? 'danger' : 'success',
-		recordCount: 1,
-		lastVisit: formatDate(data.visitDate || new Date()),
-		healthStatus: 'New record added',
-		alert: data.followUpDate ? 'Follow-up set' : '0',
-		history: [
-			{
-				date: data.visitDate || new Date().toISOString().slice(0, 10),
-				title: data.visitTitle || 'Initial visit',
-				note: data.symptoms || 'Record created successfully.'
-			}
-		]
-	};
-
-	state.records.unshift(record);
-	saveRecords();
-	openModal(renderSuccessModal(record));
+	try {
+		const result = await patientRequest('save', patientId ? { id: patientId, ...data } : data);
+		await loadRecords();
+		const record = getRecordById(Number(result.id || patientId));
+		openModal(renderSuccessModal(record || { ...buildBlankRecord(), ...data, id: result.id || patientId }));
+	} catch (error) {
+		alert(error.message || 'Failed to save patient record.');
+	}
 }
 
 function render() {
@@ -1078,9 +1098,15 @@ function openEditModal(id) {
 	openModal(renderEditModal(record));
 	const editForm = document.getElementById('edit-record-form');
 	if (editForm) {
-		editForm.addEventListener('submit', (event) => {
+		editForm.addEventListener('submit', async (event) => {
 			event.preventDefault();
-			const updated = updateRecord(id, getFormData(editForm));
+			let updated = null;
+			try {
+				updated = await updateRecord(id, getFormData(editForm));
+			} catch (error) {
+				alert(error.message || 'Failed to update patient record.');
+				return;
+			}
 			if (!updated) return;
 			closeModal();
 			navigate('view', { id: updated.id }, true);
@@ -1137,19 +1163,22 @@ function handleModalAction(action, target) {
 	if (action === 'confirm-delete') {
 		const input = document.getElementById('delete-confirm');
 		if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
-		deleteRecord(id);
-		closeModal();
-		navigate('list', {}, true);
-		openModal(`
-			<div class="success-banner">
-				<div class="success-mark">${ICONS.check}</div>
-				<h2 id="records-modal-title">Record Deleted</h2>
-				<p class="muted">The record was removed after DELETE confirmation.</p>
-				<div class="modal-footer">
-					<button type="button" class="btn btn-primary" data-modal-action="go-list">Return to Records</button>
-				</div>
-			</div>
-		`);
+		deleteRecord(id)
+			.then(() => {
+				closeModal();
+				navigate('list', {}, true);
+				openModal(`
+					<div class="success-banner">
+						<div class="success-mark">${ICONS.check}</div>
+						<h2 id="records-modal-title">Record Deleted</h2>
+						<p class="muted">The record was removed after DELETE confirmation.</p>
+						<div class="modal-footer">
+							<button type="button" class="btn btn-primary" data-modal-action="go-list">Return to Records</button>
+						</div>
+					</div>
+				`);
+			})
+			.catch((error) => alert(error.message || 'Failed to delete patient record.'));
 	}
 }
 
@@ -1204,10 +1233,15 @@ function bindGlobalEvents() {
 	});
 }
 
-function bootstrap() {
+async function bootstrap() {
 	routeFromUrl();
+	app.innerHTML = '<section class="records-shell"><div class="empty-state">Loading patient records...</div></section>';
+	await loadRecords();
 	render();
 	bindGlobalEvents();
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+	console.error(error);
+	app.innerHTML = '<section class="records-shell"><div class="empty-state">Failed to load patient records.</div></section>';
+});

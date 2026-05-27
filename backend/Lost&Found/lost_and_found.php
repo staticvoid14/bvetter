@@ -463,8 +463,14 @@ function scoreMatch($lost, $candidate)
 {
     $score = 0;
     $reasons = [];
+    $lostSpecies = strtolower(clean($lost['species'] ?? ''));
+    $candidateSpecies = strtolower(clean($candidate['species'] ?? ''));
 
-    if (clean($lost['species']) !== '' && strtolower($lost['species']) === strtolower($candidate['species'])) {
+    if ($lostSpecies !== '' && $candidateSpecies !== '' && $lostSpecies !== $candidateSpecies) {
+        return [0, ['Different species']];
+    }
+
+    if ($lostSpecies !== '' && $candidateSpecies !== '' && $lostSpecies === $candidateSpecies) {
         $score += 12;
         $reasons[] = 'Same species';
     }
@@ -479,7 +485,7 @@ function scoreMatch($lost, $candidate)
     }
 
     if (clean($lost['size']) !== '' && clean($candidate['size']) !== '' && strtolower($lost['size']) === strtolower($candidate['size'])) {
-        $score += 7;
+        $score += 10;
         $reasons[] = 'Same size';
     }
 
@@ -512,7 +518,7 @@ function scoreMatch($lost, $candidate)
         $rgb = rgbSimilarity($lostFeatures['avg_rgb'] ?? null, $candidateFeatures['avg_rgb'] ?? null);
         if ($rgb !== null) {
             if ($rgb >= 0.78) $reasons[] = 'Similar photo color profile';
-            $score += (int) round($rgb * 13);
+            $score += (int) round($rgb * 10);
         }
 
         $hash = hammingSimilarity($lostFeatures['brightness_hash'] ?? null, $candidateFeatures['brightness_hash'] ?? null);
@@ -664,9 +670,10 @@ function createReport($pdo, $data)
     $species = nullableClean($data['species'] ?? $data['pet_type'] ?? '');
     if ($species) $species = normalizeSpecies($species);
     $breed = nullableClean($data['breed'] ?? $data['pet_breed'] ?? '');
-    $contactName = nullableClean($data['contact_name'] ?? $data['uploader'] ?? $data['owner_name'] ?? '');
-    $contactPhone = nullableClean($data['contact_phone'] ?? $data['contact'] ?? $data['phone'] ?? '');
-    $contactEmail = nullableClean($data['contact_email'] ?? $data['email'] ?? '');
+    $accountContact = userContactFromAccount($pdo, $data);
+    $contactName = nullableClean($data['contact_name'] ?? $data['uploader'] ?? $data['owner_name'] ?? '') ?: ($accountContact['name'] ?? null);
+    $contactPhone = nullableClean($data['contact_phone'] ?? $data['contact'] ?? $data['phone'] ?? '') ?: ($accountContact['phone'] ?? null);
+    $contactEmail = nullableClean($data['contact_email'] ?? $data['email'] ?? '') ?: ($accountContact['email'] ?? null);
 
     if (!$species || !$breed) {
         respond(422, ['success' => false, 'message' => 'Species and breed are required.']);
@@ -780,16 +787,33 @@ function fetchReportForMatch($pdo, $id)
     return $stmt->fetch();
 }
 
+function userContactFromAccount($pdo, $data)
+{
+    $userId = (int) ($data['user_id'] ?? $data['owner_id'] ?? $data['reviewed_by_user_id'] ?? $data['vet_id'] ?? 0);
+    if ($userId <= 0) return null;
+
+    $stmt = $pdo->prepare('SELECT full_name, phone_number, email FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $userId]);
+    $user = $stmt->fetch();
+    if (!$user) return null;
+
+    return [
+        'name' => nullableClean($user['full_name'] ?? ''),
+        'phone' => nullableClean($user['phone_number'] ?? ''),
+        'email' => nullableClean($user['email'] ?? ''),
+    ];
+}
+
 function rebuildMatchesForReport($pdo, $reportId)
 {
     $report = fetchReportForMatch($pdo, $reportId);
-    if (!$report || !in_array($report['status'], ['active', 'pending'], true)) return;
+    if (!$report || $report['status'] !== 'active') return;
 
     if ($report['report_type'] === 'lost') {
         $lost = $report;
-        $stmt = $pdo->prepare("SELECT * FROM lost_found_reports WHERE id <> :id AND report_type = 'found' AND status IN ('active','pending')");
+        $stmt = $pdo->prepare("SELECT * FROM lost_found_reports WHERE id <> :id AND report_type = 'found' AND status = 'active'");
     } else {
-        $stmt = $pdo->prepare("SELECT * FROM lost_found_reports WHERE id <> :id AND report_type = 'lost' AND status IN ('active','pending')");
+        $stmt = $pdo->prepare("SELECT * FROM lost_found_reports WHERE id <> :id AND report_type = 'lost' AND status = 'active'");
     }
     $stmt->execute([':id' => $reportId]);
     $candidates = $stmt->fetchAll();
@@ -797,6 +821,7 @@ function rebuildMatchesForReport($pdo, $reportId)
     foreach ($candidates as $candidate) {
         $lostReport = $report['report_type'] === 'lost' ? $report : $candidate;
         $foundReport = $report['report_type'] === 'found' ? $report : $candidate;
+        if (strtolower(clean($lostReport['species'] ?? '')) !== strtolower(clean($foundReport['species'] ?? ''))) continue;
         [$score, $reasons] = scoreMatch($lostReport, $foundReport);
         if ($score < 45) continue;
 
@@ -842,7 +867,7 @@ function rebuildMatchesForReport($pdo, $reportId)
 function rebuildSightingMatches($pdo, $lostReportId)
 {
     $lost = fetchReportForMatch($pdo, $lostReportId);
-    if (!$lost) return;
+    if (!$lost || $lost['status'] !== 'active') return;
 
     $stmt = $pdo->query("SELECT * FROM lost_found_sightings WHERE status IN ('pending','active')");
     foreach ($stmt->fetchAll() as $sighting) {
@@ -901,11 +926,18 @@ function listMatches($pdo, $data)
 {
     $reportId = (int) ($data['report_id'] ?? $data['id'] ?? 0);
     $includeResolved = (int) ($data['include_resolved'] ?? 0) === 1;
-    $where = [$includeResolved ? "lost_found_matches.status IN ('suggested','approved')" : "lost_found_matches.status = 'suggested'"];
+    $where = [
+        $includeResolved ? "lost_found_matches.status IN ('suggested','approved')" : "lost_found_matches.status = 'suggested'",
+        "lost.status = 'active'",
+        "(lost_found_matches.found_report_id IS NULL OR found.status = 'active')",
+    ];
     $params = [];
     if ($reportId > 0) {
         $report = fetchReportForMatch($pdo, $reportId);
-        if ($report && $report['report_type'] === 'lost') {
+        if (!$report || $report['status'] !== 'active') {
+            respond(200, ['success' => true, 'data' => []]);
+        }
+        if ($report['report_type'] === 'lost') {
             $where[] = 'lost_found_matches.lost_report_id = :report_id';
         } else {
             $where[] = 'lost_found_matches.found_report_id = :report_id';
@@ -916,14 +948,15 @@ function listMatches($pdo, $data)
     $sql = "
         SELECT
             lost_found_matches.*,
-            lost.case_number AS lost_case, lost.pet_name AS lost_name, lost.breed AS lost_breed, lost.photo_path AS lost_photo, lost.barangay_name AS lost_barangay,
-            found.case_number AS found_case, found.pet_name AS found_name, found.breed AS found_breed, found.photo_path AS found_photo, found.barangay_name AS found_barangay,
+            lost.case_number AS lost_case, lost.pet_name AS lost_name, lost.species AS lost_species, lost.breed AS lost_breed, lost.photo_path AS lost_photo, lost.barangay_name AS lost_barangay,
+            found.case_number AS found_case, found.pet_name AS found_name, found.species AS found_species, found.breed AS found_breed, found.photo_path AS found_photo, found.barangay_name AS found_barangay,
             sightings.case_number AS sighting_case, sightings.photo_path AS sighting_photo, sightings.barangay_name AS sighting_barangay, sightings.notes AS sighting_notes
         FROM lost_found_matches
         INNER JOIN lost_found_reports lost ON lost.id = lost_found_matches.lost_report_id
         LEFT JOIN lost_found_reports found ON found.id = lost_found_matches.found_report_id
         LEFT JOIN lost_found_sightings sightings ON sightings.id = lost_found_matches.sighting_id
         WHERE " . implode(' AND ', $where) . "
+          AND (lost_found_matches.found_report_id IS NULL OR LOWER(lost.species) = LOWER(found.species))
         ORDER BY lost_found_matches.confidence DESC, lost_found_matches.created_at DESC
     ";
     $stmt = $pdo->prepare($sql);
@@ -939,6 +972,7 @@ function listMatches($pdo, $data)
                 'reportId' => (int) $row['lost_report_id'],
                 'caseId' => $row['lost_case'],
                 'name' => $row['lost_name'] ?: 'Lost Pet Report',
+                'species' => $row['lost_species'],
                 'breed' => $row['lost_breed'],
                 'location' => $row['lost_barangay'],
                 'image' => $row['lost_photo'],
@@ -948,6 +982,7 @@ function listMatches($pdo, $data)
                 'sightingId' => $row['sighting_id'] ? (int) $row['sighting_id'] : null,
                 'caseId' => $row['found_case'] ?: $row['sighting_case'],
                 'name' => $row['found_report_id'] ? ($row['found_name'] ?: 'Found Pet Report') : 'Sighting Report',
+                'species' => $row['found_species'],
                 'breed' => $row['found_breed'],
                 'location' => $row['found_barangay'] ?: $row['sighting_barangay'],
                 'image' => $row['found_photo'] ?: $row['sighting_photo'],
@@ -1035,7 +1070,7 @@ function createSighting($pdo, $data)
     ]);
 
     $sightingId = (int) $pdo->lastInsertId();
-    $lostReports = $pdo->query("SELECT id FROM lost_found_reports WHERE report_type = 'lost' AND status IN ('active','pending')")->fetchAll();
+    $lostReports = $pdo->query("SELECT id FROM lost_found_reports WHERE report_type = 'lost' AND status = 'active'")->fetchAll();
     foreach ($lostReports as $row) rebuildSightingMatches($pdo, (int) $row['id']);
 
     respond(201, ['success' => true, 'message' => 'Sighting submitted for review.', 'sighting_id' => $sightingId]);
@@ -1199,6 +1234,16 @@ function rebuildImageFeatures($pdo)
         'sightings_updated' => $updatedSightings,
     ]);
 }
+function getTotalReportCount($pdo)
+{
+    $stmt = $pdo->query('SELECT COUNT(*) FROM lost_found_reports WHERE status IN ("resolved")');
+    return (int) $stmt->fetchColumn();
+}
+function getActiveReportCount($pdo)
+{
+    $stmt = $pdo->query('SELECT COUNT(*) FROM lost_found_reports WHERE status IN ("active")');
+    return (int) $stmt->fetchColumn();
+}
 
 $input = inputData();
 $action = clean($input['action'] ?? 'list');
@@ -1230,6 +1275,18 @@ try {
     if ($action === 'approve_claim') updateClaimStatus($pdo, $input, 'approved');
     if ($action === 'reject_claim') updateClaimStatus($pdo, $input, 'rejected');
     if ($action === 'resolve_claim') updateClaimStatus($pdo, $input, 'resolved');
+    if ($action === 'get_total_reports') {    echo json_encode([
+        'success' => true,
+        'count' => getTotalReportCount($pdo)
+    ]);
+    exit;   
+    }
+    if ($action === 'get_active_reports') { echo json_encode([
+        'success' => true,
+        'count' => getActiveReportCount($pdo)
+    ]);
+    exit;   
+    }
 
     respond(400, ['success' => false, 'message' => 'Unknown lost and found action.']);
 } catch (PDOException $e) {
