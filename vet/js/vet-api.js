@@ -215,8 +215,8 @@ async function getDiseaseAnalytics(disease = 'all') {
 
 /** GET /api/vet/lost-and-found */
 async function getLostAndFound(tab = 'pending', filters = {}) {
-    if (tab === 'claims') return lostFoundFetch('management_claims', filters);
-    if (tab === 'sighting') return lostFoundFetch('list_sightings', filters);
+    if (tab === 'claims') return lostFoundFetch('management_claims', { status: 'pending', ...filters });
+    if (tab === 'sighting') return lostFoundFetch('list_sightings', { status: 'pending', ...filters });
     if (tab === 'potential') return lostFoundFetch('matches', filters);
     if (tab === 'resolved') return lostFoundFetch('management_list', { ...filters, status: 'resolved' });
     if (tab === 'active') return lostFoundFetch('management_list', { ...filters, status: 'active' });

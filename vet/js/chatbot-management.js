@@ -1,5 +1,16 @@
-document.addEventListener('DOMContentLoaded', () => {
-	const inquiryRules = [
+document.addEventListener('DOMContentLoaded', async () => {
+	function appBasePath() {
+		const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/vet/js/chatbot-management.js'));
+		const path = script?.src ? new URL(script.src).pathname : window.location.pathname;
+		const jsMarker = '/vet/js/chatbot-management.js';
+		if (path.includes(jsMarker)) return path.slice(0, path.indexOf(jsMarker));
+		const pageMarker = '/vet/html/';
+		if (path.includes(pageMarker)) return path.slice(0, path.indexOf(pageMarker));
+		return '/Final-backend(VBETTER)/Final-Backend';
+	}
+
+	const CHATBOT_API = `${appBasePath()}/backend/chatbot/chatbot.php`;
+	let inquiryRules = [
 		{
 			id: 1,
 			name: 'Clinic Schedule',
@@ -50,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	];
 
-	const consultationRules = [
+	let consultationRules = [
 		{
 			id: 1,
 			petType: 'Dog',
@@ -93,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	];
 
-	const labels = [
+	let labels = [
 		'Poblacion',
 		'San Jose',
 		'Tangos',
@@ -108,16 +119,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		'Santa Barbara'
 	];
 
-	const consultationSeries = [5, 3, 10, 2, 3, 4, 4, 7, 2, 1, 0, 2];
-	const inquirySeries = [4, 2, 8, 3, 4, 5, 4, 6, 2, 1, 0, 1];
+	let consultationSeries = [5, 3, 10, 2, 3, 4, 4, 7, 2, 1, 0, 2];
+	let inquirySeries = [4, 2, 8, 3, 4, 5, 4, 6, 2, 1, 0, 1];
 
-	const inquiryByType = {
-		General: [40, 48, 60, 72, 44, 50, 70, 68, 80, 36, 40, 54],
-		Vaccination: [32, 28, 46, 54, 42, 44, 48, 50, 56, 30, 26, 42],
-		Surgery: [22, 24, 34, 36, 30, 34, 44, 40, 48, 24, 18, 32]
+	let inquiryDistribution = {
+		labels: ['Clinic Schedule', 'Vaccination Requirements', 'Book Appointment', 'Lost and Found Procedure'],
+		values: [0, 0, 0, 0]
 	};
 
-	const symptomsByPetType = {
+	let symptomsByPetType = {
 		all: {
 			labels: ['Fever', 'Itching', 'Arthritis', 'Obesity', 'Vomiting', 'Diarrhea', 'Coughing', 'Loss of Appetite', 'Wounds'],
 			values: [31, 85, 37, 54, 16, 16, 56, 54, 83]
@@ -132,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	};
 
-	const locationLegendRows = [
+	let locationLegendRows = [
 		{ name: 'Sabang', color: '#ff3b30' },
 		{ name: 'Tiong', color: '#ff5b2e' },
 		{ name: 'Tarcan', color: '#d1f400' },
@@ -144,6 +154,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		{ name: 'Santo Nino', color: '#ff5b2e' },
 		{ name: 'Santo Cristo', color: '#d1f400' }
 	];
+
+	let dashboardStats = {
+		kpis: {
+			totalConsultations: 0,
+			totalInquiries: 0,
+			mostCommonSymptom: 'No data yet',
+			consultationSuccessRate: 0,
+			inquirySuccessRate: 0
+		}
+	};
 
 	const iconLibrary = {
 		clock: { badge: 'CLK', label: 'Clock' },
@@ -175,6 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		chartsReady: false,
 		consultationChart: null,
 		inquiryTypeChart: null,
+		locationPieChart: null,
 		symptomsChart: null
 	};
 
@@ -225,6 +246,118 @@ document.addEventListener('DOMContentLoaded', () => {
 		valueMostCommonSymptom: document.getElementById('value-most-common-symptom')
 	};
 
+	async function chatbotRequest(action, payload = {}) {
+		const response = await fetch(CHATBOT_API, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action, ...payload })
+		});
+		const result = await response.json();
+		if (!response.ok || !result.success) {
+			throw new Error(result.message || 'Chatbot request failed.');
+		}
+		return result.data ?? result;
+	}
+
+	async function loadChatbotRules() {
+		try {
+			const [inquiries, consultations, stats] = await Promise.all([
+				chatbotRequest('list_inquiries'),
+				chatbotRequest('list_consultations'),
+				chatbotRequest('dashboard_stats')
+			]);
+			if (Array.isArray(inquiries)) inquiryRules = inquiries;
+			if (Array.isArray(consultations)) consultationRules = consultations;
+			if (stats) applyDashboardStats(stats);
+		} catch (error) {
+			console.warn('Using local chatbot rules because backend failed:', error);
+		}
+	}
+
+	function applyDashboardStats(stats) {
+		dashboardStats = stats;
+
+		if (Array.isArray(stats.trend?.labels)) labels = stats.trend.labels;
+		if (Array.isArray(stats.trend?.consultation)) consultationSeries = stats.trend.consultation;
+		if (Array.isArray(stats.trend?.inquiry)) inquirySeries = stats.trend.inquiry;
+
+		if (stats.inquiryDistribution?.labels && stats.inquiryDistribution?.values) {
+			inquiryDistribution = stats.inquiryDistribution;
+		}
+
+		if (stats.symptomsByPetType) {
+			symptomsByPetType = {
+				all: normalizeChartSet(stats.symptomsByPetType.all),
+				dog: normalizeChartSet(stats.symptomsByPetType.dog),
+				cat: normalizeChartSet(stats.symptomsByPetType.cat),
+				bird: normalizeChartSet(stats.symptomsByPetType.bird),
+				other: normalizeChartSet(stats.symptomsByPetType.other)
+			};
+		}
+
+		if (Array.isArray(stats.locations)) {
+			const palette = ['#ff3b30', '#ff8a00', '#d1f400', '#14b8a6', '#2e92ff', '#a855f7', '#22c55e', '#f43f5e'];
+			locationLegendRows = stats.locations.map((row, index) => ({
+				name: row.name,
+				count: Number(row.count || 0),
+				color: palette[index % palette.length]
+			}));
+		}
+	}
+
+	function normalizeChartSet(set) {
+		if (!set || !Array.isArray(set.labels) || !Array.isArray(set.values) || !set.labels.length) {
+			return { labels: ['No data yet'], values: [0] };
+		}
+		return set;
+	}
+
+	async function refreshDashboardStats() {
+		try {
+			const stats = await chatbotRequest('dashboard_stats');
+			if (stats) applyDashboardStats(stats);
+			renderInquiryStats();
+			renderConsultationStats();
+			renderLocationLegend();
+			refreshCharts();
+		} catch (error) {
+			console.warn('Failed to refresh chatbot dashboard stats:', error);
+		}
+	}
+
+	function refreshCharts() {
+		if (state.consultationChart) {
+			state.consultationChart.data.labels = labels;
+			state.consultationChart.data.datasets[0].data = consultationSeries;
+			state.consultationChart.data.datasets[1].data = inquirySeries;
+			state.consultationChart.update();
+		}
+		if (state.inquiryTypeChart) {
+			state.inquiryTypeChart.data.labels = inquiryDistribution.labels;
+			state.inquiryTypeChart.data.datasets[0].data = inquiryDistribution.values;
+			state.inquiryTypeChart.update();
+		}
+		if (state.locationPieChart) {
+			state.locationPieChart.data.labels = getLocationChartLabels();
+			state.locationPieChart.data.datasets[0].data = getLocationChartValues();
+			state.locationPieChart.data.datasets[0].backgroundColor = getLocationChartColors();
+			state.locationPieChart.update();
+		}
+		updateSymptomFilter(ui.petTypeFilter?.value || 'all');
+	}
+
+	function getLocationChartLabels() {
+		return locationLegendRows.length ? locationLegendRows.map((row) => row.name) : ['No data yet'];
+	}
+
+	function getLocationChartValues() {
+		return locationLegendRows.length ? locationLegendRows.map((row) => Number(row.count || 0)) : [1];
+	}
+
+	function getLocationChartColors() {
+		return locationLegendRows.length ? locationLegendRows.map((row) => row.color) : ['#9ca3af'];
+	}
+
 	if (ui.modalOverlay) {
 		ui.modalOverlay.hidden = true;
 	}
@@ -264,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	function getInquiryTotalCount() {
-		return inquiryRules.reduce((sum, rule) => sum + Number(rule.count || 0), 0);
+		return Number(dashboardStats.kpis?.totalInquiries ?? inquiryRules.reduce((sum, rule) => sum + Number(rule.count || 0), 0));
 	}
 
 	function formatConsultationDate(value) {
@@ -272,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	function getConsultationTotalCount() {
-		return 50;
+		return Number(dashboardStats.kpis?.totalConsultations ?? 0);
 	}
 
 	function getConsultationFilteredRows() {
@@ -352,14 +485,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		const total = getInquiryTotalCount();
 		if (ui.inquiryTotal) ui.inquiryTotal.textContent = String(total);
 		if (ui.valueOnlineInquiry) ui.valueOnlineInquiry.textContent = String(total);
-		if (ui.valueOnlineConsult) ui.valueOnlineConsult.textContent = '120';
-		if (ui.valueMostCommonSymptom) ui.valueMostCommonSymptom.textContent = 'Fever (32 cases/chats)';
+		if (ui.valueOnlineConsult) ui.valueOnlineConsult.textContent = String(getConsultationTotalCount());
+		if (ui.valueMostCommonSymptom) ui.valueMostCommonSymptom.textContent = dashboardStats.kpis?.mostCommonSymptom || 'No data yet';
+		const inquiryRate = Number(dashboardStats.kpis?.inquirySuccessRate ?? 0);
+		const inquiryRateEl = document.getElementById('inquiry-success-rate');
+		if (inquiryRateEl) inquiryRateEl.textContent = `${inquiryRate}%`;
 	}
 
 	function renderConsultationStats() {
 		if (ui.consultationTotalCount) ui.consultationTotalCount.textContent = String(getConsultationTotalCount());
 		if (ui.consultationAverageResponse) ui.consultationAverageResponse.textContent = '< 2s';
-		if (ui.consultationSuccessRate) ui.consultationSuccessRate.textContent = '92.8%';
+		if (ui.consultationSuccessRate) ui.consultationSuccessRate.textContent = `${Number(dashboardStats.kpis?.consultationSuccessRate ?? 0)}%`;
 	}
 
 	function renderConsultationTable() {
@@ -473,7 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 	}
 
-	function saveConsultationRule(event) {
+	async function saveConsultationRule(event) {
 		event.preventDefault();
 		const values = consultationFormValues();
 		if (!values.petType || !values.symptoms.length || !values.duration || !values.condition || !values.severity || !values.recommendation) {
@@ -481,24 +617,29 @@ document.addEventListener('DOMContentLoaded', () => {
 			return;
 		}
 
-		if (state.consultationEditingId) {
-			const row = consultationRules.find((item) => item.id === state.consultationEditingId);
-			if (!row) return;
-			Object.assign(row, values, { lastUpdate: new Date().toISOString().slice(0, 10) });
-			openConsultationModal('saved-edit', row.id);
-		} else {
-			const nextId = Math.max(0, ...consultationRules.map((item) => item.id)) + 1;
-			consultationRules.unshift({
-				id: nextId,
-				lastUpdate: new Date().toISOString().slice(0, 10),
+		try {
+			const saved = await chatbotRequest('save_consultation', {
+				id: state.consultationEditingId || undefined,
 				...values
 			});
-			openConsultationModal('saved-create', nextId);
+
+			if (state.consultationEditingId) {
+				const index = consultationRules.findIndex((item) => item.id === state.consultationEditingId);
+				if (index >= 0) consultationRules[index] = saved;
+				openConsultationModal('saved-edit', saved.id);
+			} else {
+				consultationRules.unshift(saved);
+				openConsultationModal('saved-create', saved.id);
+			}
+		} catch (error) {
+			alert(error.message || 'Failed to save consultation rule.');
+			return;
 		}
 
 		state.consultationPage = 1;
 		renderConsultationStats();
 		renderConsultationTable();
+		void refreshDashboardStats();
 		setConsultationView('list');
 	}
 
@@ -606,12 +747,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.body.style.overflow = 'hidden';
 	}
 
-	function deleteConsultationRule(id) {
-		const index = consultationRules.findIndex((item) => item.id === id);
-		if (index >= 0) consultationRules.splice(index, 1);
+	async function deleteConsultationRule(id) {
+		try {
+			await chatbotRequest('delete_consultation', { id });
+			const index = consultationRules.findIndex((item) => item.id === id);
+			if (index >= 0) consultationRules.splice(index, 1);
+		} catch (error) {
+			alert(error.message || 'Failed to delete consultation rule.');
+			return;
+		}
 		state.consultationPage = 1;
 		renderConsultationStats();
 		renderConsultationTable();
+		void refreshDashboardStats();
 		setConsultationView('list');
 		closeModal();
 	}
@@ -632,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (action === 'confirm-delete-rule') {
 			const input = document.getElementById('consultation-delete-confirm');
 			if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
-			deleteConsultationRule(Number(id || state.consultationDeletingId || 0));
+			void deleteConsultationRule(Number(id || state.consultationDeletingId || 0));
 		}
 	}
 
@@ -713,12 +861,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	function renderLocationLegend() {
 		if (!ui.locationLegend) return;
-		ui.locationLegend.innerHTML = locationLegendRows.map((row) => `
+		ui.locationLegend.innerHTML = locationLegendRows.length ? locationLegendRows.map((row) => `
 			<li>
 				<span class="legend-dot" style="background:${row.color}"></span>
-				<span>${escapeHtml(row.name)}</span>
+				<span>${escapeHtml(row.name)}${row.count != null ? ` (${Number(row.count)})` : ''}</span>
 			</li>
-		`).join('');
+		`).join('') : '<li><span class="legend-dot" style="background:#9ca3af"></span><span>No location data yet</span></li>';
 	}
 
 	function updateSourceFilter(source) {
@@ -735,6 +883,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const dataSet = symptomsByPetType[petType] || symptomsByPetType.all;
 		state.symptomsChart.data.labels = dataSet.labels;
 		state.symptomsChart.data.datasets[0].data = dataSet.values;
+		state.symptomsChart.options.scales.x.max = Math.max(5, ...dataSet.values);
 		state.symptomsChart.update();
 	}
 
@@ -743,8 +892,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		const consultationChartCtx = document.getElementById('consultationInquiryChart');
 		const inquiryTypeChartCtx = document.getElementById('inquiryTypeChart');
+		const locationPieChartCtx = document.getElementById('locationPieChart');
 		const symptomsChartCtx = document.getElementById('symptomsChart');
-		if (!consultationChartCtx || !inquiryTypeChartCtx || !symptomsChartCtx) return;
+		if (!consultationChartCtx || !inquiryTypeChartCtx || !locationPieChartCtx || !symptomsChartCtx) return;
 
 		const gridColor = 'rgba(154, 196, 244, 0.14)';
 		const tickColor = 'rgba(201, 223, 250, 0.8)';
@@ -821,11 +971,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		state.inquiryTypeChart = new Chart(inquiryTypeChartCtx, {
 			type: 'bar',
 			data: {
-				labels,
+				labels: inquiryDistribution.labels,
 				datasets: [
-					{ label: 'General', data: inquiryByType.General, backgroundColor: '#2433a7', stack: 'inquiry' },
-					{ label: 'Vaccination', data: inquiryByType.Vaccination, backgroundColor: '#19b344', stack: 'inquiry' },
-					{ label: 'Surgery', data: inquiryByType.Surgery, backgroundColor: '#6ec8ff', stack: 'inquiry' }
+					{ label: 'Uses', data: inquiryDistribution.values, backgroundColor: '#19b344', borderRadius: 6 }
 				]
 			},
 			options: {
@@ -841,19 +989,19 @@ document.addEventListener('DOMContentLoaded', () => {
 				},
 				scales: {
 					x: {
-						stacked: true,
 						ticks: {
 							color: tickColor,
-							font: { size: 9 }
+							font: { size: 9 },
+							maxRotation: 35,
+							minRotation: 0
 						},
 						grid: { color: gridColor }
 					},
 					y: {
-						stacked: true,
 						beginAtZero: true,
 						ticks: {
 							color: tickColor,
-							stepSize: 50,
+							precision: 0,
 							font: { size: 9 }
 						},
 						grid: { color: gridColor }
@@ -900,6 +1048,39 @@ document.addEventListener('DOMContentLoaded', () => {
 							font: { size: 9 }
 						},
 						grid: { color: 'rgba(154, 196, 244, 0.06)' }
+					}
+				}
+			}
+		});
+
+		state.locationPieChart = new Chart(locationPieChartCtx, {
+			type: 'doughnut',
+			data: {
+				labels: getLocationChartLabels(),
+				datasets: [
+					{
+						data: getLocationChartValues(),
+						backgroundColor: getLocationChartColors(),
+						borderColor: '#0f1f3a',
+						borderWidth: 2,
+						hoverOffset: 8
+					}
+				]
+			},
+			options: {
+				maintainAspectRatio: false,
+				cutout: '58%',
+				plugins: {
+					legend: { display: false },
+					tooltip: {
+						callbacks: {
+							label(context) {
+								const value = Number(context.parsed || 0);
+								const total = context.dataset.data.reduce((sum, item) => sum + Number(item || 0), 0);
+								const pct = total ? Math.round((value / total) * 100) : 0;
+								return `${context.label}: ${value} chats (${pct}%)`;
+							}
+						}
 					}
 				}
 			}
@@ -1096,48 +1277,55 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 	}
 
-	function handleInquirySubmit(event) {
+	async function handleInquirySubmit(event, formElement = null) {
 		event.preventDefault();
-		const form = event.currentTarget;
+		const form = formElement || event.target.closest('#inquiry-form');
+		if (!form) return;
 		const data = readInquiryForm(form);
 		if (!data.name || !data.response) return;
 
-		if (state.inquiryEditingId) {
-			const row = inquiryRules.find((item) => item.id === state.inquiryEditingId);
-			if (!row) return;
-			Object.assign(row, data, {
-				lastUpdated: todayLabel(),
-				actionLabel: data.actionLabel
-			});
-		} else {
-			const nextId = Math.max(0, ...inquiryRules.map((item) => item.id)) + 1;
-			inquiryRules.unshift({
-				id: nextId,
-				count: 0,
-				lastUpdated: todayLabel(),
+		try {
+			const saved = await chatbotRequest('save_inquiry', {
+				id: state.inquiryEditingId || undefined,
 				...data
 			});
+
+			if (state.inquiryEditingId) {
+				const index = inquiryRules.findIndex((item) => item.id === state.inquiryEditingId);
+				if (index >= 0) inquiryRules[index] = saved;
+			} else {
+				inquiryRules.unshift(saved);
+			}
+		} catch (error) {
+			alert(error.message || 'Failed to save inquiry rule.');
+			return;
 		}
 
 		state.inquiryPage = 1;
 		renderInquiryStats();
 		renderInquiryTable();
+		void refreshDashboardStats();
 		closeModal();
 	}
 
-	function confirmDeleteInquiry() {
+	async function confirmDeleteInquiry() {
 		const targetId = state.inquiryDeletingId;
 		if (!targetId) return;
 		const input = document.getElementById('delete-confirm-input');
 		if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
 
-		const index = inquiryRules.findIndex((item) => item.id === targetId);
-		if (index >= 0) {
-			inquiryRules.splice(index, 1);
+		try {
+			await chatbotRequest('delete_inquiry', { id: targetId });
+			const index = inquiryRules.findIndex((item) => item.id === targetId);
+			if (index >= 0) inquiryRules.splice(index, 1);
+		} catch (error) {
+			alert(error.message || 'Failed to delete inquiry rule.');
+			return;
 		}
 		state.inquiryPage = 1;
 		renderInquiryStats();
 		renderInquiryTable();
+		void refreshDashboardStats();
 		closeModal();
 	}
 
@@ -1158,7 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 
 		if (action === 'confirm-delete-inquiry') {
-			confirmDeleteInquiry();
+			void confirmDeleteInquiry();
 		}
 	}
 
@@ -1289,10 +1477,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			handleModalAction(modalAction, button.dataset.id);
 		});
 
-		ui.modalContent?.addEventListener('submit', (event) => {
+		ui.modalContent?.addEventListener('submit', async (event) => {
 			const form = event.target.closest('#inquiry-form');
 			if (form) {
-				handleInquirySubmit(event);
+				await handleInquirySubmit(event, form);
 				return;
 			}
 
@@ -1301,14 +1489,27 @@ document.addEventListener('DOMContentLoaded', () => {
 				event.preventDefault();
 				const row = consultationItemById(Number(state.consultationEditingId || 0));
 				if (!row) return;
-				row.symptoms = String(document.getElementById('consultation-edit-symptoms')?.value || '').split(',').map((item) => item.trim()).filter(Boolean);
-				row.condition = String(document.getElementById('consultation-edit-condition')?.value || '').trim();
-				row.severity = String(document.getElementById('consultation-edit-severity')?.value || '').trim();
-				row.recommendation = String(document.getElementById('consultation-edit-recommendation')?.value || '').trim();
-				row.lastUpdate = new Date().toISOString().slice(0, 10);
+				const payload = {
+					id: row.id,
+					petType: row.petType,
+					duration: row.duration,
+					symptoms: String(document.getElementById('consultation-edit-symptoms')?.value || '').split(',').map((item) => item.trim()).filter(Boolean),
+					condition: String(document.getElementById('consultation-edit-condition')?.value || '').trim(),
+					severity: String(document.getElementById('consultation-edit-severity')?.value || '').trim(),
+					recommendation: String(document.getElementById('consultation-edit-recommendation')?.value || '').trim()
+				};
+				try {
+					const saved = await chatbotRequest('save_consultation', payload);
+					const index = consultationRules.findIndex((item) => item.id === row.id);
+					if (index >= 0) consultationRules[index] = saved;
+				} catch (error) {
+					alert(error.message || 'Failed to update consultation rule.');
+					return;
+				}
 				state.consultationPage = 1;
 				renderConsultationStats();
 				renderConsultationTable();
+				void refreshDashboardStats();
 				closeModal();
 				return;
 			}
@@ -1336,6 +1537,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		ui.petTypeFilter?.addEventListener('change', (event) => updateSymptomFilter(event.target.value));
 	}
 
+	await loadChatbotRules();
 	renderLocationLegend();
 	renderInquiryStats();
 	renderInquiryTable();

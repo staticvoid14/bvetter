@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Image feature helper for BVETTER Lost & Found.
 
 The PHP endpoint calls this script when Python is available. It intentionally
@@ -31,15 +30,18 @@ def sha1_file(path):
 
 
 def brightness_hash(image, size=12):
-    gray = image.convert("L").resize((size, size))
-    values = list(gray.getdata())
+    gray = image.convert("L").resize((size, size)) # get the image then convert it to gray using .convert('L')
+    values = list(gray.getdata()) #we convert the gray image to the list of pixel so that we can iterate it pixel by pixel, the value of each pixel will be between 0 and 255, where 0 is black and 255 is white.
+    print(values)
     avg = sum(values) / max(1, len(values))
     return "".join("1" if value >= avg else "0" for value in values)
+ #this return a string value of 1 and 0 indicating the lighting of the iamge or photos
+ #this can be used to compared to image or photo, for example a picture of dalmatian dog will have a similar brightness hash to another picture of a dalmatian dog, even if they are different photos. This is because the pattern of light and dark areas in the image will be similar, resulting in a similar hash. 
 
 
 def color_histogram(image, bins=4):
-    rgb = image.convert("RGB").resize((64, 64))
-    hist = [0] * (bins * bins * bins)
+    rgb = image.convert("RGB").resize((64, 64)) #just like sa gray kanina, kinuha naten ung image then ni convert natin sa RGB. kaya naten siya ni resize, kasi para mas madali ung pag calculate ng histogram, kasi pag malaki ung image, mas maraming pixel data na kailangan i process, kaya ni resize natin siya sa 64x64 pixels para mas mabilis ung pag calculate ng histogram.
+    hist = [0] * (bins * bins * bins) #
     for r, g, b in rgb.getdata():
         ri = min(bins - 1, r * bins // 256)
         gi = min(bins - 1, g * bins // 256)
@@ -47,6 +49,8 @@ def color_histogram(image, bins=4):
         hist[(ri * bins * bins) + (gi * bins) + bi] += 1
     total = sum(hist) or 1
     return [round(value / total, 6) for value in hist]
+#return a percentage value of each color bin in histogram, which are r, g, and b
+
 
 
 def average_rgb(image):
@@ -57,6 +61,7 @@ def average_rgb(image):
         round(sum(pixel[index] for pixel in pixels) / total)
         for index in range(3)
     ]
+#return a list of three color, which are the avg of red, blue and green. this tell which color are highest avg among the photo
 
 
 def features(path):
@@ -84,6 +89,7 @@ def features(path):
                 "color_histogram": color_histogram(image),
             }
         )
+        #this wil return a dictionaries that can be used to our php
     return base
 
 
@@ -96,13 +102,15 @@ def cosine_similarity(left, right):
     if not left_norm or not right_norm:
         return None
     return dot / (left_norm * right_norm)
-
+#return a value between 0 and 1 that tell us the color of two iamge are simmilar 
 
 def hamming_similarity(left, right):
     if not left or not right or len(left) != len(right):
         return None
     diff = sum(1 for a, b in zip(left, right) if a != b)
     return 1 - (diff / len(left))
+#comapre the two image based on the structure of lighting that we used earlier which is the 'brightness_hash'
+
 
 
 def compare(path_a, path_b):

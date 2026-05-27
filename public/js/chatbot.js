@@ -6,6 +6,55 @@
 (function () {
   'use strict';
 
+  function appBasePath() {
+    var script = document.currentScript || Array.prototype.slice.call(document.scripts).find(function (item) {
+      return item.src && item.src.indexOf('/public/js/chatbot.js') >= 0;
+    });
+    var path = script && script.src ? new URL(script.src).pathname : window.location.pathname;
+    var marker = '/public/js/chatbot.js';
+    if (path.indexOf(marker) >= 0) return path.slice(0, path.indexOf(marker));
+    marker = '/public/pages/';
+    if (path.indexOf(marker) >= 0) return path.slice(0, path.indexOf(marker));
+    return '/Final-backend(VBETTER)/Final-Backend';
+  }
+
+  var APP_BASE = appBasePath();
+  var CHATBOT_API = APP_BASE + '/backend/chatbot/chatbot.php';
+  var BARANGAY_API = APP_BASE + '/backend/barangays/list.php';
+
+  function chatbotRequest(action, payload) {
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function () {
+      controller.abort();
+    }, 8000);
+
+    return fetch(CHATBOT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+    })
+      .finally(function () {
+        clearTimeout(timeoutId);
+      })
+      .then(function (response) { return response.json(); })
+      .then(function (result) {
+        if (!result || !result.success) {
+          throw new Error((result && result.message) || 'Chatbot request failed.');
+        }
+        return result.data || result;
+      });
+  }
+
+  function normalizeRedirect(value) {
+    var page = String(value || '').trim();
+    var lower = page.toLowerCase();
+    if (!page) return 'book-appointment.html';
+    if (lower === 'book appointment' || lower.indexOf('appointment') >= 0) return 'book-appointment.html';
+    if (lower === 'lost and found' || lower.indexOf('lost') >= 0) return 'lost-found.html';
+    return page;
+  }
+
   /* ─────────────────────────────────────────
      1. INJECT FONT + CSS
   ───────────────────────────────────────── */
@@ -676,6 +725,42 @@ function closeChat() {
     clearOptions(iOpts);
     showOptionLabel(iOpts, 'Choose a topic');
 
+    chatbotRequest('public_inquiries')
+      .then(function (rules) {
+        if (!Array.isArray(rules) || !rules.length) return;
+
+        clearOptions(iOpts);
+        showOptionLabel(iOpts, 'Choose a topic');
+
+        rules.forEach(function (rule) {
+          var name = rule.name || rule.title || 'Inquiry';
+          var lowerName = name.toLowerCase();
+          var iconFile = lowerName.indexOf('schedule') >= 0 ? 'chatbot-schedule.png'
+            : lowerName.indexOf('vacc') >= 0 ? 'chatbot-vaccination.png'
+            : lowerName.indexOf('appointment') >= 0 ? 'chatbot-appointment.png'
+            : lowerName.indexOf('lost') >= 0 ? 'chatbot-lf.png'
+            : 'chatbot-inquiry.png';
+
+          addOptionBtn(iOpts, iconFile, name, rule.actionLabel || '', function () {
+            addUserBubble(iMsgs, name);
+            clearOptions(iOpts);
+            chatbotRequest('record_inquiry_use', { id: rule.id }).catch(function () {});
+            addBotBubble(iMsgs, 'Here is the information:', 500)
+              .then(function () {
+                addInfoBox(iMsgs, name, rule.response || '');
+                if (rule.actionType === 'redirect' && rule.redirectPage) {
+                  addOptionBtn(iOpts, iconFile, rule.buttonLabel || rule.actionLabel || 'Open page', '', function () {
+                    window.location.href = normalizeRedirect(rule.redirectPage);
+                  });
+                } else {
+                  showRestart(iMsgs, iOpts, showInquiryMenu);
+                }
+              });
+          });
+        });
+      })
+      .catch(function () {});
+
     /* ── Clinic Schedule ── */
     addOptionBtn(iOpts, 'chatbot-schedule.png', 'Clinic Schedule', 'Hours and availability',
       function () {
@@ -919,5 +1004,141 @@ function closeChat() {
   /* ─────────────────────────────────────────
      13. KICK-OFF
   ───────────────────────────────────────── */  /* On all other pages the FAB just sits there ready — no auto-open */
+
+  function askPetType() {
+    clearOptions(cOpts);
+    addBotBubble(cMsgs, 'What type of pet do you have?', 550)
+      .then(function () {
+        showOptionLabel(cOpts, 'Select pet type');
+        [
+          { label: 'Dog', icon: 'chatbot-dogs.png' },
+          { label: 'Cat', icon: 'chatbot-cats.png' },
+          { label: 'Bird', icon: 'chatbot-birds.png' },
+          { label: 'Other', icon: 'chatbot-others.png' }
+        ].forEach(function (p) {
+          addOptionBtn(cOpts, p.icon, p.label, '', function () {
+            cState.petType = p.label;
+            addUserBubble(cMsgs, p.label);
+            clearOptions(cOpts);
+            askAgeGroup();
+          });
+        });
+      });
+  }
+
+  function askAgeGroup() {
+    addBotBubble(cMsgs, 'What age group is your pet?', 500)
+      .then(function () {
+        showChips(cOpts, ['Baby', 'Young', 'Adult', 'Senior', 'Not sure'], function (ageGroup) {
+          cState.ageGroup = ageGroup;
+          addUserBubble(cMsgs, ageGroup);
+          clearOptions(cOpts);
+          cState.symptoms = [];
+          askSymptomsYesNo(0);
+        });
+      });
+  }
+
+  function askSymptomsYesNo(index) {
+    var symptoms = ['Fever', 'Vomiting', 'Diarrhea', 'Coughing', 'Loss of Appetite', 'Wounds', 'Seizures'];
+    if (index >= symptoms.length) {
+      if (!cState.symptoms.length) cState.symptoms = ['No listed symptoms'];
+      askDuration();
+      return;
+    }
+
+    var symptom = symptoms[index];
+    addBotBubble(cMsgs, 'Does your pet have ' + symptom.toLowerCase() + '?', 450)
+      .then(function () {
+        showChips(cOpts, ['Yes', 'No'], function (answer) {
+          addUserBubble(cMsgs, symptom + ': ' + answer);
+          if (answer === 'Yes') cState.symptoms.push(symptom);
+          clearOptions(cOpts);
+          askSymptomsYesNo(index + 1);
+        });
+      });
+  }
+
+  function askDuration() {
+    addBotBubble(cMsgs, 'How long has this been happening?', 550)
+      .then(function () {
+        showChips(cOpts, ['Less Than 24 Hours', '1-3 Days', 'More than 3 days'], function (duration) {
+          cState.duration = duration;
+          addUserBubble(cMsgs, duration);
+          clearOptions(cOpts);
+          askSeverity();
+        });
+      });
+  }
+
+  function askSeverity() {
+    addBotBubble(cMsgs, 'How severe is your pet\'s condition?', 550)
+      .then(function () {
+        showChips(cOpts, ['Active but sick', 'Weak', 'Not moving'], function (severity) {
+          cState.severity = severity;
+          addUserBubble(cMsgs, severity);
+          clearOptions(cOpts);
+          askBarangay();
+        });
+      });
+  }
+
+  function askBarangay() {
+    addBotBubble(cMsgs, 'Where are you located?', 550)
+      .then(function () {
+        return fetch(BARANGAY_API)
+          .then(function (response) { return response.json(); })
+          .catch(function () { return null; });
+      })
+      .then(function (result) {
+        var barangays = result && result.success && Array.isArray(result.data) ? result.data : [];
+        if (!barangays.length) {
+          cState.barangayId = null;
+          addUserBubble(cMsgs, 'Location skipped');
+          showRiskAssessment();
+          return;
+        }
+
+        showOptionLabel(cOpts, 'Select barangay');
+        barangays.forEach(function (barangay) {
+          addOptionBtn(cOpts, 'icon-location.svg', barangay.name, '', function () {
+            cState.barangayId = barangay.id;
+            addUserBubble(cMsgs, barangay.name);
+            clearOptions(cOpts);
+            setTimeout(showRiskAssessment, 0);
+          });
+        });
+      });
+  }
+
+  function showRiskAssessment() {
+    addBotBubble(cMsgs, 'Analyzing your pet\'s symptoms...', 500)
+      .then(function () {
+        return chatbotRequest('assess_consultation', {
+          petType: cState.petType,
+          ageGroup: cState.ageGroup,
+          symptoms: cState.symptoms,
+          duration: cState.duration,
+          severity: cState.severity,
+          barangay_id: cState.barangayId
+        });
+      })
+      .then(function (result) {
+        addDivider(cMsgs, 'Assessment Result');
+        addInfoBox(
+          cMsgs,
+          result.condition || 'Recommended Action',
+          result.recommendation || 'Please book an appointment for proper veterinary assessment.'
+        );
+        showConsultActions();
+      })
+      .catch(function () {
+        addDivider(cMsgs, 'Assessment Result');
+        addInfoBox(cMsgs, 'Recommended Action',
+          'Recommended action: Book appointment\n\nWe could not complete the automated assessment right now. Please book a clinic visit if symptoms continue or your pet becomes weak.'
+        );
+        showConsultActions();
+      });
+  }
 
 })();

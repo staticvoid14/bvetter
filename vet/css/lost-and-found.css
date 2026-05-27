@@ -35,6 +35,12 @@ body {
 	padding: var(--shell-gap);
 	gap: var(--sidebar-main-gap);
 }
+.profile-initial{
+	background: linear-gradient(96deg, #0f3f77 0%, #17788d 100%);
+	padding: 10px;
+	border-radius: 50%;
+	color: #edf4ff;
+}
 
 .lf-main {
 	margin-left: calc(var(--sidebar-width-collapsed) + var(--sidebar-main-gap));
@@ -95,6 +101,10 @@ body {
 
 .btn-success {
 	background: #168a3d;
+	color: #ffffff;
+}
+.btn-success1 {
+	background: linear-gradient(180deg, rgba(0, 110, 44, 1) 0%, rgba(30, 176, 79, 1) 100%);
 	color: #ffffff;
 }
 

@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VBetter | Chatbot Management</title>
-    <link rel="stylesheet" href="/shared/css/sidebar.css">
-    <link rel="stylesheet" href="/vet/css/chatbot-management.css">
+    <link rel="stylesheet" href="/FINAL-BACKEND(VBETTER)/Final-Backend/shared/css/sidebar.css">
+    <link rel="stylesheet" href="/FINAL-BACKEND(VBETTER)/Final-Backend/vet/css/chatbot-management.css">
     <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0" defer></script>
     <script src="/shared/js/sidebar.js" defer></script>
     <script src="/vet/js/chatbot-management.js" defer></script> -->
@@ -74,8 +74,7 @@
             <header class="hero-shell">
                 <div class="hero-copy">
                     <h1>Chatbot Management</h1>
-                    <p>Switch between the dashboard, inquiry rules, and consultation rules. The page uses local dummy
-                        data for now so the backend can be attached later.</p>
+                    <p>Switch between the dashboard, inquiry rules, and consultation rules.</p>
                 </div>
             </header>
 
@@ -143,13 +142,10 @@
                     <article class="chart-panel location-panel" aria-label="User location analysis panel">
                         <div class="panel-head">
                             <h2>User Location (Barangay Analysis)</h2>
-                            <a href="#" class="panel-link">View detailed map</a>
                         </div>
                         <div class="location-body">
-                            <div class="map-mock" aria-hidden="true">
-                                <div class="heat heat-1"></div>
-                                <div class="heat heat-2"></div>
-                                <div class="heat heat-3"></div>
+                            <div class="location-chart-wrap">
+                                <canvas id="locationPieChart" aria-label="Barangay consultation distribution chart"></canvas>
                             </div>
                             <ul class="location-legend" id="locationLegend"></ul>
                         </div>
@@ -223,7 +219,7 @@
                             <h2>Chatbot Inquiry Management</h2>
                             <p>Manage the local inquiry rules used by the chatbot.</p>
                         </div>
-                        <span class="table-badge">Live dummy data</span>
+                        <span class="table-badge">Live backend data</span>
                     </div>
                     <div class="table-wrap">
                         <table class="rules-table">
@@ -309,7 +305,7 @@
                                 <h2>Chatbot Consultation Rules</h2>
                                 <p>Manage the symptom rules that drive the consultation assistant.</p>
                             </div>
-                            <span class="table-badge">Live dummy data</span>
+                            <span class="table-badge">Live backend data</span>
                         </div>
                         <div class="table-wrap">
                             <table class="rules-table consultation-rules-table">
@@ -467,10 +463,10 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
-    <script src="/shared/js/auth.js"></script>
-    <script>VBetterAuth.requireAuth(['vet']);</script>
-    <script src="/shared/js/sidebar.js"></script>
-    <script src="/vet/js/chatbot-management.js"></script>
+    <!-- <script src="/FINAL-BACKEND(VBETTER)/Final-Backend/shared/js/auth.js"></script> -->
+    <!-- <script>VBetterAuth.requireAuth(['vet']);</script> -->
+    <script src="/FINAL-BACKEND(VBETTER)/Final-Backend/shared/js/sidebar.js"></script>
+    <script src="/FINAL-BACKEND(VBETTER)/Final-Backend/vet/js/chatbot-management.js"></script>
 
 </body>
 

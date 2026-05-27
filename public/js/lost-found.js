@@ -14,6 +14,9 @@ const DEFAULT_COORDS = [14.9577, 120.9055];
 let barangays = [];
 let reportMap = null;
 let reportMarker = null;
+let detailMap = null;
+let sightingMap = null;
+let sightingMarker = null;
 const barangayCoordinates = {
   Tangos: [14.9599, 120.9083],
   Poblacion: [14.9621, 120.9017],
@@ -100,6 +103,17 @@ async function loadBarangays() {
   }
   populateSharedOptions();
 }
+async function getKPI(){
+  try{
+    const res = await api.getTotalReports();
+    const res1 = await api.getActiveReports();
+    document.getElementById('ResolvedCases').textContent = res.count;
+    document.getElementById('ActiveAlerts').textContent = res1.count;
+  }
+  catch(error){
+    console.error('Error fetching KPIs:', error);
+  }
+}
 
 function populateSharedOptions() {
   const barangayOptions = '<option value="">Select Barangay</option>' + barangays.map((name) => `<option>${escapeHtml(name)}</option>`).join('');
@@ -114,13 +128,14 @@ function populateSharedOptions() {
 
   const filterSections = document.querySelectorAll('.filter-section .filter-chips');
   if (filterSections[0]) {
-    filterSections[0].innerHTML = barangays.map((name) => `<button class="filter-chip" onclick="toggleChip(this,'barangay')">${escapeHtml(name)}</button>`).join('');
+    filterSections[0].innerHTML = barangays.map((name) => `<button type="button" class="filter-chip" onclick="toggleChip(this,'barangay')">${escapeHtml(name)}</button>`).join('');
   }
   if (filterSections[1]) {
-    filterSections[1].innerHTML = PET_TYPES.map((name) => `<button class="filter-chip" onclick="toggleChip(this,'type')">${escapeHtml(name)}</button>`).join('');
+    filterSections[1].innerHTML = PET_TYPES.map((name) => `<button type="button" class="filter-chip" onclick="toggleChip(this,'type')">${escapeHtml(name)}</button>`).join('');
   }
 
   document.getElementById('barangayInput')?.addEventListener('change', updateReportMapFromBarangay);
+  document.getElementById('sightingBarangayInput')?.addEventListener('change', updateSightingMapFromBarangay);
 }
 
 async function loadMyReports() {
@@ -157,7 +172,7 @@ function renderPublicGrid() {
             <span class="pet-meta-item"><img src="../images/icons/icon-location.svg" class="meta-icon-sm"/> ${escapeHtml(reportLocation(report))}</span>
             <span class="pet-meta-item"><img src="../images/icons/icon-calendar.svg" class="meta-icon-sm"/> ${escapeHtml(formatDate(report.date || report.created_at))}</span>
           </div>
-          <button class="btn-view-details" onclick="viewDetails(${index})">View Details</button>
+          <button type="button" class="btn-view-details" onclick="viewDetails(${index})">View Details</button>
         </div>
       </div>
     `;
@@ -175,7 +190,7 @@ function renderMyReports() {
       </div>
       <h3 class="create-report-title">Create New Report</h3>
       <p class="create-report-desc">File a new lost or found animal report to start the recovery process.</p>
-      <button class="btn-start-report" onclick="openModal('lost')">Start Report</button>
+      <button type="button" class="btn-start-report" onclick="openModal('lost')">Start Report</button>
     </div>
   `;
 
@@ -205,7 +220,7 @@ function renderMyReports() {
               <img src="../images/icons/${pending ? 'admin-review.svg' : 'matching-progress.svg'}" alt="" class="status-icon"/> ${escapeHtml(pending ? 'Vet Review' : report.status)}
             </span>
           </div>
-          <button class="btn-active-details ${pending ? 'outline' : ''}" onclick="openMyReportMatches('${report.id}')">
+          <button type="button" class="btn-active-details ${pending ? 'outline' : ''}" onclick="openMyReportMatches('${report.id}')">
             ${pending ? 'View Details' : report.status === 'resolved' ? 'View Case' : 'View Potential Matches'}
             <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
           </button>
@@ -233,7 +248,7 @@ function renderHistory(reports) {
           <span class="history-pet"><img src="${escapeHtml(reportImage(report))}" alt="" class="history-pet-img"/> ${escapeHtml(report.petName || report.title || 'Unknown')}</span>
           <span><span class="type-tag ${type}-tag">${escapeHtml(report.type)}</span></span>
           <span><span class="final-status ${report.status === 'resolved' ? 'reunited' : 'pending'}">${escapeHtml(report.status)}</span></span>
-          <span><button class="btn-view-case" onclick="openMyReportMatches('${report.id}')">View Case</button></span>
+          <span><button type="button" class="btn-view-case" onclick="openMyReportMatches('${report.id}')">View Case</button></span>
         </div>
       `;
     }).join('')}
@@ -267,10 +282,35 @@ function openModalById(id) {
 function closeModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
+
   el.classList.remove('open');
   document.body.style.overflow = '';
-}
+  destroyDetailMap();
+  if (id === 'sightingModal') {
+    destroySightingMap();
+    resetSightingPhotoPreview();
+  }
 
+  // reset upload preview
+  const fileInput = document.getElementById("petPhoto");
+  const uploadBox = document.querySelector(".upload-box");
+  const icon = uploadBox.querySelector(".upload-cam-icon");
+  const text = uploadBox.querySelector(".upload-text");
+  const hint = uploadBox.querySelector(".upload-hint");
+
+  if (fileInput) fileInput.value = ""; // remove selected file
+
+  if (uploadBox) {
+    uploadBox.style.backgroundImage = ""; // remove preview
+    uploadBox.style.backgroundSize = "";
+    uploadBox.style.backgroundPosition = "";
+    uploadBox.style.backgroundRepeat = "";
+  }
+
+  if (icon) icon.style.display = "block";
+  if (text) text.style.display = "block";
+  if (hint) hint.style.display = "block";
+}
 function closeModalOutside(event, id) {
   if (event.target === document.getElementById(id)) closeModal(id);
 }
@@ -291,6 +331,7 @@ function openModal(type) {
   const petDetailsLabel = document.getElementById('petDetailsLabel');
 
   const isLost = type === 'lost';
+
   if (title) title.textContent = isLost ? 'Report Lost Pet' : 'Report Found Pet';
   if (submitText) submitText.textContent = isLost ? 'Submit Lost Pet Report' : 'Submit Found Pet Report';
   if (petNameRow) petNameRow.style.display = isLost ? 'block' : 'none';
@@ -300,6 +341,33 @@ function openModal(type) {
   if (notesLabel) notesLabel.textContent = isLost ? 'Additional Details' : 'Current Status / Notes';
 
   openModalById('reportModal');
+
+  // image preview code
+ const fileInput = document.getElementById("petPhoto");
+const uploadBox = document.querySelector(".upload-box");
+
+fileInput.addEventListener("change", function () {
+    const file = this.files[0];
+
+    if (file) {
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            uploadBox.style.backgroundImage = `url(${e.target.result})`;
+            uploadBox.style.backgroundSize = "cover";
+            uploadBox.style.backgroundPosition = "center";
+            uploadBox.style.backgroundRepeat = "no-repeat";
+
+            // hide icon and text
+            uploadBox.querySelector(".upload-cam-icon").style.display = "none";
+            uploadBox.querySelector(".upload-text").style.display = "none";
+            uploadBox.querySelector(".upload-hint").style.display = "none";
+        };
+
+        reader.readAsDataURL(file);
+    }
+});
+
   setTimeout(initReportMap, 150);
 }
 
@@ -334,6 +402,7 @@ async function submitReport() {
     if (email) formData.append('contact_email', email);
     const photo = document.getElementById('petPhoto')?.files?.[0];
     if (photo) formData.append('photo', photo);
+    
 
     const submitBtn = document.querySelector('#reportModal .btn-submit');
     if (submitBtn) submitBtn.disabled = true;
@@ -371,6 +440,7 @@ function viewDetails(index) {
     document.getElementById('dDate').textContent = formatDate(pet.date);
     document.getElementById('dLocation').textContent = reportLocation(pet);
     openModalById('detailsLostModal');
+    setTimeout(() => initDetailMap('detailsLostMap', pet), 100);
   } else {
     document.getElementById('detailsFoundImg').src = reportImage(pet);
     document.getElementById('detailsFoundName').textContent = pet.petName || pet.title || 'Unknown';
@@ -382,39 +452,176 @@ function viewDetails(index) {
     document.getElementById('dFoundColor').textContent = pet.markings || 'N/A';
     document.getElementById('dFoundNotes').textContent = pet.notes || 'N/A';
     openModalById('detailsFoundModal');
+    setTimeout(() => initDetailMap('detailsFoundMap', pet), 100);
   }
 }
-
+function matchScoreClass(confidence) {
+	if (confidence >= 80) return 'high';
+	if (confidence >= 60) return 'mid';
+	return 'low';
+}
+function buildMatchCard(match, index, report) {
+	const cls        = matchScoreClass(match.confidence);
+	const barClass   = cls === 'high' ? 'lf-match-bar' : `lf-match-bar ${cls}-bar`;
+	const isResolved = match.status === 'approved';
+	const foundId    = match.found?.reportId || '';
+ 
+	// Infer "Found" source label: sightings come from the community, reports from admin/clinic
+	const foundSource = match.found?.sightingId && !match.found?.reportId
+		? 'Community Report'
+		: 'Admin Upload';
+ 
+	// Similarity reason chips
+	const simTagsHtml = (match.reasons || [])
+		.map((reason) => `<span class="lf-sim-tag">${escapeHtml(reason)}</span>`)
+		.join('');
+ 
+	// Action buttons — hide claim button for already-resolved matches
+	const actionsHtml = isResolved
+		? `<div class="lf-match-resolved-badge">✓ Resolved Match</div>`
+		: `
+			<button type="button" class="lfd-btn-notmine"
+				data-match-id="${match.id}"
+				onclick="handleNotMine(this)">
+				NOT MY PET
+			</button>
+			<button type="button" class="lfd-btn-claim"
+				data-match-id="${match.id}"
+				data-found-id="${foundId}"
+				onclick="handleClaim(this)">
+				CLAIM THIS PET
+			</button>
+		`;
+ 
+	return `
+		<div class="lf-match-card ${cls}" data-match-id="${escapeHtml(String(match.id))}">
+ 
+			<!-- Score row -->
+			<div class="lf-match-top">
+				<span class="lf-match-label">Potential Match ${index + 1}</span>
+				<div class="lf-match-score-wrap">
+					<div class="lf-match-bar-track">
+						<div class="${barClass}" data-width="${match.confidence}" style="width:0%"></div>
+					</div>
+					<span class="lf-match-pct ${cls}">${match.confidence}%</span>
+				</div>
+			</div>
+ 
+			<!-- Pet pair -->
+			<div class="lf-match-pets">
+ 
+				<!-- Lost pet (owner's report) -->
+				<div class="lf-match-pet-card owner">
+					<img src="${escapeHtml(match.lost.image || FALLBACK_IMAGE)}"
+						alt="${escapeHtml(match.lost.name || 'Lost Pet')}"
+						class="lf-match-pet-img"/>
+					<div class="lf-match-pet-info">
+						<h4 class="lf-match-pet-name">
+							${escapeHtml(match.lost.name || report?.petName || report?.title || 'Lost Pet')}
+						</h4>
+						<p class="lf-match-pet-meta">${escapeHtml(match.lost.breed || '')}</p>
+						<p class="lf-match-pet-meta">${escapeHtml(match.lost.location || '')}</p>
+						<span class="lf-match-tag lost-tag">Lost (Your Report)</span>
+					</div>
+				</div>
+ 
+				<!-- VS connector -->
+				<div class="lf-match-vs">
+					<div class="lf-match-vs-line"></div>
+					<div class="lf-match-vs-icon">
+						<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+							<path d="M3.5 7h7M7.5 4.5L10 7l-2.5 2.5"
+								stroke="#737781" stroke-width="1.2"
+								stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</div>
+					<div class="lf-match-vs-line"></div>
+				</div>
+ 
+				<!-- Found pet (admin/community report) -->
+				<div class="lf-match-pet-card admin">
+					<img src="${escapeHtml(match.found.image || FALLBACK_IMAGE)}"
+						alt="${escapeHtml(match.found.name || 'Found Pet')}"
+						class="lf-match-pet-img"/>
+					<div class="lf-match-pet-info">
+						<h4 class="lf-match-pet-name">
+							${escapeHtml(match.found.name || 'Found Pet')}
+						</h4>
+						<p class="lf-match-pet-meta">${escapeHtml(match.found.breed || '')}</p>
+						<p class="lf-match-pet-meta">Source: ${escapeHtml(foundSource)}</p>
+						<span class="lf-match-tag found-tag">Found (Admin)</span>
+					</div>
+				</div>
+ 
+			</div>
+ 
+			<!-- Similarity reason chips -->
+			${simTagsHtml ? `<div class="lf-match-similarity-tags">${simTagsHtml}</div>` : ''}
+ 
+			<!-- Actions -->
+			<div class="lf-match-actions">${actionsHtml}</div>
+ 
+		</div>
+	`;
+}
 async function openMyReportMatches(reportId) {
-  const report = myReports.find((item) => String(item.id) === String(reportId));
-  const nameEl = document.getElementById('matchesPetName');
-  if (nameEl) nameEl.textContent = report?.petName || report?.title || `Report #${reportId}`;
-
-  const panel = document.getElementById('matchesPanel');
-  if (panel) panel.querySelectorAll('.lf-match-card').forEach((card) => card.remove());
-  const result = await api.getMatchesByReportId(reportId);
-  const matches = result.success ? (result.data || []) : [];
-  const empty = document.getElementById('noMatchesState');
-  if (empty) empty.style.display = matches.length ? 'none' : 'flex';
-
-  const listHtml = matches.map((match) => `
-    <article class="lf-match-card">
-      <div class="lf-match-photos">
-        <img src="${escapeHtml(match.lost.image || FALLBACK_IMAGE)}" alt="">
-        <img src="${escapeHtml(match.found.image || FALLBACK_IMAGE)}" alt="">
-      </div>
-      <div class="lf-match-info">
-        <strong>${escapeHtml(match.confidence)}% match</strong>
-        <p>${escapeHtml(match.reasons.join(', '))}</p>
-        ${match.status === 'approved' ? '<span class="match-alert-badge">Resolved Match</span>' : `<button class="btn-submit" type="button" onclick="openClaimModal(${match.found.reportId || ''})">This is my pet</button>`}
-      </div>
-    </article>
-  `).join('');
-  panel?.insertAdjacentHTML('beforeend', listHtml);
-
-  openModalById('matchesPanelOverlay');
+	// Find the owner's report for name/breed fallbacks
+	const report = myReports.find((item) => String(item.id) === String(reportId));
+ 
+	// Update the panel subtitle with the pet's name
+	const nameEl = document.getElementById('matchesPetName');
+	if (nameEl) {
+		nameEl.textContent = report?.petName || report?.title || `Report #${reportId}`;
+	}
+ 
+	// Grab the panel body and remove any previously rendered match cards
+	const body = document.querySelector('#matchesPanel .matches-panel-body');
+	if (body) body.querySelectorAll('.lf-match-card').forEach((card) => card.remove());
+ 
+	// Show a subtle loading state while fetching
+	const emptyEl = document.getElementById('noMatchesState');
+	if (emptyEl) emptyEl.style.display = 'none';
+ 
+	// Fetch matches for this specific report
+	let matches = [];
+	try {
+		const result = await api.getMatchesByReportId(reportId);
+		matches = result.success ? (result.data || []) : [];
+	} catch (err) {
+		console.error('Failed to load matches:', err);
+	}
+ 
+	// Show empty state if no matches returned
+	if (emptyEl) emptyEl.style.display = matches.length ? 'none' : 'flex';
+ 
+	// Build and inject all match cards before the empty-state element
+	if (matches.length && body) {
+		const cardsHtml = matches
+			.map((match, i) => buildMatchCard(match, i, report))
+			.join('');
+ 
+		// Insert cards just before the empty state so they appear above it
+		if (emptyEl) {
+			emptyEl.insertAdjacentHTML('beforebegin', cardsHtml);
+		} else {
+			body.insertAdjacentHTML('beforeend', cardsHtml);
+		}
+ 
+		// Animate the score bars after the DOM is painted (mirrors the CSS transition
+		// on the hardcoded cards — bars start at 0% then slide to the real value)
+		requestAnimationFrame(() => {
+			body.querySelectorAll('.lf-match-bar[data-width]').forEach((bar) => {
+				bar.style.transition = 'width 0.65s cubic-bezier(0.25, 0.8, 0.25, 1)';
+				bar.style.width = bar.dataset.width + '%';
+			});
+		});
+	}
+ 
+	// Open the slide-in panel
+	openModalById('matchesPanelOverlay');
 }
 
+getKPI();
 function closeMatchesPanelDirect() {
   closeModal('matchesPanelOverlay');
 }
@@ -427,14 +634,24 @@ function handleNotMine(btn) {
   btn.closest('.lf-match-card')?.remove();
 }
 
-function handleClaim() {
+function handleClaim(btn) {
+  const foundId = btn?.dataset?.foundId || '';
+  if (foundId) currentClaimReportId = foundId;
+  if (!currentClaimReportId) {
+    alert('Only found pet reports can be claimed. Please contact the clinic for sighting reports.');
+    return;
+  }
   openClaimModal();
 }
 
 function openSightingModal() {
   closeModal('detailsLostModal');
   closeModal('detailsFoundModal');
-  setTimeout(() => openModalById('sightingModal'), 150);
+  setTimeout(() => {
+    openModalById('sightingModal');
+    initSightingMap();
+    initSightingPhotoPreview();
+  }, 150);
 }
 
 async function submitSighting() {
@@ -455,6 +672,8 @@ async function submitSighting() {
   formData.append('sighting_date', date);
   formData.append('barangay', barangay);
   formData.append('location_text', location);
+  formData.append('lat', document.getElementById('sightingLatInput')?.value || '');
+  formData.append('lng', document.getElementById('sightingLngInput')?.value || '');
   formData.append('notes', notes);
   if (photo) formData.append('photo', photo);
 
@@ -465,6 +684,47 @@ async function submitSighting() {
   }
   closeModal('sightingModal');
   setTimeout(() => openModalById('sightingSuccessModal'), 150);
+}
+
+function initSightingPhotoPreview() {
+  const input = document.getElementById('sightingPhoto');
+  if (!input || input.dataset.previewBound === 'true') return;
+  input.dataset.previewBound = 'true';
+  input.addEventListener('change', updateSightingPhotoPreview);
+}
+
+function updateSightingPhotoPreview() {
+  const input = document.getElementById('sightingPhoto');
+  const uploadBox = input?.closest('.upload-box-wide');
+  const file = input?.files?.[0];
+  if (!uploadBox || !file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    uploadBox.style.backgroundImage = `url(${event.target.result})`;
+    uploadBox.style.backgroundSize = 'cover';
+    uploadBox.style.backgroundPosition = 'center';
+    uploadBox.style.backgroundRepeat = 'no-repeat';
+    uploadBox.querySelector('.upload-cam-lg-img')?.style.setProperty('display', 'none');
+    uploadBox.querySelector('.upload-text')?.style.setProperty('display', 'none');
+    uploadBox.querySelector('.upload-hint')?.style.setProperty('display', 'none');
+  };
+  reader.readAsDataURL(file);
+}
+
+function resetSightingPhotoPreview() {
+  const input = document.getElementById('sightingPhoto');
+  const uploadBox = input?.closest('.upload-box-wide');
+  if (input) input.value = '';
+  if (!uploadBox) return;
+
+  uploadBox.style.backgroundImage = '';
+  uploadBox.style.backgroundSize = '';
+  uploadBox.style.backgroundPosition = '';
+  uploadBox.style.backgroundRepeat = '';
+  uploadBox.querySelector('.upload-cam-lg-img')?.style.removeProperty('display');
+  uploadBox.querySelector('.upload-text')?.style.removeProperty('display');
+  uploadBox.querySelector('.upload-hint')?.style.removeProperty('display');
 }
 
 function initReportMap() {
@@ -504,6 +764,75 @@ function updateReportMapFromBarangay() {
   const barangay = document.getElementById('barangayInput')?.value || '';
   const [lat, lng] = barangayCoordinates[barangay] || DEFAULT_COORDS;
   setReportMapLocation(lat, lng);
+}
+
+function initSightingMap() {
+  if (typeof L === 'undefined') return;
+  const mapElement = document.getElementById('sightingMap');
+  if (!mapElement) return;
+  destroySightingMap();
+
+  const barangay = document.getElementById('sightingBarangayInput')?.value || '';
+  const [fallbackLat, fallbackLng] = barangayCoordinates[barangay] || DEFAULT_COORDS;
+  const lat = Number(document.getElementById('sightingLatInput')?.value || fallbackLat);
+  const lng = Number(document.getElementById('sightingLngInput')?.value || fallbackLng);
+  sightingMap = L.map(mapElement, { zoomControl: true }).setView([lat, lng], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(sightingMap);
+  sightingMarker = L.marker([lat, lng]).addTo(sightingMap);
+  sightingMap.on('click', (event) => setSightingMapLocation(event.latlng.lat, event.latlng.lng));
+  setSightingMapLocation(lat, lng);
+  setTimeout(() => sightingMap?.invalidateSize(), 100);
+}
+
+function setSightingMapLocation(lat, lng) {
+  const nextLat = Number(lat);
+  const nextLng = Number(lng);
+  if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return;
+  const latInput = document.getElementById('sightingLatInput');
+  const lngInput = document.getElementById('sightingLngInput');
+  if (latInput) latInput.value = nextLat.toFixed(6);
+  if (lngInput) lngInput.value = nextLng.toFixed(6);
+  if (sightingMarker) sightingMarker.setLatLng([nextLat, nextLng]);
+  if (sightingMap) sightingMap.setView([nextLat, nextLng], 14);
+}
+
+function updateSightingMapFromBarangay() {
+  const barangay = document.getElementById('sightingBarangayInput')?.value || '';
+  const [lat, lng] = barangayCoordinates[barangay] || DEFAULT_COORDS;
+  setSightingMapLocation(lat, lng);
+}
+
+function destroySightingMap() {
+  if (!sightingMap) return;
+  sightingMap.remove();
+  sightingMap = null;
+  sightingMarker = null;
+}
+
+function initDetailMap(elementId, report) {
+  if (typeof L === 'undefined') return;
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  destroyDetailMap();
+  const [fallbackLat, fallbackLng] = barangayCoordinates[report?.barangay] || DEFAULT_COORDS;
+  const reportLat = Number(report?.lat ?? report?.latitude);
+  const reportLng = Number(report?.lng ?? report?.longitude);
+  const lat = Number.isFinite(reportLat) ? reportLat : fallbackLat;
+  const lng = Number.isFinite(reportLng) ? reportLng : fallbackLng;
+  detailMap = L.map(element, { zoomControl: true }).setView([lat, lng], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(detailMap);
+  L.marker([lat, lng]).addTo(detailMap).bindTooltip('Report Location', { permanent: true, direction: 'top' });
+  setTimeout(() => detailMap?.invalidateSize(), 100);
+}
+
+function destroyDetailMap() {
+  if (!detailMap) return;
+  detailMap.remove();
+  detailMap = null;
 }
 
 function openClaimModal(reportId = null) {

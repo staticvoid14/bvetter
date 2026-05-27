@@ -39,6 +39,7 @@ try {
             users.id,
             users.full_name,
             users.email,
+            users.phone_number,
             users.password_hash,
             users.account_status,
             roles.name AS role_name,
@@ -95,6 +96,7 @@ try {
             'userId' => (int) $user['id'],
             'name' => $user['full_name'],
             'email' => $user['email'],
+            'phone' => $user['phone_number'],
             'role' => $frontendRole,
             'db_role' => $user['role_name'],
             'token' => $token
