@@ -91,16 +91,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 			severity: 'Active',
 			recommendation: 'Monitor for 24h, clean paws after walks',
 			lastUpdate: '2025-10-12'
-		},
-		{
-			id: 4,
-			petType: 'Others',
-			symptoms: ['Limping', 'Swelling'],
-			duration: '1-3 Days',
-			condition: 'Soft Tissue Injury',
-			severity: 'Moderate',
-			recommendation: 'Rest and limit movement, book checkup',
-			lastUpdate: '2025-10-12'
 		}
 	];
 
@@ -139,6 +129,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 		cat: {
 			labels: ['Fever', 'Itching', 'Arthritis', 'Obesity', 'Vomiting', 'Diarrhea', 'Coughing', 'Loss of Appetite', 'Wounds'],
 			values: [34, 78, 29, 39, 24, 22, 46, 48, 66]
+		},
+		other: {
+			labels: ['Fever', 'Itching', 'Arthritis', 'Obesity', 'Vomiting', 'Diarrhea', 'Coughing', 'Loss of Appetite', 'Wounds'],
+			values: [0, 0, 0, 0, 0, 0, 0, 0, 0]
 		}
 	};
 
@@ -175,7 +169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	};
 
 	const state = {
-		activeTab: 'inquiry',
+		activeTab: 'home',
 		inquiryEditingId: null,
 		inquiryDeletingId: null,
 		inquiryViewingId: null,
@@ -290,7 +284,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 				all: normalizeChartSet(stats.symptomsByPetType.all),
 				dog: normalizeChartSet(stats.symptomsByPetType.dog),
 				cat: normalizeChartSet(stats.symptomsByPetType.cat),
-				bird: normalizeChartSet(stats.symptomsByPetType.bird),
 				other: normalizeChartSet(stats.symptomsByPetType.other)
 			};
 		}
@@ -1174,7 +1167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const buttonText = isEdit ? 'Save Changes' : 'Add Inquiry';
 		return `
 			<h2 class="modal-title" id="modal-title">${title}</h2>
-			<p class="modal-subtitle">${isEdit ? 'Update the current rule and keep the chatbot response consistent.' : 'Create a new inquiry rule for the chatbot using dummy data.'}</p>
+			<p class="modal-subtitle">${isEdit ? 'Update the current rule and keep the chatbot response consistent.' : 'Create a new inquiry rule for the chatbot.'}</p>
 			<form id="inquiry-form">
 				<div class="form-grid">
 					<label class="field span-2" for="inquiry-name">
@@ -1351,6 +1344,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	}
 
 	function setActiveTab(tabName) {
+		console.log('Switching to tab:', tabName);
 		state.activeTab = tabName;
 		ui.tabButtons.forEach((button) => {
 			const isActive = button.dataset.tabTarget === tabName;
@@ -1544,5 +1538,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 	renderConsultationStats();
 	renderConsultationTable();
 	bindEvents();
-	setActiveTab('inquiry');
+	setActiveTab('home');
 });

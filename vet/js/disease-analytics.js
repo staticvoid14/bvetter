@@ -1,537 +1,847 @@
+// ============================================================
+// disease-analytics.js  v3 — Disease-Specific Forecasting
+// ============================================================
+// Changes from v2:
+//  1. diseaseRiskRequest() forwards `disease` and `period` so PHP/Python
+//     routes to the correct pipeline (disease-specific vs all-disease).
+//  2. loadDiseaseAnalytics() skips the Python call for "All Diseases" only
+//     when the analytics service is unavailable; otherwise always calls.
+//  3. Disease-specific insights map DiseaseSpecificARIMA / WMA model fields.
+//  4. renderBarChart() shows correct model badges per pipeline.
+//  5. renderInsightPanel() shows rule-based risk note for specific diseases.
+//  6. KPI cards update fully on every filter change regardless of pipeline.
+//  7. model_accuracy is null for disease-specific routes — handled gracefully.
+// ============================================================
+
+'use strict';
+
+/* ── Default state ──────────────────────────────────────────── */
 let diseaseAnalyticsData = {
-	filters: ["All Diseases", "Parvovirus", "Distemper", "Leptospirosis", "Rabies"],
-	selectedDisease: "Parvovirus",
-	kpis: [
-		{ label: "Total Patients This Month", value: "120", trend: "+2% higher compared to last month" },
-		{ label: "Most Common Disease", value: "Canine Parvovirus", trend: "Mostly dog and cat" },
-		{ label: "Most Active Barangay", value: "Tangos", trend: "Barangay Matangtubig is second" },
-		{ label: "Auto Alerts", value: "08", trend: "3 critical, 5 monitor" }
-	],
-	predictionSummary: {
-		total: 24,
-		label: "Predicted high-risk zones"
-	},
-	sources: [
-		{ name: "Patient Records", status: "Live" },
-		{ name: "Baliwag City", status: "Geographic Layer" },
-		{ name: "Symptom Logs", status: "Model Input Aggregation" }
-	],
-	actualCases: [
-		{ barangay: "Poblacion", value: 5 },
-		{ barangay: "San Jose", value: 3 },
-		{ barangay: "Tangos", value: 9 },
-		{ barangay: "Matangtubig", value: 2 },
-		{ barangay: "Makinabang", value: 4 },
-		{ barangay: "Virgen delas Flores", value: 4 },
-		{ barangay: "Tilapayong", value: 4 },
-		{ barangay: "Tibig", value: 7 },
-		{ barangay: "Tiaong", value: 2 },
-		{ barangay: "Santo Nino", value: 1 },
-		{ barangay: "Santa Cristo", value: 3 },
-		{ barangay: "Santa Barbara", value: 2 }
-	],
-	predictedCases: [
-		{ barangay: "Poblacion", value: 8.9 },
-		{ barangay: "San Jose", value: 7.1 },
-		{ barangay: "Tangos", value: 9.6 },
-		{ barangay: "Matangtubig", value: 4.4 },
-		{ barangay: "Makinabang", value: 5.2 },
-		{ barangay: "Virgen delas Flores", value: 5.7 },
-		{ barangay: "Tilapayong", value: 3.8 },
-		{ barangay: "Tibig", value: 7.2 },
-		{ barangay: "Tiaong", value: 2.6 },
-		{ barangay: "Santo Nino", value: 2.1 },
-		{ barangay: "Santa Cristo", value: 4.9 },
-		{ barangay: "Santa Barbara", value: 3.1 }
-	],
-	insights: [
-		{
-			id: "tangos",
-			barangay: "Tangos",
-			disease: "Parvovirus",
-			cases: 18,
-			avg: 16.2,
-			recommendation: "Deploy barangay health workers for door-to-door visual screening and pet registry verification.",
-			comparisons: [
-				{ label: "Parvovirus Containment", value: 86, color: "#2ca0f0" },
-				{ label: "Brgy Average", value: 79, color: "#3d6670" },
-				{ label: "Other Barangay", value: 78, color: "#4c6f77" },
-				{ label: "Highest Ever", value: 93, color: "#0b7a2c" }
-			],
-			predicted: [
-				{ label: "Parvovirus Containment", value: 84, color: "#2ca0f0" },
-				{ label: "Brgy Average", value: 79, color: "#3d6670" }
-			],
-			protocol: {
-				classification: "Grade 4 Outbreak Risk",
-				title: "Parvovirus Containment Protocol",
-				description: "Standardized biosafety level emergency response initiated via automated surveillance trigger.",
-				steps: [
-					{ level: "red", title: "Immediate: Field Deployment", detail: "Deploy Barangay Health Workers for door-to-door visual screening and pet registry verification." },
-					{ level: "blue", title: "Within 24hrs: Regulatory Reporting", detail: "Mandatory escalation report to Municipal Health Office and Provincial Veterinary Services." },
-					{ level: "green", title: "Preventive: Sanitation Drive", detail: "Conduct community sanitation sweep and distribute veterinary-grade disinfectants to high-risk households." },
-					{ level: "gray", title: "Monitoring: Case Reporting", detail: "Daily case reporting for 14 days until incubation window clears and secondary screening is complete." }
-				]
-			}
-		},
-		{
-			id: "poblacion",
-			barangay: "Poblacion",
-			disease: "Parvovirus",
-			cases: 12,
-			avg: 10.4,
-			recommendation: "Open temporary triage point and prioritize severe symptom tracking within 48 hours.",
-			comparisons: [
-				{ label: "Parvovirus Containment", value: 67, color: "#2ca0f0" },
-				{ label: "Brgy Average", value: 56, color: "#3d6670" },
-				{ label: "Other Barangay", value: 61, color: "#4c6f77" },
-				{ label: "Highest Ever", value: 83, color: "#0b7a2c" }
-			],
-			predicted: [
-				{ label: "Parvovirus Containment", value: 65, color: "#2ca0f0" },
-				{ label: "Brgy Average", value: 58, color: "#3d6670" }
-			],
-			protocol: {
-				classification: "Grade 3 Elevated Risk",
-				title: "Targeted Community Response",
-				description: "Escalated monitoring with staged interventions for dense residential clusters.",
-				steps: [
-					{ level: "red", title: "Immediate: Cluster Validation", detail: "Confirm active symptom clusters from recent reports." },
-					{ level: "blue", title: "Within 24hrs: Vet Coordination", detail: "Coordinate with district vet teams for vaccination queueing." },
-					{ level: "green", title: "Preventive: Community Briefing", detail: "Run barangay broadcast for early symptom recognition." },
-					{ level: "gray", title: "Monitoring: Follow-up", detail: "Track trend every 12 hours and auto-adjust risk label." }
-				]
-			}
-		}
-	],
-	map: {
-		center: [14.9577, 120.9055],
-		zoom: 14,
-		metrics: [
-			{ label: "Total Patients", value: "1,284", trend: "+16% from last month" },
-			{ label: "Common Diseases", value: "Parvovirus", trend: "42% of recent admissions" },
-			{ label: "Active Barangay", value: "Tangos", trend: "Immediate focus area" }
-		],
-		hotspots: [
-			{ id: "h1", barangay: "Tangos", disease: "Parvovirus", risk: "critical", cases: 42, predicted: 51, lat: 14.9599, lng: 120.9083, intensity: 1.0 },
-			{ id: "h2", barangay: "Matangtubig", disease: "Parvovirus", risk: "stable", cases: 16, predicted: 22, lat: 14.9516, lng: 120.8979, intensity: 0.55 },
-			{ id: "h3", barangay: "Makinabang", disease: "Parvovirus", risk: "monitor", cases: 20, predicted: 27, lat: 14.9584, lng: 120.9001, intensity: 0.72 },
-			{ id: "h4", barangay: "San Jose", disease: "Parvovirus", risk: "critical", cases: 32, predicted: 38, lat: 14.9542, lng: 120.9099, intensity: 0.92 },
-			{ id: "h5", barangay: "Poblacion", disease: "Parvovirus", risk: "monitor", cases: 18, predicted: 23, lat: 14.9621, lng: 120.9017, intensity: 0.66 },
-			{ id: "h6", barangay: "Virgen delas Flores", disease: "Parvovirus", risk: "monitor", cases: 21, predicted: 26, lat: 14.9568, lng: 120.8947, intensity: 0.69 }
-		],
-		forecast: [22, 29, 31, 34, 28, 38, 44, 49]
-	}
+    filters: ['All Diseases'],
+    selectedDisease: 'All Diseases',
+    period: 'year',
+    periodLabel: 'Full Year 2025',
+    isAllDiseases: true,
+    kpis: [
+        { label: 'Total Patients This Year', value: '0',   trend: 'Loading…' },
+        { label: 'Most Common Disease',      value: 'N/A', trend: '' },
+        { label: 'Most Active Barangay',     value: 'N/A', trend: '' },
+        { label: 'Auto Alerts',              value: '00',  trend: '' },
+    ],
+    predictionSummary: { total: 0, label: 'Barangays monitored' },
+    sources: [],
+    actualCases: [],
+    predictedCases: [],
+    insights: [],
+    map: { center: [14.9577, 120.9055], zoom: 14, metrics: [], hotspots: [], forecast: [] },
 };
 
 const state = {
-	selectedInsightId: diseaseAnalyticsData.insights[0].id,
-	mapActionMode: false,
-	map: null,
-	heatLayer: null,
-	hotspotMarkers: []
+    selectedInsightId: null,
+    mapActionMode: false,
+    loadRequestId: 0,
+    map: null,
+    heatLayer: null,
+    hotspotMarkers: [],
 };
 
-async function initDiseaseAnalytics() {
-	await loadDiseaseAnalytics();
-	bindEvents();
-	renderOverview();
-	renderInsightPanel();
-	renderMapPanel();
+/* ── Utilities ──────────────────────────────────────────────── */
+function normalizeBarangayName(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-async function loadDiseaseAnalytics(disease = "All Diseases") {
-	if (!window.VetAPI?.getDiseaseAnalytics) return;
-	const response = await window.VetAPI.getDiseaseAnalytics(disease);
-	if (response.ok && response.data && Object.keys(response.data).length) {
-		diseaseAnalyticsData = response.data;
-		state.selectedInsightId = diseaseAnalyticsData.insights?.[0]?.id || "";
-	}
+function insightIdForBarangay(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+function isAllDiseasesSelected(disease) {
+    const d = String(disease || '').trim().toLowerCase();
+    return d === '' || d === 'all diseases' || d === 'all';
+}
+
+/* ── API calls ──────────────────────────────────────────────── */
+async function diseaseAnalyticsRequest(disease, period) {
+    const params = new URLSearchParams({
+        scope:   'disease_analytics',
+        disease: disease || 'All Diseases',
+        period:  period  || 'year',
+    });
+    try {
+        const res    = await fetch(`/FINAL-BACKEND(VBETTER)/Final-Backend/backend/dashboard/dashboard.php?${params}`, { cache: 'no-store' });
+        const result = await res.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+    } catch (e) {
+        return { ok: false, data: {}, error: e.message };
+    }
+}
+
+/**
+ * Call PHP disease_risk_prediction scope.
+ * Forwards `disease` and `period` so PHP passes them to Python /disease-predict,
+ * which routes to the correct pipeline (disease-specific vs all-disease ARIMA+RF).
+ */
+async function diseaseRiskRequest(barangays, currentCasesByBarangay, disease, period) {
+    try {
+        const res = await fetch(
+            '/FINAL-BACKEND(VBETTER)/Final-Backend/backend/dashboard/dashboard.php?scope=disease_risk_prediction',
+            {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache:   'no-store',
+                body: JSON.stringify({
+                    barangays:                  barangays || [],
+                    current_cases_by_barangay:  currentCasesByBarangay || {},
+                    disease:                    disease  || '',
+                    period:                     period   || 'year',
+                    steps:                      3,
+                }),
+            }
+        );
+        const result = await res.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.error };
+    } catch (e) {
+        return { ok: false, data: [], error: e.message };
+    }
+}
+
+/* ── Main loader ────────────────────────────────────────────── */
+async function loadDiseaseAnalytics(disease, period) {
+    const requestId = ++state.loadRequestId;
+    disease = disease || 'All Diseases';
+    period  = period  || 'year';
+    const allDiseases = isAllDiseasesSelected(disease);
+
+    // 1. PHP analytics (actual cases, period-filtered, correct source per disease)
+    const analyticsRes = window.VetAPI?.getDiseaseAnalytics
+        ? await window.VetAPI.getDiseaseAnalytics(disease, period)
+        : await diseaseAnalyticsRequest(disease, period);
+
+    if (requestId !== state.loadRequestId) return false;
+    if (!analyticsRes.ok || !analyticsRes.data || !Object.keys(analyticsRes.data).length) return false;
+
+    diseaseAnalyticsData             = analyticsRes.data;
+    diseaseAnalyticsData.selectedDisease = disease;
+    diseaseAnalyticsData.period          = period;
+    diseaseAnalyticsData.isAllDiseases   = allDiseases;
+
+    // 2. Collect unique barangays from hotspots
+    const seenBarangays = {};
+    const barangayNames = [];
+    (diseaseAnalyticsData.map?.hotspots || []).forEach(h => {
+        const key = normalizeBarangayName(h.barangay);
+        if (!seenBarangays[key]) { seenBarangays[key] = true; barangayNames.push(h.barangay); }
+    });
+
+    const currentCasesByBarangay = {};
+    (diseaseAnalyticsData.actualCases || []).forEach(r => {
+        currentCasesByBarangay[r.barangay] = Number(r.value) || 0;
+    });
+
+    // 3. Always call Python regardless of disease/period — it routes internally
+    const rfRes = window.VetAPI?.getDiseaseRiskPrediction
+        ? await window.VetAPI.getDiseaseRiskPrediction(barangayNames, currentCasesByBarangay, disease, period)
+        : await diseaseRiskRequest(barangayNames, currentCasesByBarangay, disease, period);
+
+    if (requestId !== state.loadRequestId) return false;
+
+    if (rfRes.ok && Array.isArray(rfRes.data) && rfRes.data.length) {
+        _mergeRFResults(rfRes.data, disease, period, allDiseases);
+    }
+
+    state.selectedInsightId = diseaseAnalyticsData.insights?.[0]?.id || null;
+    return true;
+}
+
+/**
+ * Merge Python forecasting results into diseaseAnalyticsData.
+ * Handles both AllDiseaseARIMA+RF and DiseaseSpecificARIMA / WMA responses.
+ */
+function _mergeRFResults(rfData, disease, period, allDiseases) {
+    const actualByBarangay    = {};
+    const predictedByBarangay = {};
+    const sourceByBarangay    = {};
+
+    (diseaseAnalyticsData.actualCases || []).forEach(r => {
+        actualByBarangay[normalizeBarangayName(r.barangay)] = Number(r.value) || 0;
+    });
+    (diseaseAnalyticsData.predictedCases || []).forEach(r => {
+        predictedByBarangay[normalizeBarangayName(r.barangay)] = Number(r.value) || 0;
+        sourceByBarangay[normalizeBarangayName(r.barangay)]    = r.source || 'fallback';
+    });
+
+    const maxCases = Math.max(...Object.values(actualByBarangay), 1);
+
+    // Build enriched insights — fields differ slightly per pipeline
+    diseaseAnalyticsData.insights = rfData.map(rf => {
+        const key            = normalizeBarangayName(rf.barangay);
+        const actualCases    = actualByBarangay[key]    ?? rf.current_cases ?? 0;
+        const predictedCases = predictedByBarangay[key] ?? (rf.predicted_cases ?? 0);
+        const source         = sourceByBarangay[key]    ?? rf.model_type     ?? 'fallback';
+
+        const loadPct = Math.min(100, Math.round((actualCases    / maxCases) * 100));
+        const avgPct  = Math.min(100, Math.round(((rf.avg_cases || 0) / maxCases) * 100));
+        const predPct = Math.min(100, Math.round((predictedCases / maxCases) * 100));
+
+        const arimaForecast = rf.arima_forecast || [];
+        const arimaLowerCi  = rf.arima_lower_ci  || [];
+        const arimaUpperCi  = rf.arima_upper_ci  || [];
+
+        // Model label: AllDiseaseARIMA+RF | DiseaseSpecificARIMA | DiseaseSpecificSARIMA | DiseaseMovingAverageFallback
+        const modelType = rf.model_type || (allDiseases ? 'AllDiseaseARIMA+RF' : 'DiseaseMovingAverageFallback');
+        const isRuleBased = rf.rf_model_type === 'RuleBasedThreshold';
+
+        // Protocol description differs per pipeline
+        let protocolDesc;
+        if (isRuleBased) {
+            const thr = rf.risk_thresholds || {};
+            protocolDesc = (
+                `${modelType} predicts ${arimaForecast[0] ?? '?'} cases next month. ` +
+                `Rule-based risk: ${rf.risk_class || 'N/A'} ` +
+                `(p50≤${thr.low_max ?? '?'}, p75≤${thr.med_max ?? '?'}). ` +
+                `${rf.eval_note || ''}`
+            );
+        } else {
+            protocolDesc = (
+                `ARIMA predicts ${arimaForecast[0] ?? '?'} cases next month. ` +
+                `RF Risk: ${rf.risk_class || 'N/A'} (${rf.confidence || 0}% conf). ` +
+                `MAE: ${rf.model_mae ?? 'N/A'}.`
+            );
+        }
+
+        return {
+            id:              insightIdForBarangay(rf.barangay),
+            barangay:        rf.barangay,
+            disease:         rf.disease || disease,
+            cases:           actualCases,
+            avg:             rf.avg_cases || 0,
+            recommendation:  rf.recommendation,
+            // Risk fields
+            rf_risk_class:   rf.risk_class,
+            rf_confidence:   rf.confidence,
+            rf_risk_proba:   rf.risk_proba || rf.rf_future_proba,
+            rf_model_type:   rf.rf_model_type || 'RandomForestClassifier',
+            risk_thresholds: rf.risk_thresholds || null,
+            // Model metadata
+            model_type:      modelType,
+            model_mae:       rf.model_mae,
+            model_rmse:      rf.model_rmse,
+            model_mape:      rf.model_mape,
+            model_accuracy:  rf.model_accuracy,   // null for disease-specific
+            n_obs:           rf.n_obs || 0,
+            pred_source:     source,
+            eval_note:       rf.eval_note || rf.split_method || '',
+            // Bar chart data
+            comparisons: [
+                { label: 'This Barangay',    value: loadPct, color: '#2ca0f0' },
+                { label: 'Barangay Average', value: avgPct,  color: '#3d6670' },
+                { label: 'Peak Barangay',    value: 100,     color: '#0b7a2c' },
+            ],
+            predicted: [
+                { label: 'Predicted Load', value: predPct, color: '#2ca0f0' },
+                { label: 'Current Load',   value: loadPct, color: '#3d6670' },
+            ],
+            // ARIMA fields
+            forecast:       arimaForecast,
+            lower_ci:       arimaLowerCi,
+            upper_ci:       arimaUpperCi,
+            arima_order:    rf.arima_order    || [],
+            seasonal_order: rf.seasonal_order || null,
+            trend:          rf.arima_trend    || 'stable',
+            // Protocol
+            protocol: {
+                classification: rf.tier === 'critical' ? 'Grade 4 — High Risk'
+                               : rf.tier === 'monitor'  ? 'Grade 3 — Medium Risk'
+                               :                          'Grade 2 — Low Risk',
+                title:       (isRuleBased ? 'Rule-Based Protocol: ' : 'RF-Driven Protocol: ') + rf.barangay,
+                description: protocolDesc,
+                steps:       rf.steps || [],
+            },
+        };
+    });
+
+    // Override PHP fallback predicted values with Python forecasts
+    diseaseAnalyticsData.predictedCases = rfData.map(rf => ({
+        barangay: rf.barangay,
+        value:    rf.predicted_cases ?? rf.fused_predicted ?? 0,
+        source:   rf.model_type || 'fallback',
+    }));
+
+    // Update hotspot risk tiers from Python response
+    const rfByBarangay = {};
+    rfData.forEach(r => { rfByBarangay[normalizeBarangayName(r.barangay)] = r; });
+
+    if (diseaseAnalyticsData.map?.hotspots) {
+        diseaseAnalyticsData.map.hotspots = diseaseAnalyticsData.map.hotspots.map(h => {
+            const rf = rfByBarangay[normalizeBarangayName(h.barangay)];
+            if (rf) {
+                h.risk        = rf.tier;
+                h.predicted   = rf.predicted_cases ?? rf.fused_predicted ?? h.predicted;
+                h.pred_source = rf.model_type || 'fallback';
+                h.disease     = rf.disease || disease;
+            }
+            return h;
+        });
+    }
+
+    // Update KPI cards with Python model info
+    const critical = rfData.filter(r => r.tier === 'critical').length;
+    const monitor  = rfData.filter(r => r.tier === 'monitor').length;
+    const firstRf  = rfData[0] || {};
+    const isRuleBased = firstRf.rf_model_type === 'RuleBasedThreshold';
+
+    diseaseAnalyticsData.kpis[2] = {
+        label: isRuleBased ? 'High Risk Barangays' : 'High Risk Barangays (RF)',
+        value: String(critical),
+        trend: `${critical} critical · ${monitor} monitoring`,
+    };
+
+    if (isRuleBased) {
+        // Disease-specific: show MAE/RMSE instead of accuracy (no classifier)
+        const mae  = firstRf.model_mae  != null ? `MAE: ${firstRf.model_mae}`  : 'MAE: N/A';
+        const rmse = firstRf.model_rmse != null ? `RMSE: ${firstRf.model_rmse}` : '';
+        const mape = firstRf.model_mape != null ? `MAPE: ${firstRf.model_mape}%` : '';
+        diseaseAnalyticsData.kpis[3] = {
+            label: firstRf.model_type || 'Disease Model',
+            value: [mae, rmse].filter(Boolean).join(' · ') || 'N/A',
+            trend: [mape, firstRf.eval_note || ''].filter(Boolean).join(' · ') || 'Rule-based risk classification',
+        };
+    } else {
+        // All-disease: show RF accuracy
+        diseaseAnalyticsData.kpis[3] = {
+            label: 'RF Model Accuracy',
+            value: firstRf.model_accuracy != null ? `${firstRf.model_accuracy}%` : 'N/A',
+            trend: firstRf.model_mae != null ? `MAE: ${firstRf.model_mae} cases` : '',
+        };
+    }
+}
+
+/* ── Event binding ──────────────────────────────────────────── */
 function bindEvents() {
-	document.getElementById("openMapBtn").addEventListener("click", () => switchPanel("mapPanel"));
-	document.getElementById("backFromMapBtn").addEventListener("click", () => switchPanel("overviewPanel"));
-	document.getElementById("backToOverviewBtn").addEventListener("click", () => switchPanel("overviewPanel"));
-	document.getElementById("toggleActionBtn").addEventListener("click", toggleMapActionMode);
+    document.getElementById('openMapBtn').addEventListener('click',     () => switchPanel('mapPanel'));
+    document.getElementById('backFromMapBtn').addEventListener('click', () => switchPanel('overviewPanel'));
+    document.getElementById('backToOverviewBtn').addEventListener('click', () => switchPanel('overviewPanel'));
+    document.getElementById('toggleActionBtn').addEventListener('click', toggleMapActionMode);
 
-	const filter = document.getElementById("diseaseFilter");
-	diseaseAnalyticsData.filters.forEach((item) => {
-		const option = document.createElement("option");
-		option.value = item;
-		option.textContent = item;
-		if (item === diseaseAnalyticsData.selectedDisease) {
-			option.selected = true;
-		}
-		filter.appendChild(option);
-	});
+    // Populate disease filter
+    const filterEl = document.getElementById('diseaseFilter');
+    diseaseAnalyticsData.filters.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item;
+        opt.textContent = item;
+        if (item === diseaseAnalyticsData.selectedDisease) opt.selected = true;
+        filterEl.appendChild(opt);
+    });
 
-	filter.addEventListener("change", (event) => {
-		loadDiseaseAnalytics(event.target.value).then(() => {
-			state.mapActionMode = false;
-			if (state.map) {
-				state.hotspotMarkers.forEach((marker) => marker.remove());
-				state.hotspotMarkers = [];
-				if (state.heatLayer) state.heatLayer.remove();
-				const heatPoints = diseaseAnalyticsData.map.hotspots.map((spot) => [spot.lat, spot.lng, spot.intensity]);
-				state.heatLayer = L.heatLayer(heatPoints, {
-					radius: 45,
-					blur: 30,
-					minOpacity: 0.5,
-					gradient: {
-						0.3: "#6ec7ff",
-						0.55: "#fff27a",
-						0.75: "#ff9248",
-						1.0: "#e53030"
-					}
-				}).addTo(state.map);
-				diseaseAnalyticsData.map.hotspots.forEach((spot) => {
-					const color = getRiskColor(spot.risk);
-					const marker = L.circleMarker([spot.lat, spot.lng], {
-						radius: 5,
-						color,
-						fillColor: color,
-						fillOpacity: 0.9,
-						weight: 1
-					}).addTo(state.map).bindTooltip(`${spot.barangay} | ${spot.disease}`);
-					marker.on("click", () => {
-						showHotspotAction(spot);
-						toggleMapActionMode(true);
-					});
-					state.hotspotMarkers.push(marker);
-				});
-			}
-			renderOverview();
-			renderInsightPanel();
-			renderMapPanel();
-		});
-	});
+    function reloadWithCurrentFilters() {
+        const disease = document.getElementById('diseaseFilter').value  || 'All Diseases';
+        const period  = document.getElementById('periodFilter')?.value  || 'year';
 
-	document.getElementById("refreshSourcesBtn").addEventListener("click", () => {
-		const time = new Date().toLocaleTimeString();
-		document.getElementById("refreshSourcesBtn").textContent = `Refreshed ${time}`;
-	});
+        // Show loading state on charts immediately
+        ['actualChart', 'predictedChart'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div class="chart-loading">Updating…</div>';
+        });
+
+        loadDiseaseAnalytics(disease, period).then(applied => {
+            if (!applied) return;
+            state.mapActionMode = false;
+            if (state.map) refreshMapLayers();
+            renderOverview();
+            renderInsightPanel();
+            renderMapPanel();
+        });
+    }
+
+    filterEl.addEventListener('change', reloadWithCurrentFilters);
+    document.getElementById('periodFilter')?.addEventListener('change', reloadWithCurrentFilters);
+    document.getElementById('refreshSourcesBtn')?.addEventListener('click', () => {
+        document.getElementById('refreshSourcesBtn').textContent = 'Refreshed ' + new Date().toLocaleTimeString();
+    });
 }
 
+/* ── Panel switching ────────────────────────────────────────── */
 function switchPanel(panelId) {
-	document.querySelectorAll(".panel").forEach((panel) => panel.classList.remove("panel-active"));
-	document.getElementById(panelId).classList.add("panel-active");
-
-	if (panelId === "mapPanel") {
-		if (!state.map) {
-			initMap();
-		} else {
-			setTimeout(() => state.map.invalidateSize(), 20);
-		}
-	}
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('panel-active'));
+    document.getElementById(panelId).classList.add('panel-active');
+    if (panelId === 'mapPanel') {
+        if (!state.map) initMap();
+        else setTimeout(() => state.map.invalidateSize(), 20);
+    }
 }
 
+/* ── Overview render ────────────────────────────────────────── */
 function renderOverview() {
-	const kpiRoot = document.getElementById("kpiCards");
-	kpiRoot.innerHTML = diseaseAnalyticsData.kpis
-		.map((kpi) => `
-			<article class="kpi-card">
-				<h5>${kpi.label}</h5>
-				<strong>${kpi.value}</strong>
-				<small>${kpi.trend}</small>
-			</article>
-		`)
-		.join("");
+    // KPI cards
+    document.getElementById('kpiCards').innerHTML = diseaseAnalyticsData.kpis
+        .map(kpi => `
+            <article class="kpi-card">
+                <h5>${kpi.label}</h5>
+                <strong>${kpi.value}</strong>
+                <small>${kpi.trend}</small>
+            </article>
+        `).join('');
 
-	const sourceRoot = document.getElementById("sourceList");
-	sourceRoot.innerHTML = diseaseAnalyticsData.sources
-		.map((source) => `<li><strong>${source.name}</strong><br><span>${source.status}</span></li>`)
-		.join("");
+    // Data sources
+    document.getElementById('sourceList').innerHTML = diseaseAnalyticsData.sources
+        .map(s => `<li><strong>${s.name}</strong><br><span>${s.status}</span></li>`)
+        .join('');
 
-	const prediction = diseaseAnalyticsData.predictionSummary;
-	document.getElementById("predictionBanner").innerHTML = `
+    // Prediction banner
+    const pred = diseaseAnalyticsData.predictionSummary;
+    document.getElementById('predictionBanner').innerHTML = `
         <div class="prediction">
-           <span>Predicted</span>
-            <img src="/vet/images/shares.svg" alt="Prediction Icon" >
+            <span>Predicted</span>
+            <img src="/vet/images/shares.svg" alt="">
         </div>
-		<strong>${prediction.total}</strong>
-		<span>${prediction.label}</span>
-	`;
+        <strong>${pred.total}</strong>
+        <span>${pred.label}</span>
+    `;
 
-	renderBarChart("actualChart", diseaseAnalyticsData.actualCases, "actual");
-	renderBarChart("predictedChart", diseaseAnalyticsData.predictedCases, "predicted");
+    // Chart titles
+    const isMonthly    = diseaseAnalyticsData.period === 'month';
+    const periodLabel  = diseaseAnalyticsData.periodLabel || (isMonthly ? 'Latest Month' : 'Full Year 2025');
+    const allDiseases  = diseaseAnalyticsData.isAllDiseases;
+    const diseaseName  = diseaseAnalyticsData.selectedDisease || 'All Diseases';
 
-	const insightRoot = document.getElementById("insightCards");
-	insightRoot.innerHTML = diseaseAnalyticsData.insights
-		.map((insight) => `
-			<article class="insight-card">
-				<span class="chip">${insight.barangay}</span>
-				<p>${insight.recommendation}</p>
-				<button class="action-link" data-insight-id="${insight.id}">View Action</button>
-			</article>
-		`)
-		.join("");
+    const actualCard = document.querySelector('#actualChart')?.closest('.chart-card');
+    if (actualCard) {
+        actualCard.querySelector('h3').textContent =
+            `Actual ${allDiseases ? 'Disease' : diseaseName} Cases — ${periodLabel}`;
+    }
+    const predCard = document.querySelector('#predictedChart')?.closest('.chart-card');
+    if (predCard) {
+        if (allDiseases) {
+            predCard.querySelector('h3').textContent = isMonthly
+                ? 'ARIMA+RF Forecast — Next Month'
+                : 'ARIMA+RF Forecast — Projected Annual (×12)';
+        } else {
+            // Determine model type from first insight
+            const firstInsight = diseaseAnalyticsData.insights?.[0];
+            const modelLabel   = firstInsight?.model_type || 'Disease Forecast';
+            predCard.querySelector('h3').textContent = `${modelLabel} — ${isMonthly ? 'Next Month' : 'Next Period'}`;
+        }
+    }
 
-	insightRoot.querySelectorAll(".action-link").forEach((button) => {
-		button.addEventListener("click", () => {
-			state.selectedInsightId = button.dataset.insightId;
-			renderInsightPanel();
-			switchPanel("insightPanel");
-		});
-	});
+    renderBarChart('actualChart',    diseaseAnalyticsData.actualCases,    'actual');
+    renderBarChart('predictedChart', diseaseAnalyticsData.predictedCases, 'predicted');
+
+    // Insight cards
+    const insightRoot = document.getElementById('insightCards');
+    insightRoot.innerHTML = diseaseAnalyticsData.insights
+        .map(insight => `
+            <article class="insight-card">
+                <span class="chip">${insight.barangay}</span>
+                <p>${insight.recommendation || 'No recommendation yet.'}</p>
+                <button class="action-link" data-insight-id="${insight.id}">View Action</button>
+            </article>
+        `).join('');
+
+    insightRoot.querySelectorAll('.action-link').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.selectedInsightId = btn.dataset.insightId;
+            renderInsightPanel();
+            switchPanel('insightPanel');
+        });
+    });
 }
 
+/* ── Bar chart ──────────────────────────────────────────────── */
 function renderBarChart(targetId, rows, chartType) {
-	const root = document.getElementById(targetId);
-	root.classList.toggle("predicted", chartType === "predicted");
-	const maxValue = Math.max(...rows.map((item) => item.value));
+    const root        = document.getElementById(targetId);
+    if (!root || !rows?.length) { if (root) root.innerHTML = '<p class="no-data">No data available.</p>'; return; }
 
-	root.innerHTML = rows
-		.map((item) => {
-			const width = Math.max((item.value / maxValue) * 100, 3);
-			return `
-				<div class="bar-row">
-					<span>${item.barangay}</span>
-					<div class="bar-track">
-						<span class="bar-fill" style="width:${width}%;"></span>
-					</div>
-					<span>${item.value}</span>
-				</div>
-			`;
-		})
-		.join("");
+    const allDiseases = diseaseAnalyticsData.isAllDiseases;
+    const maxValue    = Math.max(...rows.map(r => r.value), 1);
+
+    root.classList.toggle('predicted', chartType === 'predicted');
+
+    // Determine model type from first insight (for badge labeling)
+    const firstInsight = diseaseAnalyticsData.insights?.[0];
+    const modelType    = firstInsight?.model_type || '';
+    const isWMA        = modelType.includes('MovingAverage');
+    const isSARIMA     = modelType.includes('SARIMA');
+    const isRuleBased  = firstInsight?.rf_model_type === 'RuleBasedThreshold';
+
+    // Warning banner
+    const hasFallback = rows.some(r =>
+        (r.source || '').toLowerCase().includes('fallback') ||
+        (r.source || '').toLowerCase().includes('movingaverage')
+    );
+
+    let warning = '';
+    if (chartType === 'predicted' && hasFallback) {
+        if (allDiseases) {
+            warning = `<div class="fallback-warning">Analytics service unavailable — showing +12% estimate, not ARIMA+RF forecast.</div>`;
+        } else if (isWMA) {
+            warning = `<div class="fallback-warning">Sparse data for this disease — using Weighted Moving Average (3-period) with bootstrap CI instead of SARIMA.</div>`;
+        } else {
+            warning = `<div class="fallback-warning">Showing ${modelType || 'disease-specific'} forecast estimate.</div>`;
+        }
+    }
+
+    root.innerHTML = warning + rows.map(item => {
+        const width = Math.max((item.value / maxValue) * 100, 3);
+        let badge = '';
+        if (chartType === 'predicted') {
+            const src = (item.source || '').toLowerCase();
+            if (src.includes('sarima'))        badge = `<span class="source-badge model">SARIMA</span>`;
+            else if (src.includes('arima'))    badge = `<span class="source-badge model">ARIMA</span>`;
+            else if (src.includes('moving') || src.includes('wma'))
+                                               badge = `<span class="source-badge wma">WMA</span>`;
+            else if (src.includes('alldisease') || src.includes('rf'))
+                                               badge = `<span class="source-badge model">ARIMA+RF</span>`;
+            else                               badge = `<span class="source-badge fallback">est.</span>`;
+        }
+        return `
+            <div class="bar-row">
+                <span>${item.barangay}</span>
+                <div class="bar-track">
+                    <span class="bar-fill" style="width:${width}%;"></span>
+                </div>
+                <span>${item.value}${badge}</span>
+            </div>
+        `;
+    }).join('');
 }
 
+/* ── Insight panel ──────────────────────────────────────────── */
 function renderInsightPanel() {
-	const insight = diseaseAnalyticsData.insights.find((row) => row.id === state.selectedInsightId) || diseaseAnalyticsData.insights[0];
-	document.getElementById("insightBarangayName").textContent = insight.barangay;
-	document.getElementById("selectedCaseCount").textContent = insight.cases;
-	document.getElementById("selectedAverage").textContent = insight.avg;
+    const insight = diseaseAnalyticsData.insights.find(r => r.id === state.selectedInsightId)
+                 || diseaseAnalyticsData.insights[0];
 
-	renderMiniBars("comparisonBars", insight.comparisons);
-	renderMiniBars("predictionBars", insight.predicted);
+    if (!insight) {
+        document.getElementById('insightBarangayName').textContent = 'No barangay selected';
+        document.getElementById('selectedCaseCount').textContent   = '0';
+        document.getElementById('selectedAverage').textContent     = '0';
+        ['comparisonBars', 'predictionBars', 'protocolPanel'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = id === 'protocolPanel' ? '<p>No insight available.</p>' : '';
+        });
+        return;
+    }
 
-	const protocol = insight.protocol;
-	document.getElementById("protocolPanel").innerHTML = `
-		<div class="protocol-alert">
-			<div class="protocol-title">Auto-Triggered Protocol: ${insight.barangay}</div>
-			<small>Classification: ${protocol.classification}</small>
-		</div>
-		<div class="protocol-id">
-			<strong>${protocol.title}</strong>
-			<p>${protocol.description}</p>
-		</div>
-		${protocol.steps
-			.map(
-				(step, index) => `
-				<div class="action-step">
-					<span class="step-dot ${step.level}">${String(index + 1).padStart(2, "0")}</span>
-					<div>
-						<strong>${step.title}</strong>
-						<p>${step.detail}</p>
-					</div>
-				</div>
-			`
-			)
-			.join("")}
-		<div class="protocol-actions">
-			<button class="btn btn-primary" id="createEventBtn">Create Event</button>
-			<button class="btn btn-secondary" id="backOverviewBtn2">Back to Overview</button>
-		</div>
-	`;
+    document.getElementById('insightBarangayName').textContent = insight.barangay;
+    document.getElementById('selectedCaseCount').textContent   = insight.cases;
+    document.getElementById('selectedAverage').textContent     = insight.avg;
 
-	document.getElementById("createEventBtn").addEventListener("click", () => {
-		alert(`Event created (frontend mock): ${insight.barangay} - ${insight.disease}`);
-	});
+    renderMiniBars('comparisonBars', insight.comparisons);
+    renderMiniBars('predictionBars', insight.predicted);
 
-	document.getElementById("backOverviewBtn2").addEventListener("click", () => switchPanel("overviewPanel"));
+    // ARIMA/SARIMA/WMA forecast band
+    let forecastHtml = '';
+    if (insight.forecast?.length) {
+        const months    = ['Next Month', 'Month 2', 'Month 3'];
+        const modelType = insight.model_type || '';
+        const orderStr  = insight.seasonal_order?.some(v => v > 0)
+            ? `(${insight.arima_order?.join(',')})×S(${insight.seasonal_order.slice(0,3).join(',')})`
+            : (insight.arima_order?.some(v => v > 0) ? `(${insight.arima_order.join(',')})` : '');
+        const nObs      = insight.n_obs ? ` · ${insight.n_obs} obs` : '';
+        const mapeStr   = insight.model_mape  != null ? ` · MAPE ${insight.model_mape}%` : '';
+        const rmseStr   = insight.model_rmse  != null ? ` · RMSE ${insight.model_rmse}` : '';
+        const maeStr    = insight.model_mae   != null ? ` MAE ${insight.model_mae}` : '';
+
+        forecastHtml = `
+            <div class="arima-forecast">
+                <h4>
+                    ${modelType}${orderStr} — 3-Month Forecast
+                    <small>${nObs}${maeStr}${rmseStr}${mapeStr}</small>
+                </h4>
+                <div class="forecast-band">
+                    ${insight.forecast.map((val, i) => `
+                        <div class="forecast-col">
+                            <span class="fc-label">${months[i] || 'Month ' + (i + 1)}</span>
+                            <span class="fc-val">${val}</span>
+                            <span class="fc-range">${insight.lower_ci?.[i] ?? '–'} – ${insight.upper_ci?.[i] ?? '–'}</span>
+                            <span class="fc-sub">${modelType.includes('MovingAverage') ? '80% Bootstrap CI' : '80% CI'}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                <p class="trend-badge trend-${insight.trend || 'stable'}">
+                    ▶ Trend: ${(insight.trend || 'stable').toUpperCase()}
+                </p>
+            </div>
+        `;
+    }
+
+    // Risk model note — differs by pipeline
+    const isRuleBased = insight.rf_model_type === 'RuleBasedThreshold';
+    let riskNoteHtml  = '';
+    if (isRuleBased && insight.risk_thresholds) {
+        const t = insight.risk_thresholds;
+        riskNoteHtml = `
+            <div class="rule-based-note">
+                <strong>⚠ Rule-Based Risk Classification</strong><br>
+                ${t.note || 'Thresholds derived from per-disease case distribution.'}
+                Thresholds: Low &lt; ${t.low_max}, Medium ${t.low_max}–${t.med_max}, High ≥ ${t.med_max}.
+                ${insight.eval_note ? '<br><em>' + insight.eval_note + '</em>' : ''}
+            </div>
+        `;
+    } else if (!isRuleBased) {
+        riskNoteHtml = `
+            <div class="rf-note">
+                🤖 ARIMA+RF — ${insight.rf_risk_class || 'N/A'} Risk · ${insight.rf_confidence ?? 'N/A'}% confidence
+                <span class="source-badge model">ARIMA+RF</span>
+            </div>
+        `;
+    }
+
+    const protocol = insight.protocol;
+    document.getElementById('protocolPanel').innerHTML = `
+        <div class="protocol-alert">
+            <div class="protocol-title">Auto-Triggered Protocol: ${insight.barangay}</div>
+            <small>${protocol.classification}</small>
+        </div>
+        ${riskNoteHtml}
+        ${forecastHtml}
+        <div class="protocol-id">
+            <strong>${protocol.title}</strong>
+            <p>${protocol.description}</p>
+        </div>
+        ${(protocol.steps || []).map((step, i) => `
+            <div class="action-step">
+                <span class="step-dot ${step.level}">${String(i + 1).padStart(2, '0')}</span>
+                <div>
+                    <strong>${step.title}</strong>
+                    <p>${step.detail}</p>
+                </div>
+            </div>
+        `).join('')}
+        <div class="protocol-actions">
+            <button class="btn btn-primary"   id="createEventBtn">Create Event</button>
+            <button class="btn btn-secondary" id="backOverviewBtn2">Back to Overview</button>
+        </div>
+    `;
+
+    document.getElementById('createEventBtn').addEventListener('click', () => {
+        alert(`Event created: ${insight.barangay} — ${insight.disease}`);
+    });
+    document.getElementById('backOverviewBtn2').addEventListener('click', () => switchPanel('overviewPanel'));
 }
 
 function renderMiniBars(targetId, rows) {
-	const root = document.getElementById(targetId);
-	root.innerHTML = rows
-		.map(
-			(item) => `
-			<div class="bar-row">
-				<span>${item.label}</span>
-				<div class="bar-track">
-					<span class="bar-fill" style="width:${item.value}%; background:${item.color};"></span>
-				</div>
-			</div>
-		`
-		)
-		.join("");
+    const el = document.getElementById(targetId);
+    if (!el || !rows?.length) return;
+    el.innerHTML = rows.map(item => `
+        <div class="bar-row">
+            <span>${item.label}</span>
+            <div class="bar-track">
+                <span class="bar-fill" style="width:${item.value}%; background:${item.color};"></span>
+            </div>
+        </div>
+    `).join('');
 }
 
+/* ── Map panel ──────────────────────────────────────────────── */
 function renderMapPanel() {
-	const metricRoot = document.getElementById("mapMetricCards");
-	metricRoot.innerHTML = diseaseAnalyticsData.map.metrics
-		.map(
-			(item) => `
-			<article class="kpi-card">
-				<h5>${item.label}</h5>
-				<strong>${item.value}</strong>
-				<small>${item.trend}</small>
-			</article>
-		`
-		)
-		.join("");
-
-	renderHotspotList();
-
-	const forecast = diseaseAnalyticsData.map.forecast;
-	const max = Math.max(...forecast);
-	const bars = forecast
-		.map((value) => {
-			const height = Math.max((value / max) * 100, 10);
-			return `<span style="height:${height}%;"></span>`;
-		})
-		.join("");
-
-	document.getElementById("forecastPanel").innerHTML = `
-		<h4>Predicted Evolution</h4>
-		<p>Next 14-day forecast</p>
-		<div class="forecast-bars">${bars}</div>
-	`;
+    document.getElementById('mapMetricCards').innerHTML =
+        (diseaseAnalyticsData.map?.metrics || []).map(item => `
+            <article class="kpi-card">
+                <h5>${item.label}</h5>
+                <strong>${item.value}</strong>
+                <small>${item.trend}</small>
+            </article>
+        `).join('');
+    renderHotspotList();
 }
 
 function renderHotspotList() {
-	const list = document.getElementById("hotspotList");
-	list.innerHTML = diseaseAnalyticsData.map.hotspots
-		.map(
-			(hotspot) => `
-			<article class="hotspot-item" data-hotspot-id="${hotspot.id}">
-				<h4>${hotspot.barangay} <span class="risk-chip risk-${hotspot.risk}">${hotspot.risk.toUpperCase()}</span></h4>
-				<p>${hotspot.disease}</p>
-				<small>Cases ${hotspot.cases} | Predicted ${hotspot.predicted}</small>
-			</article>
-		`
-		)
-		.join("");
+    const list = document.getElementById('hotspotList');
+    list.innerHTML = (diseaseAnalyticsData.map?.hotspots || []).map(hotspot => {
+        const badgeSrc = (hotspot.pred_source || '').toLowerCase();
+        let badge = '';
+        if (badgeSrc.includes('sarima'))                    badge = `<span class="source-badge model">SARIMA</span>`;
+        else if (badgeSrc.includes('arima'))                badge = `<span class="source-badge model">ARIMA</span>`;
+        else if (badgeSrc.includes('moving') || badgeSrc.includes('wma'))
+                                                            badge = `<span class="source-badge wma">WMA</span>`;
+        else if (badgeSrc.includes('rf') || badgeSrc.includes('alldisease'))
+                                                            badge = `<span class="source-badge model">ARIMA+RF</span>`;
+        else                                                badge = `<span class="source-badge fallback">est.</span>`;
 
-	list.querySelectorAll(".hotspot-item").forEach((item) => {
-		item.addEventListener("click", () => {
-			const hotspot = diseaseAnalyticsData.map.hotspots.find((row) => row.id === item.dataset.hotspotId);
-			if (state.map && hotspot) {
-				state.map.flyTo([hotspot.lat, hotspot.lng], 15, { duration: 0.65 });
-				showHotspotAction(hotspot);
-			}
-		});
-	});
+        return `
+            <article class="hotspot-item" data-hotspot-id="${hotspot.id}">
+                <h4>
+                    ${hotspot.barangay}
+                    <span class="risk-chip risk-${hotspot.risk}">${hotspot.risk.toUpperCase()}</span>
+                </h4>
+                <p>${hotspot.disease}</p>
+                <small>Cases: ${hotspot.cases} | Predicted: ${hotspot.predicted} ${badge}</small>
+            </article>
+        `;
+    }).join('');
+
+    list.querySelectorAll('.hotspot-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const hotspot = diseaseAnalyticsData.map.hotspots.find(r => r.id === item.dataset.hotspotId);
+            if (state.map && hotspot) {
+                state.map.flyTo([hotspot.lat, hotspot.lng], 15, { duration: 0.65 });
+                showHotspotAction(hotspot);
+            }
+        });
+    });
+}
+
+function refreshMapLayers() {
+    if (!state.map || !diseaseAnalyticsData.map) return;
+    state.hotspotMarkers.forEach(m => m.remove());
+    state.hotspotMarkers = [];
+    if (state.heatLayer) state.heatLayer.remove();
+
+    const hotspots   = diseaseAnalyticsData.map.hotspots || [];
+    const heatPoints = hotspots.map(s => [s.lat, s.lng, s.intensity]);
+
+    state.heatLayer = L.heatLayer(heatPoints, {
+        radius: 45, blur: 30, minOpacity: 0.5,
+        gradient: { 0.3: '#6ec7ff', 0.55: '#fff27a', 0.75: '#ff9248', 1.0: '#e53030' },
+    }).addTo(state.map);
+
+    hotspots.forEach(spot => {
+        const color  = getRiskColor(spot.risk);
+        const marker = L.circleMarker([spot.lat, spot.lng], {
+            radius: 6, color, fillColor: color, fillOpacity: 0.9, weight: 1,
+        }).addTo(state.map).bindTooltip(`${spot.barangay} | ${spot.disease}`);
+
+        marker.on('click', () => { showHotspotAction(spot); toggleMapActionMode(true); });
+        state.hotspotMarkers.push(marker);
+    });
+
+    fitMapToHotspots();
+}
+
+function fitMapToHotspots() {
+    if (!state.map || !diseaseAnalyticsData.map?.hotspots?.length) return;
+    const bounds = L.latLngBounds(diseaseAnalyticsData.map.hotspots.map(s => [s.lat, s.lng]));
+    state.map.fitBounds(bounds, { padding: [36, 36], maxZoom: diseaseAnalyticsData.map.zoom || 14 });
 }
 
 function initMap() {
-	const { center, zoom, hotspots } = diseaseAnalyticsData.map;
-	state.map = L.map("baliwagMap", {
-		zoomControl: false
-	}).setView(center, zoom);
-
-	L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-		attribution: "&copy; OpenStreetMap contributors"
-	}).addTo(state.map);
-
-	const heatPoints = hotspots.map((spot) => [spot.lat, spot.lng, spot.intensity]);
-	state.heatLayer = L.heatLayer(heatPoints, {
-		radius: 45,
-		blur: 30,
-		minOpacity: 0.5,
-		gradient: {
-			0.3: "#6ec7ff",
-			0.55: "#fff27a",
-			0.75: "#ff9248",
-			1.0: "#e53030"
-		}
-	}).addTo(state.map);
-
-	hotspots.forEach((spot) => {
-		const color = getRiskColor(spot.risk);
-		const marker = L.circleMarker([spot.lat, spot.lng], {
-			radius: 5,
-			color,
-			fillColor: color,
-			fillOpacity: 0.9,
-			weight: 1
-		})
-			.addTo(state.map)
-			.bindTooltip(`${spot.barangay} | ${spot.disease}`);
-
-		marker.on("click", () => {
-			showHotspotAction(spot);
-			toggleMapActionMode(true);
-		});
-
-		state.hotspotMarkers.push(marker);
-	});
+    const { center, zoom } = diseaseAnalyticsData.map;
+    state.map = L.map('baliwagMap', { zoomControl: false }).setView(center, zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(state.map);
+    refreshMapLayers();
 }
 
 function getRiskColor(risk) {
-	if (risk === "critical") {
-		return "#c31d1d";
-	}
-	if (risk === "monitor") {
-		return "#a4851f";
-	}
-	return "#1e8a47";
+    return risk === 'critical' ? '#c31d1d' : risk === 'monitor' ? '#a4851f' : '#1e8a47';
 }
 
 function toggleMapActionMode(forceOn) {
-	if (typeof forceOn === "boolean") {
-		state.mapActionMode = forceOn;
-	} else {
-		state.mapActionMode = !state.mapActionMode;
-	}
-
-	const button = document.getElementById("toggleActionBtn");
-	button.textContent = state.mapActionMode ? "Close Action Tab" : "Action Tab";
-
-	if (!state.mapActionMode) {
-		renderHotspotList();
-		return;
-	}
-
-	const defaultHotspot = diseaseAnalyticsData.map.hotspots[0];
-	showHotspotAction(defaultHotspot);
+    state.mapActionMode = typeof forceOn === 'boolean' ? forceOn : !state.mapActionMode;
+    document.getElementById('toggleActionBtn').textContent =
+        state.mapActionMode ? 'Close Action Tab' : 'Action Tab';
+    if (!state.mapActionMode) { renderHotspotList(); return; }
+    const defaultHotspot = diseaseAnalyticsData.map.hotspots?.[0];
+    if (defaultHotspot) showHotspotAction(defaultHotspot);
 }
 
 function showHotspotAction(hotspot) {
-	const side = document.getElementById("hotspotList");
-	side.innerHTML = `
-		<section class="action-pane">
-			<div class="protocol-alert">
-				<div class="protocol-title">Auto-Triggered Protocol: ${hotspot.barangay}</div>
-				<small>Classification: ${hotspot.risk === "critical" ? "Grade 4 Outbreak Risk" : "Grade 2 Monitoring"}</small>
-			</div>
-			<div class="protocol-id">
-				<strong>Parvovirus Containment Protocol</strong>
-				<p>Standardized biosafety level emergency response initiated via automated surveillance trigger.</p>
-			</div>
-			<div class="action-step">
-				<span class="step-dot red">01</span>
-				<div><strong>Immediate: Field Deployment</strong><p>Deploy Barangay Health Workers for door-to-door visual screening and pet registry verification.</p></div>
-			</div>
-			<div class="action-step">
-				<span class="step-dot blue">02</span>
-				<div><strong>Within 24hrs: Regulatory Reporting</strong><p>Mandatory escalation report to Municipal Health Office and Provincial Veterinary Services.</p></div>
-			</div>
-			<div class="action-step">
-				<span class="step-dot green">03</span>
-				<div><strong>Preventive: Sanitation Drive</strong><p>Conduct community sanitation sweep and distribute veterinary-grade disinfectants to high-risk households.</p></div>
-			</div>
-			<div class="action-step">
-				<span class="step-dot gray">04</span>
-				<div><strong>Monitoring: Case Reporting</strong><p>Daily case reporting for 14 days until incubation window clears and secondary screening is complete.</p></div>
-			</div>
-			<div class="protocol-actions">
-				<button class="btn btn-primary" id="createMapEventBtn">Create Event</button>
-				<button class="btn btn-secondary" id="backToMapOverviewBtn">Back to Overview</button>
-			</div>
-		</section>
-	`;
+    if (!hotspot) return;
+    const side    = document.getElementById('hotspotList');
+    const insight = (diseaseAnalyticsData.insights || []).find(
+        r => normalizeBarangayName(r.barangay) === normalizeBarangayName(hotspot.barangay)
+    );
 
-	document.getElementById("createMapEventBtn").addEventListener("click", () => {
-		alert(`Event created (frontend mock): ${hotspot.barangay} hotspot response`);
-	});
+    let steps         = [];
+    let protocolTitle = 'Barangay Response Protocol: ' + hotspot.barangay;
+    let protocolDesc  = '';
+    let classification = 'Risk: ' + hotspot.risk.toUpperCase();
+    let modelBadge    = '';
 
-	document.getElementById("backToMapOverviewBtn").addEventListener("click", () => {
-		state.mapActionMode = false;
-		document.getElementById("toggleActionBtn").textContent = "Action Tab";
-		renderHotspotList();
-	});
+    if (insight?.protocol) {
+        steps          = insight.protocol.steps    || [];
+        protocolTitle  = insight.protocol.title    || protocolTitle;
+        protocolDesc   = insight.protocol.description || '';
+        classification = insight.protocol.classification || classification;
+
+        const isRuleBased = insight.rf_model_type === 'RuleBasedThreshold';
+        if (isRuleBased) {
+            const t = insight.risk_thresholds || {};
+            modelBadge = `
+                <div class="rule-based-note" style="margin:8px 0;">
+                    ⚠ Rule-Based Risk (${insight.model_type || 'DiseaseSpecific'}) —
+                    ${insight.rf_risk_class || 'N/A'} risk
+                    ${insight.pred_source?.includes('fallback') ? '<span class="source-badge fallback">est.</span>' : `<span class="source-badge model">${insight.model_type || 'ARIMA'}</span>`}
+                    <br><small>p50≤${t.low_max ?? '?'} · p75≤${t.med_max ?? '?'}</small>
+                </div>`;
+        } else {
+            modelBadge = `
+                <div class="rf-badge">
+                    🤖 ARIMA+RF — ${insight.rf_risk_class || 'N/A'} Risk ·
+                    ${insight.rf_confidence ?? 'N/A'}% confidence
+                    <span class="source-badge model">ARIMA+RF</span>
+                </div>`;
+        }
+    } else {
+        steps = [
+            { level: 'red',   title: 'Immediate: Field Validation',
+              detail: `Confirm active cases in ${hotspot.barangay}. Cases: ${hotspot.cases}.` },
+            { level: 'blue',  title: 'Within 24 hrs: Coordination',
+              detail: `Contact district vet team. Predicted: ${hotspot.predicted} cases.` },
+            { level: 'green', title: 'Preventive: Education Drive',
+              detail: `Distribute prevention materials to ${hotspot.barangay}.` },
+            { level: 'gray',  title: 'Monitoring: Weekly Review',
+              detail: 'Track cases weekly until risk normalizes.' },
+        ];
+        modelBadge = `
+            <div class="rf-badge" style="background:#fff7ed;border-color:#fed7aa;color:#c2410c;">
+                ⚠ Analytics service offline — using fallback estimate for ${hotspot.barangay}
+            </div>`;
+    }
+
+    side.innerHTML = `
+        <section class="action-pane">
+            <div class="protocol-alert">
+                <div class="protocol-title">Protocol: ${hotspot.barangay}</div>
+                <small>${classification}</small>
+            </div>
+            ${modelBadge}
+            <div class="protocol-id">
+                <strong>${protocolTitle}</strong>
+                <p>${protocolDesc}</p>
+            </div>
+            ${steps.map((step, i) => `
+                <div class="action-step">
+                    <span class="step-dot ${step.level}">${String(i + 1).padStart(2, '0')}</span>
+                    <div><strong>${step.title}</strong><p>${step.detail}</p></div>
+                </div>
+            `).join('')}
+            <div class="protocol-actions">
+                <button class="btn btn-primary"   id="createMapEventBtn">Create Event</button>
+                <button class="btn btn-secondary" id="backToMapOverviewBtn">Back to Overview</button>
+            </div>
+        </section>
+    `;
+
+    document.getElementById('createMapEventBtn').addEventListener('click', () => {
+        alert(`Event created: ${hotspot.barangay} — ${hotspot.disease}`);
+    });
+    document.getElementById('backToMapOverviewBtn').addEventListener('click', () => {
+        state.mapActionMode = false;
+        document.getElementById('toggleActionBtn').textContent = 'Action Tab';
+        renderHotspotList();
+    });
 }
 
-document.addEventListener("DOMContentLoaded", initDiseaseAnalytics);
+/* ── VetAPI extension — forward disease + period to PHP ─────── */
+if (window.VetAPI) {
+    const _orig = window.VetAPI.getDiseaseRiskPrediction;
+    window.VetAPI.getDiseaseRiskPrediction = async function (barangays, currentCases, disease, period) {
+        // If called from the old all-disease path (2 args), fall back
+        if (typeof disease === 'undefined') {
+            return _orig ? _orig(barangays, currentCases) : diseaseRiskRequest(barangays, currentCases, '', 'year');
+        }
+        return diseaseRiskRequest(barangays, currentCases, disease, period);
+    };
+}
+
+/* ── Init ───────────────────────────────────────────────────── */
+async function initDiseaseAnalytics() {
+    await loadDiseaseAnalytics();
+    bindEvents();
+    renderOverview();
+    renderInsightPanel();
+    renderMapPanel();
+}
+
+document.addEventListener('DOMContentLoaded', initDiseaseAnalytics);

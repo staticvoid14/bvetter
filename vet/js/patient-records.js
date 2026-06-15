@@ -175,6 +175,8 @@ const state = {
 	pendingDeleteId: null
 };
 
+let searchRenderTimer = null;
+
 const app = document.getElementById('records-app');
 const modalOverlay = document.getElementById('records-modal-overlay');
 const modalContent = document.getElementById('records-modal-content');
@@ -305,11 +307,12 @@ function getStatusClass(statusType) {
 function filteredRecords() {
 	const query = state.query.trim().toLowerCase();
 	return state.records.filter((record) => {
+		const species = String(record.species || '').toLowerCase();
 		const haystack = [record.petName, record.ownerName, record.breed, record.species, record.category, record.attendingVet, record.status].join(' ').toLowerCase();
 		const matchesQuery = !query || haystack.includes(query);
 		const matchesType = state.filterType === 'all'
 			|| (state.filterType === 'active' && record.statusType === 'success')
-			|| (state.filterType !== 'active' && record.species.toLowerCase() === state.filterType);
+			|| (state.filterType !== 'active' && species === state.filterType);
 		const matchesStatus = state.filterStatus === 'all' || record.statusType === state.filterStatus;
 		return matchesQuery && matchesType && matchesStatus;
 	});
@@ -561,7 +564,8 @@ function renderList() {
 						<button type="button" class="filter-pill ${state.filterType === 'all' ? 'active' : ''}" data-filter-type="all">All Pets</button>
 						<button type="button" class="filter-pill ${state.filterType === 'canine' ? 'active' : ''}" data-filter-type="canine">Canine</button>
 						<button type="button" class="filter-pill ${state.filterType === 'feline' ? 'active' : ''}" data-filter-type="feline">Feline</button>
-						<button type="button" class="filter-pill ${state.filterType === 'livestock' ? 'active' : ''}" data-filter-type="livestock">Livestock</button>
+						<button type="button" class="filter-pill ${state.filterType === 'avian' ? 'active' : ''}" data-filter-type="avian">Avian</button>
+						<button type="button" class="filter-pill ${state.filterType === 'exotic' ? 'active' : ''}" data-filter-type="exotic">Exotic</button>
 						<button type="button" class="filter-pill ${state.filterType === 'active' ? 'active' : ''}" data-filter-type="active">Active</button>
 					</div>
 				</div>
@@ -658,6 +662,24 @@ function buildBlankRecord(prefill = {}) {
 		vaccinationStatus: prefill.vaccinationStatus || 'Pending',
 		vaccineBrand: prefill.vaccineBrand || '',
 		history: prefill.history || []
+	};
+}
+
+function buildNewVisitRecord(record) {
+	if (!record) return null;
+	return {
+		...record,
+		visitTitle: '',
+		visitDate: new Date().toISOString().slice(0, 10),
+		followUpDate: '',
+		symptoms: '',
+		diagnosis: '',
+		treatment: '',
+		medications: [],
+		category: 'Routine Checkup',
+		vaccinationStatus: '',
+		vaccineBrand: '',
+		alert: '0'
 	};
 }
 
@@ -1058,7 +1080,7 @@ function render() {
 	if (!app) return;
 
 	if (state.mode === 'add') {
-		app.innerHTML = renderAdd(selected ? clone(selected) : null);
+		app.innerHTML = renderAdd(selected ? buildNewVisitRecord(clone(selected)) : null);
 	} else if (state.mode === 'view' || state.mode === 'edit') {
 		app.innerHTML = renderDetail(selected);
 	} else {
@@ -1075,7 +1097,11 @@ function bindModeSpecificHandlers() {
 
 	if (searchInput) {
 		searchInput.addEventListener('input', (event) => {
-			navigate('list', { q: event.target.value, type: state.filterType, status: state.filterStatus }, true);
+			state.query = event.target.value;
+			clearTimeout(searchRenderTimer);
+			searchRenderTimer = setTimeout(() => {
+				navigate('list', { q: state.query, type: state.filterType, status: state.filterStatus }, true);
+			}, 180);
 		});
 	}
 

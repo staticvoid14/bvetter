@@ -292,7 +292,12 @@ function bv_sum_by($rows, $groupKey, $valueKey)
 function bv_table_exists($pdo, $table)
 {
     try {
-        $stmt = $pdo->prepare('SHOW TABLES LIKE :table_name');
+        $stmt = $pdo->prepare('
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+        ');
         $stmt->execute([':table_name' => $table]);
         return (bool) $stmt->fetchColumn();
     } catch (Throwable $e) {
@@ -316,4 +321,3 @@ function bv_latest_dataset_year()
     $years = array_map(fn($row) => (int) ($row['year'] ?? 0), bv_sheet_rows('Dashboard'));
     return max($years ?: [(int) date('Y')]);
 }
-

@@ -44,6 +44,11 @@
 const API_BASE = 'http://localhost:8000/api';
 const API_BASE_REG = 'http://localhost/Final-backend(VBETTER)/Final-Backend/backend';
 const LOST_FOUND_ENDPOINT = `${API_BASE_REG}/Lost%26Found/lost_and_found.php`;
+const PROFILE_ENDPOINT = `${API_BASE_REG}/users/profile.php`;
+const DASHBOARD_ENDPOINT = `${API_BASE_REG}/dashboard/dashboard.php`;
+const MASS_VACCINATION_ENDPOINT = `${API_BASE_REG}/mass-vaccination/events.php`;
+const CHATBOT_ENDPOINT = `${API_BASE_REG}/chatbot/chatbot.php`;
+const ANNOUNCEMENTS_ENDPOINT = `${API_BASE_REG}/announcements/announcements.php`;
 
 /* ── Auth Header Builder ──────────────────────
    Reads JWT token saved on login.
@@ -69,6 +74,19 @@ function currentSession() {
   } catch {
     return null;
   }
+}
+
+function profileRequest(action, data = {}) {
+  const session = currentSession();
+  return fetch(PROFILE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action,
+      user_id: data.user_id || data.userId || session?.userId || session?.id || 0,
+      ...data
+    })
+  }).then(r => r.json());
 }
 
 function lostFoundForm(action, data = {}) {
@@ -98,6 +116,61 @@ function lostFoundRequest(action, data = {}) {
 }
 
 const api = {
+
+  getDashboard: (scope = 'vet') =>
+    fetch(`${DASHBOARD_ENDPOINT}?scope=${encodeURIComponent(scope)}`)
+      .then(r => r.json()),
+
+  getVetDashboard: () =>
+    api.getDashboard('vet'),
+
+  getAdminDashboard: () =>
+    api.getDashboard('admin'),
+
+  getMassVaccinationEvents: () =>
+    fetch(MASS_VACCINATION_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'list' })
+    }).then(r => r.json()),
+
+  createMassVaccinationEvent: (data) =>
+    fetch(MASS_VACCINATION_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'create', ...data })
+    }).then(r => r.json()),
+
+  getChatbotDashboardStats: () =>
+    fetch(CHATBOT_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'dashboard_stats' })
+    }).then(r => r.json()),
+
+  getAnnouncements: (filters = {}) =>
+    fetch(ANNOUNCEMENTS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'list', ...filters })
+    }).then(r => r.json()),
+
+  saveAnnouncement: (data) => {
+    const isForm = data instanceof FormData;
+    if (isForm && !data.has('action')) data.append('action', data.get('id') ? 'update' : 'create');
+    return fetch(ANNOUNCEMENTS_ENDPOINT, {
+      method: 'POST',
+      headers: isForm ? authHeadersFormData() : authHeaders(),
+      body: isForm ? data : JSON.stringify({ action: data.id ? 'update' : 'create', ...data })
+    }).then(r => r.json());
+  },
+
+  deleteAnnouncement: (id) =>
+    fetch(ANNOUNCEMENTS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'delete', id })
+    }).then(r => r.json()),
 
   /* ══════════════════════════════════════════
      AUTH
@@ -143,13 +216,15 @@ const api = {
    * Send password reset link
    * @param {string} email
    */
-  forgotPassword: (email) =>
-    fetch(`${API_BASE}/auth/forgot-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    }).then(r => r.json()),
-
+forgotPassword: (email) => {
+  const body = new FormData();
+  body.append('action', 'forgot_password');
+  body.append('email', email);
+  return fetch(`${API_BASE_REG}/admin/verify-contact.php`, {
+    method: 'POST',
+    body
+  }).then(r => r.json());
+},
 
   /* ══════════════════════════════════════════
      LOST & FOUND — REPORTS
@@ -328,31 +403,21 @@ const api = {
    * Replaces: hardcoded 'Mark Depa' everywhere
    */
   getProfile: () =>
-    fetch(`${API_BASE}/user/profile`, {
-      headers: authHeaders()
-    }).then(r => r.json()),
+    profileRequest('get'),
 
   /**
    * Update profile info (name, email, phone)
    * @param {Object} data
    */
   updateProfile: (data) =>
-    fetch(`${API_BASE}/user/profile`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(data)
-    }).then(r => r.json()),
+    profileRequest('update', data),
 
   /**
    * Change password
    * @param {Object} data — { current_password, new_password }
    */
   changePassword: (data) =>
-    fetch(`${API_BASE}/user/password`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(data)
-    }).then(r => r.json()),
+    profileRequest('password', data),
 
 
   /* ══════════════════════════════════════════
@@ -363,20 +428,17 @@ const api = {
    * Get notification preferences
    */
   getNotifPrefs: () =>
-    fetch(`${API_BASE}/notifications/preferences`, {
-      headers: authHeaders()
-    }).then(r => r.json()),
+    profileRequest('get').then(result => ({
+      ...result,
+      data: result.data?.notifications || {}
+    })),
 
   /**
    * Save notification preferences
    * @param {Object} data — { lost_found: { email, sms, app }, ... }
    */
   updateNotifPrefs: (data) =>
-    fetch(`${API_BASE}/notifications/preferences`, {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: JSON.stringify(data)
-    }).then(r => r.json()),
+    profileRequest('preferences', data),
 
     getBarangays: () =>
   fetch(`${API_BASE_REG}/barangays/list.php`)
