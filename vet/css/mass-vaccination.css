@@ -551,3 +551,37 @@ tr[data-event-id]:hover {
 		justify-self: start;
 	}
 }
+.arima-forecast {
+    margin-bottom: 24px;
+    padding: 20px 24px;
+}
+.arima-forecast h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #1a3a6b;
+    margin-bottom: 4px;
+}
+.forecast-band {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+}
+.forecast-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #f0f6ff;
+    border-radius: 8px;
+    padding: 10px 6px;
+    gap: 2px;
+}
+.fc-label { font-size: 0.68rem; color: #6b7a99; text-transform: uppercase; }
+.fc-val   { font-size: 1.4rem; font-weight: 800; color: #0f2d6b; }
+.fc-range { font-size: 0.68rem; color: #2ca0f0; }
+.fc-sub   { font-size: 0.62rem; color: #aab; }
+.trend-badge        { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; display: inline-block; }
+.trend-rising       { background: #fee2e2; color: #c31d1d; }
+.trend-falling      { background: #dcfce7; color: #166534; }
+.trend-stable       { background: #e0e7ff; color: #3730a3; }

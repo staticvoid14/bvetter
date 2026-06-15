@@ -68,62 +68,63 @@
 
         <main class="profile-main">
             <section class="profile-hero card">
-                <img src="https://i.pravatar.cc/150?img=47" alt="Dr. Kizea Bien Igaya" class="hero-avatar">
+                <img id="profile-avatar" src="https://i.pravatar.cc/150?img=47" alt="User profile" class="hero-avatar">
                 <div>
-                    <h1>Dr. Kizea Bien Igaya</h1>
-                    <p>Vet since 2021</p>
+                    <h1 id="profile-name">Loading profile...</h1>
+                    <p id="profile-member-since">Vet profile</p>
                 </div>
             </section>
 
             <section class="profile-kpis" aria-label="Profile KPI cards">
                 <article class="kpi-card card">
                     <p>Patients Today</p>
-                    <strong>24</strong>
-                    <small>+12% vs last week</small>
+                    <strong id="stat-patients-today">0</strong>
+                    <small>From patient visit records</small>
                 </article>
                 <article class="kpi-card card">
                     <p>Surgeries Performed</p>
-                    <strong>156</strong>
+                    <strong id="stat-surgeries">0</strong>
                     <small>All-time records</small>
                 </article>
                 <article class="kpi-card card">
                     <p>Avg. Treatment Time</p>
-                    <strong>45m</strong>
-                    <small>15m lower than average</small>
+                    <strong id="stat-treatment-time">45m</strong>
+                    <small>Profile metric</small>
                 </article>
                 <article class="kpi-card card">
                     <p>Satisfaction Rate</p>
-                    <strong>4.9</strong>
-                    <small>+0.6 from last month</small>
+                    <strong id="stat-satisfaction">0.0</strong>
+                    <small>Review average</small>
                 </article>
             </section>
 
             <section class="profile-panel card">
                 <div class="panel-head">
                     <h2>Profile Information</h2>
-                    <button class="save-btn" type="button">Save Changes</button>
+                    <button class="save-btn" type="submit" form="profile-form">Save Changes</button>
                 </div>
-                <div class="form-grid">
+                <form class="form-grid" id="profile-form">
                     <label>Full Name
-                        <input type="text" name="fullName" value="Dr. Kizea Bien Igaya">
+                        <input type="text" name="fullName" required>
                     </label>
                     <label>Email Address
-                        <input type="email" name="email" value="dr.kizea@gmail.com">
+                        <input type="email" name="email" required>
                     </label>
                     <label>Contact Number
-                        <input type="tel" name="phone" value="+63 961 123 3456">
+                        <input type="tel" name="phone">
                     </label>
                     <label>Role
-                        <input type="text" name="role" value="Vet III">
+                        <input type="text" name="role" readonly>
                     </label>
-                </div>
+                </form>
+                <p class="profile-message" id="profile-message" role="status"></p>
             </section>
 
             <section class="profile-panel card">
                 <h2>Security</h2>
                 <p>Change password and two-factor settings.</p>
                 <div class="security-actions">
-                    <button class="save-btn" type="button">Update Password</button>
+                    <button class="save-btn" id="update-password-btn" type="button">Update Password</button>
                     <button class="save-btn alt" type="button">Manage 2FA</button>
                 </div>
             </section>
@@ -131,11 +132,12 @@
             <section class="profile-panel card">
                 <h2>Notification Preferences</h2>
                 <p>Choose what updates you receive.</p>
-                <div class="checks">
-                    <label><input type="checkbox" checked> Lost/Found Alerts</label>
-                    <label><input type="checkbox" checked> Appointment Reminders</label>
-                    <label><input type="checkbox"> New Chatbot Updates</label>
-                </div>
+                <form class="checks" id="notification-form">
+                    <label><input type="checkbox" name="lostFoundAlerts"> Lost/Found Alerts</label>
+                    <label><input type="checkbox" name="appointmentReminders"> Appointment Reminders</label>
+                    <label><input type="checkbox" name="chatbotUpdates"> New Chatbot Updates</label>
+                    <button class="save-btn alt" type="submit">Save Preferences</button>
+                </form>
             </section>
         </main>
     </div>

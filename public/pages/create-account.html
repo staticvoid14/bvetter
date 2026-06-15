@@ -93,6 +93,9 @@
               <input type="number" id="rv_phone" class="no-icon"  maxlength="13" />
             </div>
           </div>
+          <!-- <div id="email-verified-badge" class="verified-badge" hidden>✓ Email verified</div> -->
+          <!-- <div id="phone-verified-badge" class="verified-badge" hidden>✓ Phone verified</div> -->
+        
 
           <div class="form-group">
             <label>BARANGAY</label>
@@ -158,6 +161,8 @@
               <input type="email" id="rv_email" class="no-icon" readonly/>
             </div>
           </div>
+                    <div id="email-verified-badge" class="verified-badge" hidden>✓ Email verified</div>
+
 
             <div class="form-group">
             <label>Phone Number</label>
@@ -256,8 +261,295 @@
     </div>
 
   </div>
-  <!-- ══ SCRIPTS — unauthenticated page ══ -->
-  <script src="../js/api.js"></script>
-  <script src="../js/signup.js"></script>
+  <!--
+  ══════════════════════════════════════════════════════
+  Paste this block just before </body> in create-account.html
+  Replace the existing <script> tags at the bottom too.
+  ══════════════════════════════════════════════════════
+-->
+
+<!-- ── EMAIL OTP MODAL ── -->
+<div class="otp-overlay" id="modal-otp-email" hidden>
+    <div class="otp-card">
+        <button class="otp-close" id="otp-email-close-btn" type="button">&times;</button>
+
+        <div class="otp-icon-wrap">
+            <svg width="30" height="30" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+        </div>
+
+        <h3 class="otp-title">Verify Email Address</h3>
+        <p class="otp-sub">
+            We sent a 6-digit code to<br>
+            <strong id="otp-email-display"></strong><br>
+            Expires in <span id="otp-email-timer" class="otp-timer">10:00</span>
+        </p>
+
+        <div class="otp-digits" id="otp-email-inputs">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" autocomplete="one-time-code">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+        </div>
+
+        <p class="otp-error" id="otp-email-error" hidden></p>
+
+        <button class="btn-primary otp-verify-btn" id="otp-email-verify-btn" type="button">
+            Verify Email
+        </button>
+
+        <p class="otp-resend-row">
+            Didn't receive it?
+            <button class="otp-resend-btn" id="otp-email-resend-btn" type="button">Resend Code</button>
+        </p>
+    </div>
+</div>
+
+<!-- ── PHONE OTP MODAL ── -->
+<div class="otp-overlay" id="modal-otp-phone" hidden>
+    <div class="otp-card">
+        <button class="otp-close" id="otp-phone-close-btn" type="button">&times;</button>
+
+        <div class="otp-icon-wrap">
+            <svg width="30" height="30" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21
+                         l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502
+                         l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+            </svg>
+        </div>
+
+        <h3 class="otp-title">Verify Phone Number</h3>
+        <p class="otp-sub">
+            We sent a 6-digit code to<br>
+            <strong id="otp-phone-display"></strong><br>
+            Expires in <span id="otp-phone-timer" class="otp-timer">10:00</span>
+        </p>
+
+        <div class="otp-digits" id="otp-phone-inputs">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" autocomplete="one-time-code">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+            <input class="otp-digit" type="text" maxlength="1" inputmode="numeric">
+        </div>
+
+        <p class="otp-error" id="otp-phone-error" hidden></p>
+
+        <button class="btn-primary otp-verify-btn" id="otp-phone-verify-btn" type="button">
+            Verify Phone
+        </button>
+
+        <p class="otp-resend-row">
+            Didn't receive it?
+            <button class="otp-resend-btn" id="otp-phone-resend-btn" type="button">Resend Code</button>
+        </p>
+    </div>
+</div>
+
+<!-- ── VERIFIED BADGES (shown in step 1 after verification) ── -->
+<!-- Paste these two divs inside step-1, after the phone number form-group -->
+<!--
+<div id="email-verified-badge" class="verified-badge" hidden>
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2.5">
+        <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    Email verified
+</div>
+<div id="phone-verified-badge" class="verified-badge" hidden>
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2.5">
+        <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    Phone verified
+</div>
+-->
+
+<!-- ══════════════════════════════════════════════
+     CSS — paste into signup.css
+══════════════════════════════════════════════ -->
+<style>
+/* OTP overlay */
+.otp-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+}
+
+.otp-overlay[hidden] { display: none; }
+
+.otp-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 36px 32px 28px;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 8px 40px rgba(0,0,0,.15);
+}
+
+.otp-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.otp-icon-wrap {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #e6faea;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+}
+
+.otp-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #111;
+    margin-bottom: 8px;
+}
+
+.otp-sub {
+    font-size: 13px;
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 22px;
+}
+
+.otp-timer { font-weight: 700; color: #00B928; }
+
+/* digit inputs */
+.otp-digits {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.otp-digit {
+    width: 44px;
+    height: 52px;
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    font-family: 'Manrope', sans-serif;
+    color: #111;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.otp-digit:focus   { border-color: #00B928; box-shadow: 0 0 0 3px rgba(0,185,40,.12); }
+.otp-digit.filled  { border-color: #00B928; background: #f0faf2; }
+.otp-digit.error   { border-color: #e53e3e; background: #fff5f5; animation: otpShake .3s; }
+
+@keyframes otpShake {
+    0%,100% { transform: translateX(0); }
+    25%      { transform: translateX(-4px); }
+    75%      { transform: translateX(4px); }
+}
+
+.otp-error {
+    color: #c0392b;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fef2f2;
+    border: 1px solid #f5c6c6;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+}
+
+.otp-verify-btn {
+    width: 100%;
+    margin-bottom: 14px;
+}
+
+.otp-resend-row {
+    font-size: 13px;
+    color: #777;
+    margin: 0;
+}
+
+.otp-resend-btn {
+    background: none;
+    border: none;
+    color: #00B928;
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+}
+
+.otp-resend-btn:disabled { color: #aaa; cursor: not-allowed; text-decoration: none; }
+
+/* verified badge */
+.verified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #00802c;
+    background: #e6faea;
+    border: 1px solid #b3e6be;
+    border-radius: 20px;
+    padding: 4px 12px;
+    margin-top: 6px;
+    margin-bottom: 12px;
+}
+.verified-badge:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #00802c;
+    background: #e6faea;
+    border: 1px solid #b3e6be;
+    border-radius: 20px;
+    padding: 4px 12px;
+    margin-top: 6px;
+}
+
+/* step 1 error */
+.step-error-msg {
+    color: #c0392b;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fef2f2;
+    border: 1px solid #f5c6c6;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+</style>
+
+<!-- ══ SCRIPTS ══ -->
+<script src="../js/api.js"></script>
+<script src="../js/signup.js"></script>
 </body>
 </html>

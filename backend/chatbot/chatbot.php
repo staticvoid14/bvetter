@@ -42,9 +42,8 @@ function normalizePetType($value)
 {
     $value = strtolower(clean($value));
     if (strpos($value, 'cat') === 0) return 'Cat';
-    if (strpos($value, 'bird') === 0) return 'Bird';
-    if (strpos($value, 'other') === 0) return 'Other';
-    return 'Dog';
+    if (strpos($value, 'dog') === 0) return 'Dog';
+    return 'Other';
 }
 
 function normalizeSeverity($value)
@@ -210,7 +209,7 @@ function seedDefaults($pdo)
             ['Dog', 'Any', ['Vomiting', 'Diarrhea'], 'Less Than 24 Hours', 'Active', 'Digestive Upset', "Recommended action: Monitor 24hrs\n\nHome care:\nProvide clean water, offer small bland meals, and observe energy level.\n\nBook an appointment if vomiting or diarrhea continues, blood appears, or your pet becomes weak.", 'monitor_24hrs'],
             ['Cat', 'Any', ['Loss of Appetite'], '1-3 Days', 'Moderate', 'Reduced Appetite', "Recommended action: Book appointment\n\nCats that do not eat for more than a day should be checked. Keep water available and avoid forcing food.", 'book_appointment'],
             ['Dog', 'Any', ['Seizures'], 'Less Than 24 Hours', 'Critical', 'Seizure Episode', "Recommended action: Emergency visit\n\nKeep your pet away from stairs or sharp objects, do not put your hand in the mouth, and bring the pet to the clinic immediately.", 'emergency_visit'],
-            ['Other', 'Any', ['Wounds'], '1-3 Days', 'Moderate', 'Open Wound or Injury', "Recommended action: Book appointment\n\nGently keep the wound clean and prevent licking. Visit the clinic for proper cleaning, medication, and wound assessment.", 'book_appointment'],
+            ['Dog', 'Any', ['Wounds'], '1-3 Days', 'Moderate', 'Open Wound or Injury', "Recommended action: Book appointment\n\nGently keep the wound clean and prevent licking. Visit the clinic for proper cleaning, medication, and wound assessment.", 'book_appointment'],
         ];
 
         foreach ($defaults as $row) {
@@ -341,8 +340,8 @@ function deleteInquiryRule($pdo, $data)
 
 function listConsultationRules($pdo, $activeOnly = false)
 {
-    $sql = 'SELECT * FROM chatbot_consultation_rules';
-    if ($activeOnly) $sql .= " WHERE status = 'active'";
+    $sql = "SELECT * FROM chatbot_consultation_rules WHERE pet_type IN ('Dog', 'Cat', 'Other')";
+    if ($activeOnly) $sql .= " AND status = 'active'";
     $sql .= ' ORDER BY id DESC';
     $rows = $pdo->query($sql)->fetchAll();
     respond(200, ['success' => true, 'data' => array_map('mapConsultation', $rows)]);
@@ -677,7 +676,6 @@ function dashboardStats($pdo)
                 'all' => $symptomsAll,
                 'dog' => topSymptomData($symptomLogs, 'dog'),
                 'cat' => topSymptomData($symptomLogs, 'cat'),
-                'bird' => topSymptomData($symptomLogs, 'bird'),
                 'other' => topSymptomData($symptomLogs, 'other'),
             ],
             'locations' => array_map(function ($row) {

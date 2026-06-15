@@ -872,7 +872,6 @@ function closeChat() {
         var pets = [
           { label: 'Dog',   icon: 'chatbot-dogs.png' },
           { label: 'Cat',   icon: 'chatbot-cats.png' },
-          { label: 'Bird',  icon: 'chatbot-birds.png' },
           { label: 'Other', icon: 'chatbot-others.png'  },
         ];
 
@@ -1013,7 +1012,6 @@ function closeChat() {
         [
           { label: 'Dog', icon: 'chatbot-dogs.png' },
           { label: 'Cat', icon: 'chatbot-cats.png' },
-          { label: 'Bird', icon: 'chatbot-birds.png' },
           { label: 'Other', icon: 'chatbot-others.png' }
         ].forEach(function (p) {
           addOptionBtn(cOpts, p.icon, p.label, '', function () {

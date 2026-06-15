@@ -179,6 +179,24 @@ body {
 	gap: 10px;
 }
 
+.checks .save-btn {
+	justify-self: start;
+}
+
+.profile-message {
+	min-height: 18px;
+	font-size: 0.84rem;
+	color: #4a607a;
+}
+
+.profile-message[data-type="success"] {
+	color: #16803a;
+}
+
+.profile-message[data-type="error"] {
+	color: #b42334;
+}
+
 @media (max-width: 900px) {
 	.profile-main,
 	.sidebar.expanded ~ .profile-main {

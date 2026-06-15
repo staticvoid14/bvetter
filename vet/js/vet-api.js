@@ -15,8 +15,11 @@
 'use strict';
 
 const BASE_URL = '/api';   // [BACKEND] e.g. 'https://api.vbetter.ph'
-const BACKEND_URL = '/Final-backend(VBETTER)/Final-Backend/backend';
+const BACKEND_URL = '/FINAL-BACKEND(VBETTER)/Final-Backend/backend';
 const LOST_FOUND_URL = `${BACKEND_URL}/Lost%26Found/lost_and_found.php`;
+const MASS_VACCINATION_URL = `${BACKEND_URL}/mass-vaccination/events.php`;
+const CHATBOT_URL = `${BACKEND_URL}/chatbot/chatbot.php`;
+const ANNOUNCEMENTS_URL = `${BACKEND_URL}/announcements/announcements.php`;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -52,17 +55,15 @@ async function apiFetch(endpoint, options = {}) {
 /* ── Dashboard ───────────────────────────────────────────── */
 
 /** GET /api/vet/dashboard/summary */
-async function getDashboardSummary() {
-    // [BACKEND] return apiFetch('/vet/dashboard/summary');
-    return {
-        ok: true,
-        data: {
-            pendingAppointments: 5,
-            confirmedToday:      8,
-            activeLostFound:     3,
-            pendingVaccReports:  2
-        }
-    };
+async function getDashboardSummary(filters = {}) {
+    try {
+        const params = new URLSearchParams({ scope: 'vet', ...filters }).toString();
+        const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?${params}`);
+        const result = await response.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
 }
 
 /* ── Appointments ────────────────────────────────────────── */
@@ -199,16 +200,33 @@ async function updatePatient(id, payload) {
 /** GET /api/vet/reports */
 async function getReports(filters = {}) {
     const params = new URLSearchParams(filters).toString();
-    // [BACKEND] return apiFetch(`/vet/reports?${params}`);
-    return { ok: true, data: [] };
+    try {
+        const response = await fetch(`${BACKEND_URL}/reports/reports.php?${params}`);
+        const result = await response.json();
+        console.log('Report API Response:', result);
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
+}
+
+function getReportExportUrl(filters = {}, format = 'pdf') {
+    const params = new URLSearchParams({ ...filters, format }).toString();
+    return `${BACKEND_URL}/reports/reports.php?${params}`;
 }
 
 /* ── Disease Analytics ───────────────────────────────────── */
 
 /** GET /api/vet/disease-analytics */
-async function getDiseaseAnalytics(disease = 'all') {
-    // [BACKEND] return apiFetch(`/vet/disease-analytics?disease=${disease}`);
-    return { ok: true, data: window.diseaseAnalyticsData || {} };
+async function getDiseaseAnalytics(disease = 'all', period = 'year') {
+    const params = new URLSearchParams({ scope: 'disease_analytics', disease, period }).toString();
+    try {
+        const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?${params}`, { cache: 'no-store' });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
 }
 
 /* ── Lost and Found ──────────────────────────────────────── */
@@ -307,30 +325,192 @@ async function createConsultationRule(payload) {
 
 /** GET /api/vet/mass-vaccination/events */
 async function getVaccinationEvents() {
-    // [BACKEND] return apiFetch('/vet/mass-vaccination/events');
-    return { ok: true, data: [] };
+    try {
+        const response = await fetch(MASS_VACCINATION_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'list' })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+
+async function getChatbotDashboardStats() {
+    try {
+        const response = await fetch(CHATBOT_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'dashboard_stats' })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
+}
+
+async function getAnnouncements(filters = {}) {
+    try {
+        const response = await fetch(ANNOUNCEMENTS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'list', ...filters })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+
+async function saveAnnouncement(payload) {
+    try {
+        let options;
+        if (payload instanceof FormData) {
+            if (!payload.has('action')) payload.append('action', payload.get('id') ? 'update' : 'create');
+            options = { method: 'POST', body: payload };
+        } else {
+            options = {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ action: payload.id ? 'update' : 'create', ...payload })
+            };
+        }
+        if (payload instanceof FormData) {
+    console.log(payload.get('id'));
+    console.log(payload.get('action'));
+}
+        console.log(payload);
+        console.log(options);
+        const response = await fetch(ANNOUNCEMENTS_URL, options);
+        // console.log(response.status);
+        // console.log(await response.text());
+
+        const result = await response.json();
+        // const text = await response.text();
+        // console.log(text);
+        return { ok: result.success, data: result.data || null, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: null, error: error.message };
+    }
+}
+
+async function deleteAnnouncement(id) {
+    try {
+        const response = await fetch(ANNOUNCEMENTS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'delete', id })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: null, error: error.message };
+    }
 }
 
 /** POST /api/vet/mass-vaccination/events */
 async function createVaccinationEvent(payload) {
-    // [BACKEND]
-    // return apiFetch('/vet/mass-vaccination/events', { method: 'POST', body: JSON.stringify(payload) });
-    return { ok: true, data: { ...payload, id: `evt-${Date.now()}` } };
+    try {
+        const response = await fetch(MASS_VACCINATION_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'create', ...payload })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || null, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: null, error: error.message };
+    }
 }
 
 /** PATCH /api/vet/mass-vaccination/events/:id/report */
 async function submitVaccinationReport(id, payload) {
-    // [BACKEND]
-    // return apiFetch(`/vet/mass-vaccination/events/${id}/report`, {
-    //     method: 'PATCH',
-    //     body: JSON.stringify(payload)
-    // });
-    return { ok: true, data: { id, ...payload, status: 'Completed' } };
+    try {
+        const response = await fetch(MASS_VACCINATION_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'submit_report', id, ...payload })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || null, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: null, error: error.message };
+    }
+}
+
+async function getDiseaseRiskPrediction(barangays, currentCasesByBarangay = {}) {
+    barangays = barangays || [];
+    try {
+        const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?scope=disease_risk_prediction`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body:    JSON.stringify({
+                barangays: barangays,
+                current_cases_by_barangay: currentCasesByBarangay || {}
+            })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.error };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+async function getMassVaccinationDataset() {
+    try {
+        const response = await fetch(
+            `${BACKEND_URL}/dashboard/dashboard.php?scope=mass_vaccination_dataset`
+        );
+        const result = await response.json();
+        return {
+            ok:    result.success,
+            data:  result.data || {},
+            error: result.success ? null : result.message
+        };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
+}
+
+// Add to window.VetAPI exports:
+// getMassVaccinationDataset,
+
+async function getVaccinationForecast(steps) {
+    steps = steps || 3;
+    try {
+        const response = await fetch('http://192.168.1.25:5001/vaccination-forecast', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ steps: steps })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.error };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
+}
+
+async function getRFModelInfo() {
+    try {
+        const response = await fetch('http://192.168.1.25:5001/rf-model-info');
+        const result   = await response.json();
+        return { ok: result.success, data: result.data || {}, error: result.success ? null : result.error };
+    } catch (error) {
+        return { ok: false, data: {}, error: error.message };
+    }
 }
 
 /* ── Exports ─────────────────────────────────────────────── */
 window.VetAPI = {
     getDashboardSummary,
+    getChatbotDashboardStats,
+    getAnnouncements,
+    saveAnnouncement,
+    deleteAnnouncement,
     getAppointments,
     updateAppointmentStatus,
     deleteAppointment,
@@ -339,6 +519,7 @@ window.VetAPI = {
     createPatient,
     updatePatient,
     getReports,
+    getReportExportUrl,
     getDiseaseAnalytics,
     getLostAndFound,
     approveLostFoundReport,
@@ -358,5 +539,9 @@ window.VetAPI = {
     createConsultationRule,
     getVaccinationEvents,
     createVaccinationEvent,
-    submitVaccinationReport
+    submitVaccinationReport,
+    getVaccinationForecast,
+    getDiseaseRiskPrediction,
+    getMassVaccinationDataset,
+    getRFModelInfo
 };

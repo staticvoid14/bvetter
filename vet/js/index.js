@@ -1,23 +1,33 @@
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
+    const [
+        dashboardResponse,
+        appointmentsResponse,
+        vaccinationEventsResponse,
+        chatbotStatsResponse,
+        announcementsResponse
+    ] = await Promise.all([
+        window.VetAPI?.getDashboardSummary ? window.VetAPI.getDashboardSummary({ patient_range: 'weekly' }) : { ok: false, data: null },
+        window.VetAPI?.getAppointments ? window.VetAPI.getAppointments({}) : { ok: false, data: [] },
+        window.VetAPI?.getVaccinationEvents ? window.VetAPI.getVaccinationEvents() : { ok: false, data: [] },
+        window.VetAPI?.getChatbotDashboardStats ? window.VetAPI.getChatbotDashboardStats() : { ok: false, data: {} },
+        window.VetAPI?.getAnnouncements ? window.VetAPI.getAnnouncements({ status: 'all' }) : { ok: false, data: [] }
+    ]);
+    let dashboardData = dashboardResponse.ok ? dashboardResponse.data : null;
+    const appointments = appointmentsResponse.ok && Array.isArray(appointmentsResponse.data) ? appointmentsResponse.data : [];
+    const vaccinationEvents = vaccinationEventsResponse.ok && Array.isArray(vaccinationEventsResponse.data) ? vaccinationEventsResponse.data : [];
+    const chatbotStats = chatbotStatsResponse.ok ? chatbotStatsResponse.data : {};
+    applyDashboardKpis(dashboardData);
+    renderTodayTimeline(appointments);
+    renderRecentPatientAppointment(appointments);
+    renderNextMajorEvent(vaccinationEvents);
+    renderChatbotInsights(chatbotStats);
 
     const announcementState = {
-        items: [
-            {
-                id: `ANN-${Date.now()}`,
-                title: 'Vaccine Event 1',
-                description: 'Will be in Feb 29, 2025 at barangay tangos',
-                date: '02/29/2025',
-                image: '/vet/images/Icon.png'
-            }
-        ]
+        items: announcementsResponse.ok && Array.isArray(announcementsResponse.data) ? announcementsResponse.data : []
     };
 
     const notificationState = {
-        items: [
-            { id: 'N-1', title: 'New Announcement Posted', detail: 'Vaccine Event 1 is now visible to pet owners.', time: 'Just now', read: false },
-            { id: 'N-2', title: 'Pending Appointment Spike', detail: 'Pending queue is up by 12% compared to yesterday.', time: '12 mins ago', read: false },
-            { id: 'N-3', title: 'Reminder', detail: 'Mass vaccination planning window starts tomorrow.', time: '1 hour ago', read: true }
-        ]
+        items: buildOperationalNotifications(dashboardData, appointments, vaccinationEvents)
     };
 
     const modalRoot = ensureDashboardModalRoot();
@@ -26,17 +36,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if (calendarEl) {
         const calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
-            initialDate: '2026-04-24',
+            initialDate: new Date().toISOString().slice(0, 10),
             headerToolbar: {
                 left: '',
                 center: '',
                 right: ''
             },
-            events: [
-                { title: 'Deworming: Cooper', date: '2026-04-24', backgroundColor: '#1B6D24' },
-                { title: 'Vaccination: Buddy', date: '2026-04-25', backgroundColor: '#004080' },
-                { title: 'Consultation: Felix', date: '2026-04-28', backgroundColor: '#999' }
-            ],
+            events: buildCalendarEvents(appointments, vaccinationEvents),
             dayCellDidMount: function(info) {
                 // Highlight weekends lightly
                 if (info.date.getDay() === 0 || info.date.getDay() === 6) {
@@ -45,18 +51,41 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         calendar.render();
+        updateCalendarTitle();
     }
+
+    // Store chart instances globally so filters can update them
+    window.dashboardCharts = {
+        patientVolume: null,
+        disease: null
+    };
 
     const patientVolumeCtx = document.getElementById('patientVolumeChart');
     if (patientVolumeCtx) {
-        new Chart(patientVolumeCtx, {
+        window.dashboardCharts.patientVolume = new Chart(patientVolumeCtx, {
             type: 'line',
             data: {
-                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
+                labels: (dashboardData?.patientVolume?.length ? dashboardData.patientVolume : [
+                    { label: 'Jan', value: 120 },
+                    { label: 'Feb', value: 190 },
+                    { label: 'Mar', value: 150 },
+                    { label: 'Apr', value: 221 },
+                    { label: 'May', value: 200 },
+                    { label: 'Jun', value: 290 },
+                    { label: 'Jul', value: 250 }
+                ]).map((item) => item.label),
                 datasets: [
                     {
                         label: 'Patient Volume',
-                        data: [120, 190, 150, 221, 200, 290, 250],
+                        data: (dashboardData?.patientVolume?.length ? dashboardData.patientVolume : [
+                            { value: 120 },
+                            { value: 190 },
+                            { value: 150 },
+                            { value: 221 },
+                            { value: 200 },
+                            { value: 290 },
+                            { value: 250 }
+                        ]).map((item) => item.value),
                         borderColor: '#002A58',
                         backgroundColor: 'rgba(0, 42, 88, 0.1)',
                         borderWidth: 3,
@@ -64,6 +93,28 @@ document.addEventListener('DOMContentLoaded', function () {
                         tension: 0.4,
                         pointRadius: 4,
                         pointBackgroundColor: '#002A58',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 6
+                    },
+                    {
+                        label: 'Predicted Patient Volume',
+                        data: (dashboardData?.patientVolume?.length ? dashboardData.patientVolume : [
+                            { predicted: 130 },
+                            { predicted: 205 },
+                            { predicted: 162 },
+                            { predicted: 239 },
+                            { predicted: 216 },
+                            { predicted: 313 },
+                            { predicted: 270 }
+                        ]).map((item) => item.predicted || item.value),
+                        borderColor: '#677BAE',
+                        backgroundColor: 'rgba(103, 123, 174, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#677BAE',
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
                         pointHoverRadius: 6
@@ -75,7 +126,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        display: false
+                        display: true,
+                        position: 'bottom',
+                        labels: {
+                            color: '#002A58',
+                            font: {
+                                size: 12,
+                                weight: '600'
+                            },
+                            padding: 15,
+                            usePointStyle: true
+                        }
                     }
                 },
                 scales: {
@@ -108,14 +169,24 @@ document.addEventListener('DOMContentLoaded', function () {
     // ===========================
     const diseaseCtx = document.getElementById('diseaseChart');
     if (diseaseCtx) {
-        new Chart(diseaseCtx, {
+        window.dashboardCharts.disease = new Chart(diseaseCtx, {
             type: 'line',
             data: {
-                labels: ['Poblacion', 'San Jose', 'Tangos', 'Matangtubig', 'Makinabang', 'Virgen delas Flores', 'Tilapayong', 'Tibag', 'Tiaong', 'Santo Niño', 'Santo Cristo', 'Santa Barbara'],
+                labels: (dashboardData?.diseaseCasesByBarangay?.length ? dashboardData.diseaseCasesByBarangay : [
+                    { barangay: 'Poblacion', actual: 5, predicted: 7 },
+                    { barangay: 'San Jose', actual: 2, predicted: 3 },
+                    { barangay: 'Tangos', actual: 4, predicted: 5 },
+                    { barangay: 'Matangtubig', actual: 10, predicted: 8 }
+                ]).map((item) => item.barangay),
                 datasets: [
                     {
                         label: 'Number Of Cases',
-                        data: [5, 2, 4, 10, 5, 3, 7, 2, 4, 3, 2, 2],
+                        data: (dashboardData?.diseaseCasesByBarangay?.length ? dashboardData.diseaseCasesByBarangay : [
+                            { actual: 5 },
+                            { actual: 2 },
+                            { actual: 4 },
+                            { actual: 10 }
+                        ]).map((item) => item.actual),
                         borderColor: '#002A58',
                         backgroundColor: 'rgba(255, 146, 138, 0.15)',
                         borderWidth: 2,
@@ -129,7 +200,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     },
                     {
                         label: 'Predictive Cases',
-                        data: [7, 3, 5, 8, 6, 4, 5, 3, 5, 4, 3, 3],
+                        data: (dashboardData?.diseaseCasesByBarangay?.length ? dashboardData.diseaseCasesByBarangay : [
+                            { predicted: 7 },
+                            { predicted: 3 },
+                            { predicted: 5 },
+                            { predicted: 8 }
+                        ]).map((item) => item.predicted),
                         borderColor: '#677BAE',
                         backgroundColor: 'rgba(137.05, 121.10, 255, 0.15)',
                         borderWidth: 2,
@@ -198,7 +274,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 labels: ['Rabies', 'Parvo'],
                 datasets: [
                     {
-                        data: [60, 40],
+                        data: [
+                            dashboardData?.vaccinated?.dogs || 60,
+                            dashboardData?.vaccinated?.cats || 40
+                        ],
                         backgroundColor: [
                             '#1B6D24',
                             '#E2E2E8'
@@ -236,7 +315,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     ctx.textBaseline = 'middle';
                     ctx.textAlign = 'center';
                     ctx.fillStyle = '#002A58';
-                    ctx.fillText('8,402', centerX, centerY - fontSize * 5);
+                    ctx.fillText(formatNumber(dashboardData?.vaccinated?.total || 8402), centerX, centerY - fontSize * 5);
                     
                     // Draw label
                     ctx.font = `${fontSize * 12}px Manrope, sans-serif`;
@@ -271,7 +350,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const addAppointmentBtn = document.querySelector('.btn-add-appointment');
     if (addAppointmentBtn) {
         addAppointmentBtn.addEventListener('click', function() {
-            alert('Add appointment functionality will be implemented here');
+            window.location.href = '/Final-backend(VBETTER)/Final-Backend/vet/html/appointment.html';
         });
     }
 
@@ -279,9 +358,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const manageEventBtn = document.querySelector('.btn-manage-event');
     if (manageEventBtn) {
         manageEventBtn.addEventListener('click', function() {
-            alert('Manage event functionality will be implemented here');
+            window.location.href = '/Final-backend(VBETTER)/Final-Backend/vet/html/mass-vaccination.html';
         });
     }
+
+    document.querySelectorAll('.icon-btn[aria-label="Settings"]').forEach((button) => {
+        button.addEventListener('click', () => {
+            window.location.href = '/Final-backend(VBETTER)/Final-Backend/public/pages/account-settings.html';
+        });
+    });
 
     const notificationBtn = document.getElementById('notification-icon-btn');
     if (notificationBtn) {
@@ -440,93 +525,144 @@ document.addEventListener('DOMContentLoaded', function () {
         `);
     }
 
-    function openAnnouncementEditorModal({ mode, item }) {
-        const isEdit = mode === 'edit';
-        const localState = {
-            title: item?.title || '',
-            description: item?.description || '',
-            image: item?.image || ''
-        };
+function openAnnouncementEditorModal({ mode, item }) {
+    const isEdit = mode === 'edit';
+    const localState = {
+        title: item?.title || '',
+        description: item?.description || '',
+        image: item?.image || '',
+        category: item?.category || 'Preventative Care',
+        date: item?.date || '',
+        location: item?.location || '',
+        file: null
+    };
 
-        showModal(`
-            <header class="dash-modal-header">
-                <h2>${isEdit ? 'Edit Announcement' : 'Create Announcement'}</h2>
-                <button type="button" class="dash-close-btn" data-modal-close>&times;</button>
-            </header>
-            <div class="dash-modal-content">
-                <label class="dash-field-wrap">
-                    <input id="announcement-title" class="dash-input" type="text" placeholder="Title Of Announcement" value="${escapeHtml(localState.title)}">
-                </label>
-                <label class="dash-field-wrap">
-                    <textarea id="announcement-description" class="dash-textarea" placeholder="Description">${escapeHtml(localState.description)}</textarea>
-                </label>
-                <div class="dash-upload-box" id="announcement-upload-box">
-                    ${localState.image ? `<img src="${escapeHtml(localState.image)}" alt="Announcement image preview">` : '<span>Add To Your Post</span>'}
-                </div>
-                <div class="dash-upload-actions">
-                    <button type="button" class="dash-upload-btn" id="announcement-upload-trigger">Add To Your Post</button>
-                    <input type="file" id="announcement-upload-input" accept="image/*" hidden>
-                </div>
-                <button type="button" class="dash-primary-btn" id="announcement-submit-btn">${isEdit ? 'Update' : 'Post'}</button>
+    const CATEGORIES = [
+        'Preventative Care',
+        'Community Advisory',
+        'Health & Wellness',
+        'Vaccination Drive',
+        'Spay & Neuter',
+        'Adoption Event',
+        'Emergency Notice',
+        'General Announcement',
+    ];
+
+    const categoryOptions = CATEGORIES.map(cat =>
+        `<option value="${escapeHtml(cat)}" ${localState.category === cat ? 'selected' : ''}>${escapeHtml(cat)}</option>`
+    ).join('');
+
+    showModal(`
+        <header class="dash-modal-header">
+            <h2>${isEdit ? 'Edit Announcement' : 'Create Announcement'}</h2>
+            <button type="button" class="dash-close-btn" data-modal-close>&times;</button>
+        </header>
+        <div class="dash-modal-content">
+            <label class="dash-field-wrap">
+                <input id="announcement-title" class="dash-input" type="text" placeholder="Title Of Announcement" value="${escapeHtml(localState.title)}">
+            </label>
+            <label class="dash-field-wrap">
+                <textarea id="announcement-description" class="dash-textarea" placeholder="Description">${escapeHtml(localState.description)}</textarea>
+            </label>
+            <label class="dash-field-wrap">
+                <select id="announcement-category" class="dash-input">
+                    ${categoryOptions}
+                </select>
+            </label>
+            <label class="dash-field-wrap">
+                <input id="announcement-date" class="dash-input" type="date" value="${escapeHtml(localState.date)}">
+            </label>
+            <label class="dash-field-wrap">
+                <input id="announcement-location" class="dash-input" type="text" placeholder="Location (optional)" value="${escapeHtml(localState.location)}">
+            </label>
+            <div class="dash-upload-box" id="announcement-upload-box">
+                ${localState.image ? `<img src="${escapeHtml(localState.image)}" alt="Announcement image preview">` : '<span>Add To Your Post</span>'}
             </div>
-        `);
+            <div class="dash-upload-actions">
+                <button type="button" class="dash-upload-btn" id="announcement-upload-trigger">Add To Your Post</button>
+                <input type="file" id="announcement-upload-input" accept="image/*" hidden>
+            </div>
+            <button type="button" class="dash-primary-btn" id="announcement-submit-btn">${isEdit ? 'Update' : 'Post'}</button>
+        </div>
+    `);
 
-        const titleInput = document.getElementById('announcement-title');
-        const descriptionInput = document.getElementById('announcement-description');
-        const uploadTrigger = document.getElementById('announcement-upload-trigger');
-        const uploadInput = document.getElementById('announcement-upload-input');
-        const uploadBox = document.getElementById('announcement-upload-box');
-        const submitBtn = document.getElementById('announcement-submit-btn');
+    const titleInput       = document.getElementById('announcement-title');
+    const descriptionInput = document.getElementById('announcement-description');
+    const categoryInput    = document.getElementById('announcement-category');
+    const dateInput        = document.getElementById('announcement-date');
+    const locationInput    = document.getElementById('announcement-location');
+    const uploadTrigger    = document.getElementById('announcement-upload-trigger');
+    const uploadInput      = document.getElementById('announcement-upload-input');
+    const uploadBox        = document.getElementById('announcement-upload-box');
+    const submitBtn        = document.getElementById('announcement-submit-btn');
 
-        uploadTrigger?.addEventListener('click', () => uploadInput?.click());
+    uploadTrigger?.addEventListener('click', () => uploadInput?.click());
 
-        uploadInput?.addEventListener('change', () => {
-            const file = uploadInput.files?.[0];
-            if (!file) {
-                return;
+    uploadInput?.addEventListener('change', () => {
+        const file = uploadInput.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            localState.image = String(reader.result);
+            localState.file = file;
+            if (uploadBox) {
+                uploadBox.innerHTML = `<img src="${escapeHtml(localState.image)}" alt="Announcement image preview">`;
             }
-            const reader = new FileReader();
-            reader.onload = () => {
-                localState.image = String(reader.result);
-                if (uploadBox) {
-                    uploadBox.innerHTML = `<img src="${escapeHtml(localState.image)}" alt="Announcement image preview">`;
-                }
-            };
-            reader.readAsDataURL(file);
-        });
+        };
+        reader.readAsDataURL(file);
+    });
 
-        submitBtn?.addEventListener('click', () => {
-            const title = titleInput?.value.trim() || '';
-            const description = descriptionInput?.value.trim() || '';
-            if (!title || !description) {
-                showNotification('Please fill in title and description first.', 'error');
-                return;
+    submitBtn?.addEventListener('click', () => {
+        const title       = titleInput?.value.trim() || '';
+        const description = descriptionInput?.value.trim() || '';
+
+        if (!title || !description) {
+            showNotification('Please fill in title and description first.', 'error');
+            return;
+        }
+
+        localState.title       = title;
+        localState.description = description;
+        localState.category    = categoryInput?.value || '';
+        localState.date        = dateInput?.value || '';
+        localState.location    = locationInput?.value.trim() || '';
+
+        openAnnouncementPostConfirmModal({
+            onConfirm: async () => {
+                const session = sessionValue();
+                const payload = new FormData();
+
+                if (isEdit && item) payload.append('id', item.id);
+                payload.append('title',       localState.title);
+                payload.append('description', localState.description);
+                payload.append('category',    localState.category);
+                payload.append('date',        localState.date);
+                payload.append('location',    localState.location);
+                payload.append('status',      'published');
+                payload.append('role',        session?.role || 'vet');
+                if (session?.userId) payload.append('user_id', session.userId);
+                if (localState.file) payload.append('image', localState.file);
+
+                const savedResponse = window.VetAPI?.saveAnnouncement
+                    ? await window.VetAPI.saveAnnouncement(payload)
+                    : { ok: false, error: 'Announcement API is unavailable.' };
+
+                if (!savedResponse.ok) {
+                    showNotification(savedResponse.error || 'Announcement could not be saved.', 'error');
+                    return;
+                }
+
+                if (isEdit && item) {
+                    Object.assign(item, savedResponse.data);
+                    openAnnouncementResultModal('Announcement Has Been Updated');
+                } else {
+                    announcementState.items.unshift(savedResponse.data);
+                    openAnnouncementResultModal('Announcement Has Been Uploaded');
+                }
             }
-
-            localState.title = title;
-            localState.description = description;
-
-            openAnnouncementPostConfirmModal({
-                onConfirm: () => {
-                    if (isEdit && item) {
-                        item.title = localState.title;
-                        item.description = localState.description;
-                        item.image = localState.image || item.image;
-                        openAnnouncementResultModal('Announcement Has Been Updated');
-                    } else {
-                        announcementState.items.unshift({
-                            id: `ANN-${Date.now()}`,
-                            title: localState.title,
-                            description: localState.description,
-                            date: new Date().toLocaleDateString('en-US'),
-                            image: localState.image || '/vet/images/Icon.png'
-                        });
-                        openAnnouncementResultModal('Announcement Has Been Uploaded');
-                    }
-                }
-            });
         });
-    }
+    });
+}
 
     function openAnnouncementPostConfirmModal({ onConfirm }) {
         showModal(`
@@ -593,7 +729,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
         modalRoot.querySelectorAll('[data-edit-id]').forEach((button) => {
             button.addEventListener('click', () => {
-                const target = announcementState.items.find((item) => item.id === button.dataset.editId);
+                // const target = announcementState.items.find((item) => item.id === button.dataset.editId);
+                const target = announcementState.items.find((item) => item.id ===  Number(button.dataset.editId));
+                console.log('Editing announcement:', announcementState.items);
+                console.log('Editing announcement:', button.dataset.editId);
+                console.log('Editing announcement:', target);
                 if (target) {
                     openAnnouncementEditorModal({ mode: 'edit', item: target });
                 }
@@ -623,15 +763,101 @@ document.addEventListener('DOMContentLoaded', function () {
         `, 'dash-modal-mini');
 
         const deleteBtn = document.getElementById('delete-announcement-confirm-btn');
-        deleteBtn?.addEventListener('click', () => {
-            announcementState.items = announcementState.items.filter((item) => item.id !== targetId);
+        deleteBtn?.addEventListener('click', async () => {
+            const deleted = window.VetAPI?.deleteAnnouncement
+                ? await window.VetAPI.deleteAnnouncement(targetId)
+                : { ok: false, error: 'Announcement API is unavailable.' };
+            if (!deleted.ok) {
+                showNotification(deleted.error || 'Announcement could not be deleted.', 'error');
+                return;
+            }
+            announcementState.items = announcementState.items.filter((item) => String(item.id) !== String(targetId));
             openManageAnnouncementModal();
         });
     }
 
     // ===========================
-    // ANIMATIONS
+    // TAB AND FILTER FUNCTIONALITY
     // ===========================
+    const dashboardFilterState = {
+        patientRange: 'weekly',
+        disease: 'All Diseases'
+    };
+
+    function updatePatientVolumeChart(rows = []) {
+        if (!window.dashboardCharts.patientVolume || !rows.length) return;
+        window.dashboardCharts.patientVolume.data.labels = rows.map((item) => item.label);
+        window.dashboardCharts.patientVolume.data.datasets[0].data = rows.map((item) => item.value);
+        window.dashboardCharts.patientVolume.data.datasets[1].data = rows.map((item) => item.predicted || item.value);
+        window.dashboardCharts.patientVolume.update();
+    }
+
+    function updateDiseaseChart(rows = []) {
+        if (!window.dashboardCharts.disease || !rows.length) return;
+        window.dashboardCharts.disease.data.labels = rows.map((item) => item.barangay);
+        window.dashboardCharts.disease.data.datasets[0].data = rows.map((item) => item.actual);
+        window.dashboardCharts.disease.data.datasets[1].data = rows.map((item) => item.predicted);
+        window.dashboardCharts.disease.update();
+    }
+
+    async function refreshDashboardCharts() {
+        const response = window.VetAPI?.getDashboardSummary
+            ? await window.VetAPI.getDashboardSummary({
+                patient_range: dashboardFilterState.patientRange,
+                disease: dashboardFilterState.disease
+            })
+            : { ok: false };
+        if (!response.ok) return;
+        dashboardData = { ...(dashboardData || {}), ...(response.data || {}) };
+        updatePatientVolumeChart(dashboardData.patientVolume || []);
+        updateDiseaseChart(dashboardData.diseaseCasesByBarangay || []);
+    }
+
+    // Patient Volume Filter (Weekly/Monthly)
+    const patientVolumeCard = document.querySelector('.card:has(#patientVolumeChart)') || 
+                               Array.from(document.querySelectorAll('.card')).find(card => card.querySelector('#patientVolumeChart'));
+    
+    if (patientVolumeCard) {
+        const patientVolumeCardTabs = patientVolumeCard.querySelectorAll('.card-tabs .tab');
+        
+        patientVolumeCardTabs.forEach((tab) => {
+            tab.addEventListener('click', function() {
+                console.log('Patient Volume Tab Clicked:', this.textContent);
+                
+                // Update active state
+                patientVolumeCardTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const filterType = this.textContent.trim();
+                
+                dashboardFilterState.patientRange = filterType.toLowerCase();
+                refreshDashboardCharts();
+            });
+        });
+    }
+
+    // Disease Cases Filter (All/Disease type)
+    const diseaseCard = document.querySelector('.card:has(#diseaseChart)') || 
+                        Array.from(document.querySelectorAll('.card')).find(card => card.querySelector('#diseaseChart'));
+    
+    if (diseaseCard) {
+        const diseaseDropdownBtn = diseaseCard.querySelector('.dropdown-btn');
+        
+        if (diseaseDropdownBtn) {
+            diseaseDropdownBtn.addEventListener('click', function(e) {
+                console.log('Disease Filter Clicked');
+                
+                const diseases = ['All Diseases', 'Canine Parvovirus', 'Canine Distemper', 'Rabies (Suspected)', 'Leptospirosis'];
+                const currentFilter = this.textContent.trim();
+                const currentIndex = diseases.indexOf(currentFilter);
+                const nextDisease = diseases[((currentIndex >= 0 ? currentIndex : 0) + 1) % diseases.length];
+                
+                this.textContent = nextDisease;
+                dashboardFilterState.disease = nextDisease;
+                refreshDashboardCharts();
+            });
+        }
+    }
 
     // Fade in cards on load
     const cards = document.querySelectorAll('.card');
@@ -659,6 +885,239 @@ document.addEventListener('DOMContentLoaded', function () {
  */
 function formatNumber(num) {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function safeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function toDateKey(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(value, options = { month: 'short', day: 'numeric' }) {
+    if (!value) return 'No date';
+    const date = new Date(`${toDateKey(value)}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('en-US', options);
+}
+
+function buildCalendarEvents(appointments, vaccinationEvents) {
+    const appointmentEvents = appointments.map((item) => ({
+        title: `${item.service || item.type || 'Appointment'}: ${item.patient || item.pet?.name || 'Patient'}`,
+        date: item.preferred_date || toDateKey(item.datetime),
+        backgroundColor: item.status === 'completed' ? '#1B6D24' : (item.status === 'confirmed' ? '#004080' : '#737781')
+    })).filter((item) => item.date);
+
+    const vaccinationCalendarEvents = vaccinationEvents.map((item) => ({
+        title: `${item.vaccine || 'Vaccination'}: ${item.barangay || 'Barangay'}`,
+        date: item.date,
+        backgroundColor: '#00B928'
+    })).filter((item) => item.date);
+
+    return [...appointmentEvents, ...vaccinationCalendarEvents];
+}
+
+function buildOperationalNotifications(data, appointments, vaccinationEvents) {
+    const notifications = [];
+    const pendingCount = data?.kpis?.pendingActions ?? appointments.filter((item) => ['pending', 'confirmed'].includes(item.status)).length;
+    const nextEvent = findNextVaccinationEvent(vaccinationEvents);
+
+    if (pendingCount > 0) {
+        notifications.push({
+            id: 'N-pending-appointments',
+            title: 'Pending Appointments',
+            detail: `${pendingCount} appointment${pendingCount === 1 ? '' : 's'} need review or completion.`,
+            time: 'Live from appointments',
+            read: false
+        });
+    }
+
+    if (nextEvent) {
+        notifications.push({
+            id: `N-event-${nextEvent.id}`,
+            title: 'Upcoming Vaccination Event',
+            detail: `${nextEvent.vaccine} at ${nextEvent.barangay} on ${nextEvent.dateLabel || formatDateLabel(nextEvent.date, { month: 'long', day: 'numeric', year: 'numeric' })}.`,
+            time: 'Live from events',
+            read: false
+        });
+    }
+
+    if (!notifications.length) {
+        notifications.push({
+            id: 'N-empty',
+            title: 'No Operational Notifications',
+            detail: 'No pending appointments or upcoming vaccination events were found.',
+            time: 'Just checked',
+            read: true
+        });
+    }
+
+    return notifications;
+}
+
+function updateCalendarTitle() {
+    const title = document.querySelector('.calendar-header h3');
+    if (!title) return;
+    title.textContent = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function renderTodayTimeline(appointments) {
+    const dateLabel = document.querySelector('.timeline-date');
+    const container = document.querySelector('.timeline-container');
+    if (!container) return;
+
+    const today = new Date();
+    const todayKey = today.toISOString().slice(0, 10);
+    if (dateLabel) dateLabel.textContent = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    const todaysAppointments = appointments
+        .filter((item) => (item.preferred_date || toDateKey(item.datetime)) === todayKey)
+        .sort((a, b) => String(a.time_slot || '').localeCompare(String(b.time_slot || '')))
+        .slice(0, 4);
+
+    if (!todaysAppointments.length) {
+        container.innerHTML = '<div class="timeline-empty">No appointments scheduled for today.</div>';
+        return;
+    }
+
+    container.innerHTML = todaysAppointments.map((item) => {
+        const statusClass = item.status === 'completed' ? 'completed' : (item.status === 'confirmed' ? 'pending' : '');
+        return `
+            <div class="timeline-item">
+                <div class="timeline-marker ${statusClass}"><span class="marker-dot ${statusClass === 'pending' ? 'pending' : ''}"></span></div>
+                <div class="timeline-event ${statusClass}">
+                    <p class="event-time">${safeHtml(item.time_slot || 'TBD')}</p>
+                    <h4 class="event-title">${safeHtml(item.service || item.type || 'Appointment')}: ${safeHtml(item.patient || item.pet?.name || 'Patient')}</h4>
+                    <p class="event-location">${safeHtml(item.veterinarian || 'Unassigned vet')}</p>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderRecentPatientAppointment(appointments) {
+    const patientCard = document.querySelector('.patient-card');
+    const patientItem = document.querySelector('.patient-item');
+    const viewLink = document.querySelector('.patient-header .view-link');
+    if (!patientCard || !patientItem) return;
+
+    if (viewLink) viewLink.href = '/Final-backend(VBETTER)/Final-Backend/vet/html/appointment.html';
+
+    const sorted = [...appointments].sort((a, b) => {
+        const left = new Date(`${a.preferred_date || toDateKey(a.datetime)}T${a.time_slot || '00:00'}`).getTime();
+        const right = new Date(`${b.preferred_date || toDateKey(b.datetime)}T${b.time_slot || '00:00'}`).getTime();
+        return right - left;
+    });
+    const latest = sorted[0];
+
+    if (!latest) {
+        patientItem.innerHTML = '<p class="dash-empty">No appointment records found.</p>';
+        return;
+    }
+
+    const pet = latest.pet || {};
+    const firstLetter = pet.name?.trim().charAt(0).toUpperCase() || 'P';
+    patientItem.innerHTML = `
+        <div class="patient-info">
+<div class="patient-avatar">${firstLetter}  </div>           
+        <div>
+                <h4 class="patient-name">${safeHtml(latest.patient || pet.name || 'Patient')}</h4>
+                <p class="patient-details">${safeHtml([pet.breed || pet.species, pet.sex, pet.age].filter(Boolean).join(' - ') || latest.owner || 'Appointment patient')}</p>
+            </div>
+        </div>
+        <div class="patient-status">
+            <span class="status-badge">${safeHtml(latest.status || 'pending')}</span>
+            <p class="patient-date">Adm: ${safeHtml(formatDateLabel(latest.preferred_date || latest.datetime, { month: 'short', day: 'numeric', year: 'numeric' }))}</p>
+        </div>
+    `;
+}
+
+function findNextVaccinationEvent(events) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return [...events]
+        .filter((item) => item.date && new Date(`${item.date}T00:00:00`) >= today)
+        .sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`))[0] || null;
+}
+
+function renderNextMajorEvent(events) {
+    const card = document.querySelector('.event-card');
+    if (!card) return;
+    const event = findNextVaccinationEvent(events);
+    const title = card.querySelector('.event-title');
+    const date = card.querySelector('.event-date');
+
+    if (!event) {
+        if (title) title.textContent = 'No Upcoming Vaccination Event';
+        if (date) date.textContent = 'Create an event in Mass Vaccination';
+        return;
+    }
+
+    if (title) title.textContent = `${event.vaccine || 'Vaccination'} - ${event.barangay || 'Barangay'}`;
+    if (date) date.textContent = `${event.dateLabel || formatDateLabel(event.date, { month: 'long', day: 'numeric', year: 'numeric' })} - ${event.status || 'Pending Report'}`;
+}
+
+function renderChatbotInsights(stats) {
+    const list = document.querySelector('.insights-list');
+    const note = document.querySelector('.insights-note');
+    if (!list) return;
+
+    const labels = stats?.symptomsByPetType?.all?.labels || [];
+    const values = stats?.symptomsByPetType?.all?.values || [];
+    const total = values.reduce((sum, value) => sum + Number(value || 0), 0);
+
+    if (!labels.length || total <= 0) {
+        list.innerHTML = '<p class="dash-empty">No chatbot symptom logs yet.</p>';
+        if (note) note.textContent = 'Insight will appear once pet owners use the symptom checker.';
+        return;
+    }
+
+    list.innerHTML = labels.slice(0, 4).map((label, index) => {
+        const count = Number(values[index] || 0);
+        const percent = Math.round((count / total) * 100);
+        return `
+            <div class="insight-item">
+                <div class="insight-header">
+                    <span class="insight-name">${safeHtml(label)}</span>
+                    <span class="insight-percentage">${percent}% of queries</span>
+                </div>
+                <div class="insight-bar"><div class="insight-bar-fill" style="width: ${percent}%;"></div></div>
+            </div>
+        `;
+    }).join('');
+
+    if (note) note.textContent = `Insight: ${formatNumber(total)} symptom checker log${total === 1 ? '' : 's'} included.`;
+}
+
+function applyDashboardKpis(data) {
+    if (!data?.kpis) return;
+    const values = document.querySelectorAll('.KPI .kpi-value');
+    if (values[0]) values[0].textContent = formatNumber(data.kpis.totalAppointments || 0);
+    if (values[1]) values[1].textContent = formatNumber(data.kpis.pendingActions || 0);
+    if (values[2]) values[2].textContent = String(data.kpis.activeLostReports || 0).padStart(2, '0');
+    if (values[3]) values[3].textContent = `${data.kpis.vaccinationRate || 0}%`;
+
+    const progress = document.querySelector('.vaccination-progress .progress-fill');
+    if (progress) progress.style.width = `${Math.min(100, data.kpis.vaccinationRate || 0)}%`;
+
+    const demandItems = document.querySelectorAll('.vaccine-item');
+    (data.vaccineDemand || []).forEach((item, index) => {
+        const card = demandItems[index];
+        if (!card) return;
+        const label = card.querySelector('.vaccine-item-label');
+        const value = card.querySelector('.vaccine-item-value');
+        if (label) label.textContent = item.label;
+        if (value) value.textContent = formatNumber(item.units || 0);
+    });
 }
 
 /**

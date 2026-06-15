@@ -9,6 +9,10 @@
 	--report-shadow: 0 18px 42px rgba(9, 28, 54, 0.12);
 	--report-radius: 18px;
 }
+.kpi-subset        { display: block; font-size: 0.75rem; margin-top: 4px; opacity: 0.85; }
+.subset-up         { color: #22c55e; }   /* green  — good trend  */
+.subset-down       { color: #ef4444; }   /* red    — bad trend   */
+.subset-neutral    { color: inherit; }
 
 * {
 	margin: 0;
