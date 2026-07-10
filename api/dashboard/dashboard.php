@@ -534,7 +534,7 @@ function disease_analytics_data($pdo)
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-function patient_volume_series($pdo, string $range = 'monthly'): array
+function patient_volume_series_monthly($pdo): array
 {
     $rabiesRows = bv_sheet_rows('Combined_Rabies_3Years');
     $monthly    = [];
@@ -574,7 +574,41 @@ function patient_volume_series($pdo, string $range = 'monthly'): array
     }
 
     ksort($monthly);
-    $rows = array_values($monthly);
+    return array_values($monthly);
+}
+
+function patient_volume_series_weekly($pdo): array
+{
+    $weekly = [];
+    if (bv_table_exists($pdo, 'appointments')) {
+        try {
+            $rows = $pdo->query("
+                SELECT DATE_FORMAT(DATE_SUB(preferred_date, INTERVAL WEEKDAY(preferred_date) DAY), '%Y-%m-%d') AS period,
+                       DATE_FORMAT(DATE_SUB(preferred_date, INTERVAL WEEKDAY(preferred_date) DAY), '%b %e') AS label,
+                       COUNT(*) AS value
+                FROM appointments
+                WHERE preferred_date IS NOT NULL
+                GROUP BY period, label
+            ")->fetchAll();
+            foreach ($rows as $row) {
+                $key = $row['period'];
+                $weekly[$key] = [
+                    'period' => $key,
+                    'label'  => trim((string) $row['label']),
+                    'value'  => (int) ($row['value'] ?? 0),
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    ksort($weekly);
+    return array_values($weekly);
+}
+
+function patient_volume_series($pdo, string $range = 'monthly'): array
+{
+    $range = strtolower($range) === 'weekly' ? 'weekly' : 'monthly';
+    $rows  = $range === 'weekly' ? patient_volume_series_weekly($pdo) : patient_volume_series_monthly($pdo);
 
     $rf          = analytics_post('/patient-volume-predict', ['series' => $rows, 'range' => $range], 30);
     $predictions = $rf['success'] && is_array($rf['data']) ? $rf['data'] : [];
@@ -589,7 +623,7 @@ function patient_volume_series($pdo, string $range = 'monthly'): array
     }
     unset($row);
 
-    return strtolower($range) === 'weekly' ? array_slice($rows, -8) : array_slice($rows, -12);
+    return $range === 'weekly' ? array_slice($rows, -8) : array_slice($rows, -12);
 }
 
 function vet_dashboard($pdo, string $patientRange = 'monthly', string $disease = '')
@@ -669,6 +703,84 @@ function vet_dashboard($pdo, string $patientRange = 'monthly', string $disease =
     ];
 }
 
+function admin_module_activity(array $vet): array
+{
+    $items = [
+        ['name' => 'Appointment Management', 'value' => (int) ($vet['kpis']['totalAppointments'] ?? 0)],
+        ['name' => 'Patient Records',        'value' => (int) array_sum(array_column($vet['patientVolume'] ?? [], 'value'))],
+        ['name' => 'Disease Analytics',      'value' => (int) array_sum(array_column($vet['diseaseCasesByBarangay'] ?? [], 'actual'))],
+        ['name' => 'Mass Vaccination',       'value' => (int) ($vet['vaccinated']['total'] ?? 0)],
+        ['name' => 'Lost and Found',         'value' => (int) ($vet['kpis']['activeLostReports'] ?? 0)],
+        ['name' => 'Chatbot Management',     'value' => (int) ($vet['chatbotQueries'] ?? 0)],
+    ];
+
+    $max = max(1, ...array_column($items, 'value'));
+    foreach ($items as &$item) {
+        $item['pct'] = (int) round(($item['value'] / $max) * 100);
+    }
+    unset($item);
+
+    return $items;
+}
+
+function admin_recent_activity($pdo): array
+{
+    $roleLabels = ['admin' => 'administrator', 'veterinarian' => 'veterinarian', 'pet_owner' => 'pet owner'];
+    $events = [];
+
+    if (bv_table_exists($pdo, 'users')) {
+        try {
+            $rows = $pdo->query("
+                SELECT u.full_name, u.created_at, r.name AS role_name
+                FROM users u LEFT JOIN roles r ON r.id = u.role_id
+                ORDER BY u.created_at DESC LIMIT 5
+            ")->fetchAll();
+            foreach ($rows as $r) {
+                $roleLabel = $roleLabels[$r['role_name'] ?? ''] ?? 'user';
+                $events[] = [
+                    'text' => '<strong>' . htmlspecialchars((string) ($r['full_name'] ?? 'Someone')) . '</strong> registered as a new ' . $roleLabel . ' account.',
+                    'time' => $r['created_at'],
+                    'type' => 'green',
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    if (bv_table_exists($pdo, 'announcements')) {
+        try {
+            $rows = $pdo->query('SELECT title, created_at FROM announcements ORDER BY created_at DESC LIMIT 5')->fetchAll();
+            foreach ($rows as $r) {
+                $events[] = [
+                    'text' => 'New announcement posted: <strong>' . htmlspecialchars((string) ($r['title'] ?? '')) . '</strong>.',
+                    'time' => $r['created_at'],
+                    'type' => 'blue',
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    if (bv_table_exists($pdo, 'lost_found_reports')) {
+        try {
+            $rows = $pdo->query("
+                SELECT pet_name, report_type, status, COALESCE(reviewed_at, updated_at, created_at) AS ts
+                FROM lost_found_reports ORDER BY ts DESC LIMIT 5
+            ")->fetchAll();
+            foreach ($rows as $r) {
+                $label = $r['pet_name'] !== null && $r['pet_name'] !== '' ? $r['pet_name'] : ucfirst((string) $r['report_type']) . ' report';
+                $events[] = [
+                    'text' => '<strong>' . htmlspecialchars((string) $label) . '</strong> ' . $r['report_type'] . ' report is now <strong>' . $r['status'] . '</strong>.',
+                    'time' => $r['ts'],
+                    'type' => $r['status'] === 'rejected' ? 'red' : ($r['status'] === 'resolved' ? 'green' : 'blue'),
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    usort($events, fn($a, $b) => strtotime((string) $b['time']) <=> strtotime((string) $a['time']));
+
+    return array_slice($events, 0, 6);
+}
+
 function admin_dashboard($pdo)
 {
     $totals = ['totalAccounts' => 0, 'activeAccounts' => 0, 'pendingApprovals' => 0, 'systemAlerts' => 0];
@@ -678,7 +790,17 @@ function admin_dashboard($pdo)
         try {
             $totals['totalAccounts']    = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
             $totals['activeAccounts']   = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE account_status='active'")->fetchColumn();
-            $totals['pendingApprovals'] = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE account_status IN ('pending','for_review')")->fetchColumn();
+            // Pending pet-owner verifications live in owner_profiles.verification_status,
+            // not users.account_status (new registrations get account_status='inactive'
+            // until reviewed — see api/auth/register.php).
+            $totals['pendingApprovals'] = bv_table_exists($pdo, 'owner_profiles')
+                ? (int) $pdo->query("
+                    SELECT COUNT(*) FROM users u
+                    INNER JOIN roles r ON r.id = u.role_id
+                    INNER JOIN owner_profiles op ON op.user_id = u.id
+                    WHERE r.name = 'pet_owner' AND op.verification_status = 'pending'
+                ")->fetchColumn()
+                : 0;
             $recentAccounts = $pdo->query("
                 SELECT u.full_name, u.email, u.account_status, u.created_at, r.name AS role_name
                 FROM users u LEFT JOIN roles r ON r.id = u.role_id
@@ -691,6 +813,12 @@ function admin_dashboard($pdo)
                 ORDER BY YEAR(created_at), MONTH(created_at)
             ")->fetchAll();
         } catch (Throwable $e) { $recentAccounts = []; }
+    }
+
+    if (bv_table_exists($pdo, 'lost_found_reports')) {
+        try {
+            $totals['systemAlerts'] = (int) $pdo->query("SELECT COUNT(*) FROM lost_found_reports WHERE status='pending'")->fetchColumn();
+        } catch (Throwable $e) {}
     }
 
     $vet = vet_dashboard($pdo);
@@ -706,8 +834,9 @@ function admin_dashboard($pdo)
         'registrationChart' => array_map(fn($r) => [
             'label'       => $r['label'],
             'newAccounts' => (int) $r['new_accounts'],
-            'deactivated' => 0,
         ], $registrationChart),
+        'moduleActivity' => admin_module_activity($vet),
+        'recentActivity' => admin_recent_activity($pdo),
         'operations' => $vet,
     ];
 }
@@ -824,4 +953,4 @@ bv_json_response(200, ['success' => true, 'data' => vet_dashboard(
     $pdo,
     strtolower(bv_clean($input['patient_range'] ?? $input['range'] ?? 'monthly')),
     bv_clean($input['disease'] ?? '')
-)]);
+)]);

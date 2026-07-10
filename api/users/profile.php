@@ -47,8 +47,7 @@ function profileStats($pdo, $userId, $roleName)
 {
     $stats = [
         'patientsToday' => 0,
-        'surgeriesPerformed' => 0,
-        'avgTreatmentTime' => '45m',
+        'totalPatients' => 0,
         'satisfactionRate' => '0.0',
     ];
 
@@ -64,7 +63,7 @@ function profileStats($pdo, $userId, $roleName)
             $stmt->execute();
             $stats['patientsToday'] = (int) $stmt->fetchColumn();
 
-            $stats['surgeriesPerformed'] = (int) $pdo->query("SELECT COUNT(*) FROM patient_visit_records WHERE LOWER(category) LIKE '%surgery%'")->fetchColumn();
+            $stats['totalPatients'] = (int) $pdo->query("SELECT COUNT(DISTINCT pet_id) FROM patient_visit_records")->fetchColumn();
 
             if (function_exists('bv_table_exists') && bv_table_exists($pdo, 'reviews')) {
                 $stmt = $pdo->prepare('SELECT ROUND(AVG(rating), 1) FROM reviews WHERE veterinarian_id = :id');

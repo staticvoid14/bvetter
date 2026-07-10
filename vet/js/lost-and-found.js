@@ -2,7 +2,7 @@
 
 const LF_ENDPOINT = '/bvetter/api/lost-found/lost_and_found.php';
 const FALLBACK_IMAGE = '/bvetter/public/images/img/upload-pet.png';
-const PET_TYPES = ['Dog', 'Cat', 'Other'];
+const PET_TYPES = ['Dog', 'Cat'];
 
 const lfData = {
 	filters: {
