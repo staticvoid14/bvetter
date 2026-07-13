@@ -65,12 +65,76 @@
         applyRoleVisibility(sidebar, role);
         buildToggleButton(sidebar);
         buildProfileCard(sidebar, session);
+        buildMobileActions(sidebar, session);
         console.log(session);
 
         const navItems = Array.from(sidebar.querySelectorAll('.nav-item'));
         hydrateNavItems(navItems, role);
         wireExpand(sidebar);
         syncToggleState(sidebar);
+        wrapMobilePanel(sidebar);
+    }
+
+    /* Single source of truth for "which photo represents this user" —
+       used by both the desktop/expanded profile card and the mobile
+       top-bar avatar, so they can never show a different picture. */
+    function resolveAvatarUrl(session) {
+        const role = (session && session.role) ? session.role : '';
+        return (session && session.pfp) ? session.pfp : (DEFAULT_AVATARS[role] || DEFAULT_AVATARS.admin);
+    }
+
+    /* ── Mobile top-bar actions (notification bell + avatar) ──
+       Always visible in the collapsed mobile bar, next to the
+       hamburger/logo — mirrors the public pet-owner nav's bell+
+       avatar pair. No-op on desktop/tablet (hidden via CSS). ── */
+    function buildMobileActions(sidebar, session) {
+        if (sidebar.querySelector('.sidebar-mobile-actions')) return;
+
+        const avatarUrl = resolveAvatarUrl(session);
+        const name      = (session && session.name) ? session.name : 'Unknown';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'sidebar-mobile-actions';
+        wrap.innerHTML =
+            '<button type="button" class="sidebar-mobile-notif-btn" id="sidebar-mobile-notif-btn" aria-label="Notifications">' +
+            '<img src="/bvetter/public/images/icons/icon-bell.svg" class="sidebar-mobile-notif-icon" alt="">' +
+            '<span class="sidebar-mobile-notif-dot"></span>' +
+            '</button>' +
+            '<img src="' + avatarUrl + '" alt="' + name + '" class="sidebar-mobile-avatar" id="sidebar-mobile-avatar-btn" ' +
+            'onerror="this.onerror=null;this.src=\'/bvetter/public/images/img/account-avatar.png\'">';
+
+        sidebar.appendChild(wrap);
+
+        const avatarBtn = wrap.querySelector('#sidebar-mobile-avatar-btn');
+        if (avatarBtn) {
+            avatarBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('mobile-open');
+                syncToggleState(sidebar);
+            });
+        }
+    }
+
+    /* ── Mobile dropdown panel ─────────────────────────────────
+       Moves the existing nav + profile/logout footer into one
+       wrapper so both can render as a single dropdown panel below
+       the collapsed mobile bar (profile above, nav below). Uses
+       `display:contents` on desktop/tablet so it's fully invisible
+       to that layout — nav/footer behave exactly as before there. */
+    function wrapMobilePanel(sidebar) {
+        if (sidebar.querySelector('.sidebar-mobile-panel')) return;
+
+        const nav    = sidebar.querySelector('.sidebar-nav');
+        const footer = sidebar.querySelector('.sidebar-footer');
+        if (!nav || !footer) return;
+
+        const panel = document.createElement('div');
+        panel.className = 'sidebar-mobile-panel';
+        sidebar.appendChild(panel);
+        // Same order as the desktop sidebar: nav section first, then
+        // the profile/logout footer at the bottom — don't reorder.
+        panel.appendChild(nav);
+        panel.appendChild(footer);
     }
 
     /* ── Read session — works with or without VBetterAuth ────── */
@@ -117,6 +181,7 @@
             e.stopPropagation();
             if (window.innerWidth <= 768) {
                 sidebar.classList.toggle('mobile-open');
+                syncToggleState(sidebar);
                 return;
             }
             sidebar.classList.toggle('expanded');
@@ -131,7 +196,7 @@
 
     const name      = (session && session.name)      ? session.name      : 'Unknown';
     const role      = (session && session.role)      ? session.role      : '';
-    const avatarUrl = (session && session.pfp) ? session.pfp : (DEFAULT_AVATARS[role] || DEFAULT_AVATARS.admin);
+    const avatarUrl = resolveAvatarUrl(session);
     const roleLabel = roleDisplayLabel(role);
     const firstLet  = name.slice(0, 1).toUpperCase();
 
@@ -258,8 +323,9 @@
     function syncToggleState(sidebar) {
         const btn = document.getElementById('sidebar-toggle');
         if (!btn) return;
-        btn.setAttribute('aria-expanded',
-            sidebar.classList.contains('expanded') ? 'true' : 'false');
+        const isOpen = sidebar.classList.contains('expanded') ||
+                       sidebar.classList.contains('mobile-open');
+        btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     }
 
 }());

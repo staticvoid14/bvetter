@@ -50,7 +50,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         arimaData:          null, // from Python ARIMA service
         dashboardData:      null, // from PHP vet_dashboard (Excel summary)
         vaccinationDataset: null, // from PHP mass_vaccination_dataset (Excel monthly)
+        eventTablePage:     1,
     };
+
+    // Desktop can comfortably show more rows per page than a phone screen.
+    const pageSizeForViewport = () => (window.innerWidth <= 768 ? 5 : 10);
 
     // ── Data source legend ────────────────────────────────────────────────
     // Chart 1 (Vaccinated per Barangay) → Excel Barangay_Disease_Monthly  MERGED with DB events
@@ -159,24 +163,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (range === 'This Year') return d.getFullYear() === nowYear;
             return true;
         });
-    }
-
-    function getFilteredDatasetRows(range) {
-        var rows    = (state.vaccinationDataset?.by_month) || [];
-        var now     = new Date();
-        var nowYear = now.getFullYear();
-        var nowMonth= now.getMonth() + 1; // 1-based
-        if (!rows.length) return [];
-        if (range === 'This Month')    return rows.filter(r => r.year === nowYear && r.month_no === nowMonth);
-        if (range === 'Last 3 Months') {
-            var cutoff = new Date(now); cutoff.setMonth(cutoff.getMonth() - 3);
-            return rows.filter(r => {
-                var d = new Date(r.year + '-' + String(r.month_no).padStart(2,'0') + '-01');
-                return d >= cutoff;
-            });
-        }
-        if (range === 'This Year') return rows.filter(r => r.year === nowYear);
-        return rows;
     }
 
     // ── Build a live DB totals map per barangay from filtered events ─────
@@ -389,7 +375,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const noteEl = petsEl.nextElementSibling;
             const tv     = state.arimaData.total_vaccinated;
             if (noteEl) {
-                noteEl.textContent = `ARIMA forecast: ${tv.forecast[0]} next month (${tv.trend || 'stable'})`;
+                noteEl.textContent = `Predicted next month: ${tv.forecast[0]} (${tv.trend || 'stable'})`;
                 noteEl.className   = 'metric-note ' + (tv.trend === 'rising' ? 'success' : '');
             }
         }
@@ -398,7 +384,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ── Table (DB source) ─────────────────────────────────────────────────
     const renderTable = () => {
         const tableBody = document.getElementById('event-table-body');
-        tableBody.innerHTML = state.events.map(e => `
+        const footer    = document.getElementById('event-table-footer');
+
+        const pageSize   = pageSizeForViewport();
+        const totalPages = Math.max(1, Math.ceil(state.events.length / pageSize));
+        state.eventTablePage = Math.min(Math.max(1, state.eventTablePage), totalPages);
+        const start     = (state.eventTablePage - 1) * pageSize;
+        const pageRows  = state.events.slice(start, start + pageSize);
+
+        tableBody.innerHTML = pageRows.map(e => `
             <tr data-event-id="${sanitize(e.id)}">
                 <td data-label="Date">${sanitize(e.dateLabel)}</td>
                 <td data-label="Barangay">${sanitize(e.barangay)}</td>
@@ -407,6 +401,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td data-label="Status"><span class="status-pill ${statusClass(e.status)}">${sanitize(e.status)}</span></td>
             </tr>
         `).join('');
+
+        if (!footer) return;
+        if (totalPages <= 1) { footer.innerHTML = ''; return; }
+        footer.innerHTML = `
+            <div class="report-footer">
+                <p>Displaying ${pageRows.length} of ${state.events.length} Records</p>
+                <div class="pagination">
+                    <button type="button" class="page-btn" data-event-page="prev" aria-label="Previous page" ${state.eventTablePage <= 1 ? 'disabled' : ''}>&lsaquo;</button>
+                    <button type="button" class="page-btn active" disabled>${state.eventTablePage}</button>
+                    <button type="button" class="page-btn" data-event-page="next" aria-label="Next page" ${state.eventTablePage >= totalPages ? 'disabled' : ''}>&rsaquo;</button>
+                </div>
+            </div>
+        `;
+        footer.querySelectorAll('[data-event-page]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                state.eventTablePage += btn.dataset.eventPage === 'prev' ? -1 : 1;
+                renderTable();
+            });
+        });
     };
 
     // ── ARIMA summary card ────────────────────────────────────────────────
@@ -431,9 +444,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.innerHTML = `
             <div class="mv-arima-header">
                 <div>
-                    <span class="mv-arima-badge">ARIMA(${(tv.arima_order||[]).join(',')})</span>
+                    <span class="mv-arima-badge">Smart Forecast</span>
                     <h3 class="mv-arima-title">Vaccine Demand Forecast</h3>
                     <p class="mv-arima-desc">${sanitize(tv.action || 'Demand forecast based on historical vaccination data.')}</p>
+
                 </div>
                 <div class="mv-trend-pill ${trendCls}">Overall Trend: ${trend.toUpperCase()}</div>
             </div>
@@ -445,7 +459,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <span class="mv-fc-label">${sanitize(m)}</span>
                             <span class="mv-fc-val">${tv.forecast?.[i] || 0}</span>
                             <span class="mv-fc-range">${tv.lower_ci?.[i]||0} – ${tv.upper_ci?.[i]||0}</span>
-                            <span class="mv-fc-ci">80% CI</span>
+                            <span class="mv-fc-ci">Likely Range</span>
                         </div>
                     `).join('')}
                 </div>
@@ -498,58 +512,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         var hasDbData        = Object.keys(dbBarangayTotals).length > 0;
 
         // ── Chart 1: Vaccinated per Barangay
-        // PRIMARY:  Excel Barangay_Disease_Monthly (historical baseline)
-        // MERGED:   DB events for the selected range added on top per barangay
-        // FALLBACK: DB events only → diseaseCasesByBarangay proxy
+        // by_barangay and dbBarangayTotals both read from mass_vaccination_events
+        // (the former all-time, the latter scoped to `range`) — they are the same
+        // source at different time windows, so they must never be added together.
+        // PRIMARY:  dbBarangayTotals, scoped to the selected range
+        // FALLBACK: by_barangay all-time totals, when the range has no events yet
+        // LAST RESORT: diseaseCasesByBarangay proxy, when there is no DB data at all
         destroyChart('vaccinatedPerBarangay');
         {
             var labels = [], dogsD = [], catsD = [], otherD = [];
             var dbDogsD = [], dbCatsD = [], dbOtherD = [];
-            var hasExcel = false;
 
-            if (state.vaccinationDataset?.by_barangay?.length) {
-                hasExcel = true;
-                // Scale Excel barangay totals by the filtered period ratio
-                var allMonths  = state.vaccinationDataset.by_month || [];
-                var filtMonths = getFilteredDatasetRows(range);
-                var totalAll   = allMonths.reduce((s, r) => s + r.total_vaccinated, 0) || 1;
-                var totalFilt  = filtMonths.reduce((s, r) => s + r.total_vaccinated, 0);
-                var ratio      = totalAll > 0 ? totalFilt / totalAll : 1;
-
-                state.vaccinationDataset.by_barangay.forEach(r => {
-                    labels.push(r.barangay);
-                    dogsD.push(Math.round(r.dogs_vaccinated   * ratio));
-                    catsD.push(Math.round(r.cats_vaccinated   * ratio));
-                    otherD.push(Math.round(r.others_vaccinated * ratio));
-
-                    // Add any live DB totals for this barangay on top
-                    var db = dbBarangayTotals[r.barangay] || { dogs: 0, cats: 0, others: 0 };
-                    dbDogsD.push(db.dogs);
-                    dbCatsD.push(db.cats);
-                    dbOtherD.push(db.others);
-                });
-
-                // Also add barangays that exist ONLY in DB (new events not in Excel yet)
-                Object.keys(dbBarangayTotals).forEach(barangay => {
-                    if (!labels.includes(barangay)) {
-                        labels.push(barangay);
-                        dogsD.push(0); catsD.push(0); otherD.push(0);
-                        var db = dbBarangayTotals[barangay];
-                        dbDogsD.push(db.dogs);
-                        dbCatsD.push(db.cats);
-                        dbOtherD.push(db.others);
-                    }
-                });
-
-            } else if (hasDbData) {
-                // No Excel — DB only
+            if (hasDbData) {
                 Object.keys(dbBarangayTotals).forEach(barangay => {
                     labels.push(barangay);
                     var db = dbBarangayTotals[barangay];
-                    dogsD.push(0); catsD.push(0); otherD.push(0);
-                    dbDogsD.push(db.dogs);
-                    dbCatsD.push(db.cats);
-                    dbOtherD.push(db.others);
+                    dogsD.push(db.dogs); catsD.push(db.cats); otherD.push(db.others);
+                    dbDogsD.push(0); dbCatsD.push(0); dbOtherD.push(0);
+                });
+
+            } else if (state.vaccinationDataset?.by_barangay?.length) {
+                state.vaccinationDataset.by_barangay.forEach(r => {
+                    labels.push(r.barangay);
+                    dogsD.push(r.dogs_vaccinated);
+                    catsD.push(r.cats_vaccinated);
+                    otherD.push(r.others_vaccinated);
+                    dbDogsD.push(0); dbCatsD.push(0); dbOtherD.push(0);
                 });
 
             } else if (state.dashboardData?.diseaseCasesByBarangay) {
@@ -634,7 +622,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 var c2datasets = [
                     {
-                        label: 'Predicted Total (ARIMA)',
+                        label: 'Predicted Total (Forecast)',
                         data: tv.forecast || [],
                         backgroundColor: '#002A58',
                         borderRadius: 5
@@ -651,11 +639,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
 
-                var arimaOrderStr = (tv.arima_order || []).join(',');
-                var ciStr = `CI: ${tv.lower_ci?.[0] || 0}–${tv.upper_ci?.[0] || 0}`;
+                var rangeStr = `Likely Range: ${tv.lower_ci?.[0] || 0}–${tv.upper_ci?.[0] || 0}`;
                 var c2Title = dbGrandTotal > 0
-                    ? `ARIMA(${arimaOrderStr}) Forecast — ${ciStr} | Actual this period: ${dbGrandTotal.toLocaleString()}`
-                    : `ARIMA(${arimaOrderStr}) Forecast — ${ciStr}`;
+                    ? `Predicted Vaccinations — ${rangeStr} | Actual this period: ${dbGrandTotal.toLocaleString()}`
+                    : `Predicted Vaccinations — ${rangeStr}`;
 
                 charts['predictedAnimals'] = new Chart(
                     document.getElementById('predictedAnimalsChart'), {
@@ -758,8 +745,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             title: {
                                 display: true,
                                 text: monthlyRows.length > 0
-                                    ? 'Monthly Trend (Excel) — ARIMA service unavailable'
-                                    : 'Live DB Data — ARIMA and Excel history unavailable',
+                                    ? 'Monthly Trend — Forecast Service Unavailable'
+                                    : 'Live Data — Forecast & History Unavailable',
                                 font: { size: 11 }, color: '#e07b39'
                             }
                         }
@@ -887,18 +874,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // ── Chart 4: Vaccines Needed per Barangay
-        // SOURCE: ARIMA forecast distributed across Excel barangays
+        // SOURCE: single municipal ARIMA forecast (real per-barangay history is too
+        //         sparse to fit independent models), distributed across barangays
+        //         by their real historical vaccination share.
         // ADJUSTMENT: When DB events have actual data, boost the ARIMA total by
         //             the ratio of (DB actuals / previous ARIMA forecast) so the
         //             predicted need scales with real-world uptake.
-        // FALLBACK: Excel predicted values, scaled by DB activity ratio
+        // FALLBACK: disease-case-derived predicted values, scaled by DB activity ratio
         destroyChart('vaccinesNeeded');
         {
             var tvN   = state.arimaData?.total_vaccinated || {};
             var multi = range === 'Last 3 Months' ? 3 : range === 'This Year' ? 12 : 1;
 
             // ── Build the full barangay list from ALL available sources ────────────
-            // Priority: vaccinationDataset.by_barangay (Excel, most complete) →
+            // Priority: vaccinationDataset.by_barangay (real all-time DB totals) →
             //           diseaseCasesByBarangay (dashboard Excel) →
             //           DB event barangays
             var barangayBaseMap = {}; // { barangay: { actual, predicted } }
@@ -962,8 +951,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 var c4Title = dbGrandTotal > 0
-                    ? `ARIMA Vaccine Demand (${range}): ~${Math.round(adjustedTotal).toLocaleString()} needed (DB-adjusted)`
-                    : `ARIMA Vaccine Demand (${range}): ~${Math.round(arimaBase).toLocaleString()} vaccines`;
+                    ? `Predicted Vaccine Demand (${range}): ~${Math.round(adjustedTotal).toLocaleString()} needed`
+                    : `Predicted Vaccine Demand (${range}): ~${Math.round(arimaBase).toLocaleString()} vaccines`;
 
                 charts['vaccinesNeeded'] = new Chart(
                     document.getElementById('vaccinesNeededChart'), {
@@ -972,7 +961,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         labels: allBarangays,
                         datasets: [
                             {
-                                label: 'Vaccines Needed (ARIMA)',
+                                label: 'Vaccines Needed (Forecast)',
                                 // Distribute total proportionally by each barangay's historical share
                                 data: allBarangays.map(b =>
                                     Math.round(((barangayBaseMap[b].actual || 0) / totalActual) * adjustedTotal)
@@ -1035,7 +1024,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             legend: { position: 'bottom' },
                             title: {
                                 display: true,
-                                text: `Vaccine Demand — ${range} (RF Predicted, ARIMA unavailable)`,
+                                text: `Vaccine Demand — ${range} (Estimated — Forecast Unavailable)`,
                                 font: { size: 11 }, color: '#e07b39'
                             }
                         }
