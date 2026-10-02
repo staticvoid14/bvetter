@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+  <title>BVetter — My Tickets</title>
+  <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/variables.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/my-tickets.css?v=20260928-mobile"/>
+    <link rel="stylesheet" href="../../shared/css/table-cards.css?v=20260928-mobile">
+</head>
+<body>
+
+  <nav class="navbar">
+    <div class="nav-left">
+      <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
+      <button class="nav-hamburger" aria-label="Toggle navigation" onclick="toggleMobileNav()">&#9776;</button>
+      <ul class="nav-links">
+        <li><a href="landing.html">Home</a></li>
+        <li><a href="book-appointment.html">Book An Appointment</a></li>
+        <li><a href="lost-found.html">Lost And Found</a></li>
+        <li><a href="my-pets.html">My Pets</a></li>
+      </ul>
+    </div>
+    <div class="nav-right nav-right-auth">
+      <button class="nav-notif-btn" id="notification-icon-btn">
+        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+        <span class="nav-notif-dot" hidden></span>
+      </button>
+      <div class="nav-user-pill" onclick="toggleUserMenu()">
+        <div class="nav-user-info">
+          <span class="nav-user-name"></span>
+          <span class="nav-user-role">Pet Owner</span>
+        </div>
+        <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
+      </div>
+      <div class="nav-user-dropdown" id="userDropdown">
+        <a href="account-profile.html" class="dropdown-item">
+          <img src="../images/icons/account-profile.svg" alt="" class="dropdown-icon"/> Account Profile
+        </a>
+        <a href="account-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-settings.svg" alt="" class="dropdown-icon"/> Account Settings
+        </a>
+        <a href="notification-settings.html" class="dropdown-item">
+          <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+        </a>
+        <a href="my-tickets.html" class="dropdown-item active">
+          <img src="../images/icons/icon-warning.svg" alt="Report a problem" class="dropdown-icon"/> Report a Problem
+        </a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
+          <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="mt-main">
+    <section class="mt-hero">
+      <h1>Report a Problem</h1>
+      <p>Found a bug or something not working right? Let us know and our team will take a look.</p>
+    </section>
+
+    <section class="card mt-form-card">
+      <div class="card-head"><h3>Submit a Ticket</h3></div>
+      <form id="ticketForm" class="mt-form">
+        <label class="field-label" for="mt-subject">Subject</label>
+        <input type="text" id="mt-subject" name="subject" maxlength="150" required placeholder="Short summary of the issue">
+
+        <label class="field-label" for="mt-description">Description</label>
+        <!-- maxlength matches the 5000-character cap now enforced in
+             api/tickets/tickets.php, so the limit is visible in the field
+             rather than only discovered on submit. -->
+        <textarea id="mt-description" name="description" rows="4" maxlength="5000" required placeholder="What happened? What did you expect instead?"></textarea>
+
+        <label class="field-label" for="mt-attachment">Screenshot or Video (optional)</label>
+        <input type="file" id="mt-attachment" name="attachment" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime">
+        <span class="mt-field-hint">Images up to 8MB, videos up to 30MB.</span>
+
+        <button type="submit" class="btn-submit-ticket" id="mt-submit-btn">Submit Ticket</button>
+      </form>
+    </section>
+
+    <section class="card mt-table-card">
+      <div class="card-head"><h3>My Tickets</h3></div>
+      <div class="table-wrap">
+        <table data-cards>
+          <thead>
+            <tr>
+              <th>Ticket #</th>
+              <th data-card="title">Subject</th>
+              <th>Status</th>
+              <th>Submitted</th>
+            </tr>
+          </thead>
+          <tbody id="mt-table-body"></tbody>
+        </table>
+      </div>
+      <p id="mt-empty-state" class="mt-empty" style="display:none;">No tickets submitted yet.</p>
+    </section>
+  </main>
+
+  <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+  <script>
+    requireAuth(['owner']);
+  </script>
+  <script src="../js/nav.js?v=20260829-preview"></script>
+  <script src="../js/api.js?v=20260819-authfix"></script>
+  <script src="../js/my-tickets.js?v=20260819-idor"></script>
+    <script src="../../shared/js/table-cards.js?v=20260928-mobile"></script>
+</body>
+</html>

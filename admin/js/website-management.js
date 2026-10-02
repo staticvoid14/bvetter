@@ -16,9 +16,13 @@ const DEFAULT_CONFIG = {
   email:    'BaliwagtVC@gmail.com',
   phone:    '09959210640',
   address:  'AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026',
-  clinicCapacity:      '24/7',
-  surgeryRecoveryRate: '98.4%',
-  specialistsCount:    0
+  closedDates:             '',
+  upcomingClosedDates:     [],
+  visitsCountOverride:     '',
+  visitsCountComputed:     0,
+  avgRatingPerVetOverride: '',
+  avgRatingPerVetComputed: null,
+  specialistsCount:        0
 };
 
 let config        = { ...DEFAULT_CONFIG };
@@ -60,14 +64,28 @@ async function loadAnnouncements() {
 
 /* ── Save (site settings only — announcements save instantly) ── */
 async function saveConfig() {
+  /* These four all render on the public landing page. The server rejects angle
+     brackets in the three short contact fields and caps the about text
+     (api/site-settings/site-settings.php); checked here first so the admin is
+     told which field is wrong rather than losing the whole save to one toast.
+     Email is validated for format because it is published as a mailto: link. */
+  let ok = true;
+  if (!VBForm.validateNoMarkup('cp-address', 'Address')) ok = false;
+  if (!VBForm.validateMaxLength('cp-address', 255, 'Address must be 255 characters or fewer.')) ok = false;
+  if (!VBForm.validateMaxLength('cp-about', 5000, 'About text must be 5000 characters or fewer.')) ok = false;
+  const cpEmail = (document.getElementById('cp-email')?.value || '').trim();
+  if (cpEmail && !VBForm.validateEmail('cp-email')) ok = false;
+  if (!ok) { VBForm.focusFirstError(); return; }
+
   const formData = new FormData();
   formData.append('primary_color', config.primaryColor);
   formData.append('about', document.getElementById('cp-about').value);
   formData.append('email', document.getElementById('cp-email').value);
   formData.append('phone', document.getElementById('cp-phone').value);
   formData.append('address', document.getElementById('cp-address').value);
-  formData.append('clinicCapacity', document.getElementById('cp-clinic-capacity').value);
-  formData.append('surgeryRecoveryRate', document.getElementById('cp-surgery-recovery').value);
+  formData.append('visitsCountOverride', document.getElementById('cp-visits-count').value);
+  formData.append('avgRatingPerVetOverride', document.getElementById('cp-avg-rating').value);
+  formData.append('closed_dates', document.getElementById('cp-closed-dates').value);
 
   const fileFieldMap = {
     logo: 'logo_file',
@@ -111,6 +129,30 @@ async function saveConfig() {
   }
 }
 
+/* What the booking calendar will block soon, built-in holidays included,
+   as the server last computed it (refreshed on save). */
+function renderUpcomingClosedDates() {
+  const list = document.getElementById('cp-closed-upcoming');
+  if (!list) return;
+  list.innerHTML = '';
+  const days = Array.isArray(config.upcomingClosedDates) ? config.upcomingClosedDates : [];
+  if (!days.length) {
+    const li = document.createElement('li');
+    li.className = 'wm-closed-empty';
+    li.textContent = 'None';
+    list.appendChild(li);
+    return;
+  }
+  days.forEach(day => {
+    const li = document.createElement('li');
+    const when = new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const date = document.createElement('strong');
+    date.textContent = when;
+    li.append(date, ' — ' + day.name);
+    list.appendChild(li);
+  });
+}
+
 /* ── Discard ── */
 function discardConfig() {
   config = { ...savedConfig };
@@ -142,9 +184,17 @@ function applyConfigToForm() {
   document.getElementById('cp-email').value   = config.email   || '';
   document.getElementById('cp-phone').value   = config.phone   || '';
   document.getElementById('cp-address').value = config.address || '';
-  document.getElementById('cp-clinic-capacity').value  = config.clinicCapacity      || '';
-  document.getElementById('cp-surgery-recovery').value = config.surgeryRecoveryRate || '';
+  document.getElementById('cp-visits-count').value = config.visitsCountOverride || '';
+  document.getElementById('cp-avg-rating').value   = config.avgRatingPerVetOverride || '';
   document.getElementById('cp-specialists-count').value = config.specialistsCount ?? 0;
+  document.getElementById('cp-closed-dates').value = config.closedDates || '';
+  renderUpcomingClosedDates();
+
+  document.getElementById('cp-visits-computed-hint').textContent =
+    `Auto-calculated from completed appointments: ${Number(config.visitsCountComputed || 0).toLocaleString()}. Leave blank to use it.`;
+  document.getElementById('cp-rating-computed-hint').textContent = config.avgRatingPerVetComputed != null
+    ? `Auto-calculated from client reviews: ${config.avgRatingPerVetComputed}/5. Leave blank to use it.`
+    : 'Auto-calculated from client reviews — no reviews yet. Leave blank to use it once reviews come in.';
 
   sendLivePreviewUpdate();
 }
@@ -242,11 +292,11 @@ setupAssetInput('hero-banner-input',    'hero-banner');
 setupAssetInput('team-workspace-input', 'team-workspace');
 
 /* ── Profile sync ── */
-['cp-about', 'cp-email', 'cp-phone', 'cp-address', 'cp-clinic-capacity', 'cp-surgery-recovery'].forEach(id => {
+['cp-about', 'cp-email', 'cp-phone', 'cp-address', 'cp-visits-count', 'cp-avg-rating'].forEach(id => {
   document.getElementById(id).addEventListener('input', e => {
     const map = {
       'cp-about': 'about', 'cp-email': 'email', 'cp-phone': 'phone', 'cp-address': 'address',
-      'cp-clinic-capacity': 'clinicCapacity', 'cp-surgery-recovery': 'surgeryRecoveryRate'
+      'cp-visits-count': 'visitsCountOverride', 'cp-avg-rating': 'avgRatingPerVetOverride'
     };
     config[map[id]] = e.target.value;
     sendLivePreviewUpdate();
@@ -292,6 +342,20 @@ function renderAnnouncements() {
   });
 }
 
+// An announcement can't be scheduled into the past, and a year out covers any
+// real planning window — this only catches a mistyped year. When editing an
+// older announcement, keep its own date reachable so it stays editable.
+function applyAnnDateBounds() {
+  const el = document.getElementById('ann-date-input');
+  if (!el) return;
+  const horizon = new Date();
+  horizon.setFullYear(horizon.getFullYear() + 1);
+  const today = new Date().toISOString().slice(0, 10);
+  const current = el.value;
+  el.min = current && current < today ? current : today;
+  el.max = horizon.toISOString().slice(0, 10);
+}
+
 function editAnn(id) {
   const ann = announcements.find(a => a.id === id);
   if (!ann) return;
@@ -301,6 +365,7 @@ function editAnn(id) {
   document.getElementById('ann-type-input').value  = ann.category || 'event';
   document.getElementById('ann-body-input').value  = ann.description || '';
   document.getElementById('ann-modal-title').textContent = 'Edit Announcement';
+  applyAnnDateBounds();
   openModal('modal-ann');
 }
 
@@ -322,13 +387,31 @@ document.getElementById('btn-add-ann').addEventListener('click', () => {
   document.getElementById('ann-type-input').value  = 'event';
   document.getElementById('ann-body-input').value  = '';
   document.getElementById('ann-modal-title').textContent = 'New Announcement';
+  applyAnnDateBounds();
   openModal('modal-ann');
 });
 
-document.getElementById('ann-modal-save').addEventListener('click', async () => {
-  const title = document.getElementById('ann-title-input').value.trim();
-  if (!title) { document.getElementById('ann-title-input').focus(); return; }
+/* Clearing as the admin types, so a red field doesn't stay red while it's
+   being corrected. */
+VBForm.clearOnInput(['ann-title-input', 'ann-body-input']);
 
+document.getElementById('ann-modal-save').addEventListener('click', async () => {
+  /* Announcements render on the public landing page for logged-out visitors, so
+     the server now rejects angle brackets in the title and requires a
+     description (api/announcements/announcements.php). Mirrored here so the
+     admin sees which field is wrong at the field, instead of a bare toast.
+     Previously this checked only that the title was non-empty and silently
+     focused it -- a blank description got as far as the API and came back as an
+     unexplained failure. */
+  let ok = true;
+  if (!VBForm.validateRequired('ann-title-input', 'Please enter an announcement title.')) ok = false;
+  else if (!VBForm.validateNoMarkup('ann-title-input', 'Title')) ok = false;
+  if (!VBForm.validateRequired('ann-body-input', 'Please enter a description.')) ok = false;
+  if (!VBForm.validateMaxLength('ann-title-input', 180, 'Title must be 180 characters or fewer.')) ok = false;
+  if (!VBForm.validateMaxLength('ann-body-input', 5000, 'Description must be 5000 characters or fewer.')) ok = false;
+  if (!ok) { VBForm.focusFirstError('#modal-ann'); return; }
+
+  const title = document.getElementById('ann-title-input').value.trim();
   const id = parseInt(document.getElementById('ann-edit-index').value, 10);
   const payload = {
     title,
@@ -384,47 +467,74 @@ document.getElementById('btn-preview-owner').addEventListener('click', () => set
 document.getElementById('btn-preview-vet').addEventListener('click',   () => setPreviewRole('vet'));
 
 /* ── Live preview iframe ──
-   The iframe is scaled down (CSS transform) to fit the shell's width, but a
-   transform on an <iframe> breaks native wheel-event routing into its
-   document. So the iframe is sized to its full (unclipped) content height,
-   and the *outer* .wm-browser-content — a plain element with overflow-y:auto —
-   does the scrolling natively over the scaled-down wrap. */
+   The iframe is given a real device viewport and the embedded page scrolls
+   itself, exactly as it would on that device. Desktop is scaled down to fit
+   the panel's width; a phone renders at life size and is centred, because
+   scaling a 390px viewport up to panel width is a magnifying glass, not a
+   preview.
+
+   This replaced a measure-the-content-and-grow-the-iframe approach, which
+   could not work here: every staff page is a 100vh app shell (see
+   .MainContainer/.mainContent in vet/css/index.css), so its scrollHeight is
+   only ever the iframe's own height. The measurement fed itself and the
+   frame stayed at the 150px HTML default — a sliver of page above a grey
+   void. */
+const PREVIEW_VIEWPORTS = {
+  desktop: { width: 1440, height: 900 },
+  mobile:  { width: 390,  height: 844 }
+};
+
 function sizeLivePreview() {
-  const wrap = document.getElementById('wm-preview-frame-wrap');
-  const iframe = document.getElementById('wm-live-preview-iframe');
-  const shell = document.getElementById('browser-shell');
-  if (!wrap || !iframe || !shell) return;
+  const wrap    = document.getElementById('wm-preview-frame-wrap');
+  const iframe  = document.getElementById('wm-live-preview-iframe');
+  const shell   = document.getElementById('browser-shell');
+  const content = shell && shell.querySelector('.wm-browser-content');
+  if (!wrap || !iframe || !shell || !content) return;
 
   const isMobile = shell.classList.contains('mobile-mode');
-  const deviceWidth = isMobile ? 390 : 1440;
-  const fallbackHeight = isMobile ? 3600 : 2800;
-  const containerWidth = wrap.clientWidth || 1;
-  const scale = containerWidth / deviceWidth;
+  const vp = isMobile ? PREVIEW_VIEWPORTS.mobile : PREVIEW_VIEWPORTS.desktop;
+  const containerWidth = content.clientWidth || vp.width;
 
-  iframe.style.width = deviceWidth + 'px';
+  // A phone is never upscaled; the desktop view always fits the panel.
+  const scale = isMobile
+    ? Math.min(1, containerWidth / vp.width)
+    : containerWidth / vp.width;
 
-  let contentHeight = fallbackHeight;
-  try {
-    const doc = iframe.contentDocument;
-    const measured = doc && doc.documentElement
-      ? Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0)
-      : 0;
-    if (measured > 0) contentHeight = measured;
-  } catch (e) {
-    /* Cross-origin or not-yet-loaded — fall back to a generous fixed height. */
-  }
+  iframe.style.width     = vp.width + 'px';
+  iframe.style.height    = vp.height + 'px';
+  iframe.style.transform = 'scale(' + scale + ')';
 
-  iframe.style.height = contentHeight + 'px';
-  iframe.style.transform = `scale(${scale})`;
-  wrap.style.height = (contentHeight * scale) + 'px';
+  const scaledWidth  = vp.width * scale;
+  const scaledHeight = vp.height * scale;
+
+  wrap.style.width  = scaledWidth + 'px';
+  wrap.style.height = scaledHeight + 'px';
+  // Letterbox a phone against the dark shell rather than pinning it left.
+  wrap.style.marginLeft = Math.max(0, (containerWidth - scaledWidth) / 2) + 'px';
+
+  // The shell hugs the scaled viewport, so the page's own scrollbar is the
+  // only one — no outer scrollbar running alongside it.
+  content.style.height = scaledHeight + 'px';
 }
 
 function sendLivePreviewUpdate() {
   const iframe = document.getElementById('wm-live-preview-iframe');
   if (!iframe || !iframe.contentWindow) return;
+
+  /* The preview page only understands the *effective* display values
+     (visitsCount / avgRatingPerVet), same as the public API response —
+     mirror the override-or-computed fallback here so typing/clearing the
+     override field updates the preview correctly. */
+  const settings = {
+    ...config,
+    visitsCount: config.visitsCountOverride || Number(config.visitsCountComputed || 0).toLocaleString(),
+    avgRatingPerVet: config.avgRatingPerVetOverride ||
+      (config.avgRatingPerVetComputed != null ? `${config.avgRatingPerVetComputed}/5` : 'N/A')
+  };
+
   iframe.contentWindow.postMessage({
     type: 'vbetter-preview-update',
-    settings: config
+    settings
   }, window.location.origin);
 }
 
@@ -433,24 +543,12 @@ if (livePreviewFrame) {
   livePreviewFrame.addEventListener('load', () => {
     sizeLivePreview();
     sendLivePreviewUpdate();
-    // Images inside the preview can finish loading after 'load' fires and
-    // grow the page height — remeasure once they've had a chance to settle.
-    setTimeout(sizeLivePreview, 400);
   });
+  // The viewport no longer depends on what loaded, so size it straight away
+  // instead of leaving the frame at its 150px default until 'load' fires.
+  sizeLivePreview();
 }
 window.addEventListener('resize', sizeLivePreview);
-
-/* Receives wheel deltas forwarded from inside the preview iframe (see
-   site-settings.js) — the iframe is clickable so links/navigation work,
-   but that means it also now captures wheel events its scaled-down
-   content can't actually scroll with, so it hands them back to us. */
-window.addEventListener('message', (event) => {
-  if (event.origin !== window.location.origin) return;
-  const msg = event.data;
-  if (!msg || msg.type !== 'vbetter-preview-scroll') return;
-  const content = document.querySelector('.wm-browser-content');
-  if (content) content.scrollBy(0, msg.deltaY);
-});
 
 /* ── Preview mode toggle ── */
 document.getElementById('btn-preview-desktop').addEventListener('click', () => {

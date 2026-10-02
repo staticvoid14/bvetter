@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter | Support Tickets</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../vet/css/support-tickets.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../shared/css/table-cards.css?v=20260928-mobile">
+</head>
+
+<body>
+    <div class="main-holder st-page">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><img src="../../vet/images/logo.png" alt="BVetter Logo"></div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="../../vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="../../shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="../../vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="../../shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                    <span class="nav-label">Appointment Management</span>
+                </a>
+                <a href="../../vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="../../shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                    <span class="nav-label">Patient Records</span>
+                </a>
+                <a href="../../vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="../../shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="../../vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="../../shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                    <span class="nav-label">Disease Analytics</span>
+                </a>
+                <a href="../../vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="../../shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                    <span class="nav-label">Lost And Found</span>
+                </a>
+                <a href="../../vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="../../shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                    <span class="nav-label">Chatbot Management</span>
+                </a>
+                <a href="../../vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                    <span class="nav-label">Mass Vaccination</span>
+                </a>
+                <a href="../../vet/html/support-tickets.html" class="nav-item active" title="Support Tickets">
+                    <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                    <span class="nav-label">Support Tickets</span>
+                </a>
+                <div class="nav-section-label" data-roles="admin">Administration</div>
+                <a href="../../admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                    <span class="nav-label">Account Management</span>
+                </a>
+                <a href="../../admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                    <span class="nav-label">Website Management</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer"></div>
+        </aside>
+
+        <main class="st-main">
+            <section class="st-hero card">
+                <div>
+                    <h1>Support Tickets</h1>
+                    <p id="st-subtitle">Report a bug or issue, and track its status here.</p>
+                </div>
+            </section>
+
+            <section class="card st-form-card">
+                <div class="card-head"><h3>Submit a Ticket</h3></div>
+                <form id="ticketForm" class="st-form">
+                    <label class="field-label" for="st-subject">Subject</label>
+                    <input type="text" id="st-subject" name="subject" maxlength="150" required placeholder="Short summary of the issue">
+
+                    <label class="field-label" for="st-description">Description</label>
+                    <textarea id="st-description" name="description" rows="4" required placeholder="What happened? What did you expect instead?"></textarea>
+
+                    <label class="field-label" for="st-attachment">Screenshot or Video (optional)</label>
+                    <input type="file" id="st-attachment" name="attachment" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime">
+                    <span class="st-field-hint">Images up to 8MB, videos up to 30MB.</span>
+
+                    <button type="submit" class="btn btn-submit-ticket" id="st-submit-btn">Submit Ticket</button>
+                </form>
+            </section>
+
+            <section class="card st-table-card">
+                <div class="card-head">
+                    <h3 id="st-list-title">My Tickets</h3>
+                    <select id="st-status-filter" class="dropdown" style="display:none;">
+                        <option value="all">All Statuses</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                    </select>
+                </div>
+                <div class="table-wrap">
+                    <table data-cards>
+                        <thead>
+                            <tr>
+                                <th>Ticket #</th>
+                                <th id="st-reporter-col" style="display:none;">Reporter</th>
+                                <th data-card="title">Subject</th>
+                                <th>Status</th>
+                                <th>Submitted</th>
+                            </tr>
+                        </thead>
+                        <tbody id="st-table-body"></tbody>
+                    </table>
+                </div>
+                <p id="st-empty-state" class="st-empty" style="display:none;">No tickets yet.</p>
+            </section>
+        </main>
+    </div>
+
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../vet/js/support-tickets.js?v=20260925-feedback"></script>
+    <script src="../../shared/js/table-cards.js?v=20260928-mobile"></script>
+</body>
+</html>

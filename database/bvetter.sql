@@ -54,6 +54,31 @@ INSERT INTO `announcements` (`id`, `title`, `description`, `category`, `event_da
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `visit_types`
+--
+
+CREATE TABLE `visit_types` (
+  `id` int NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `visit_types`
+--
+
+INSERT INTO `visit_types` (`id`, `name`, `is_default`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'Consultation', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Anti-Rabies', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Deworming', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Castration & Spay', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `appointments`
 --
 
@@ -65,7 +90,14 @@ CREATE TABLE `appointments` (
   `appointment_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `preferred_date` date NOT NULL,
   `time_slot` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status` enum('pending','confirmed','completed','cancelled','rejected') COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+  `proposed_date` date DEFAULT NULL,
+  `proposed_time_slot` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reschedule_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reschedule_requested_by` int DEFAULT NULL,
+  `reschedule_requested_at` datetime DEFAULT NULL,
+  `reschedule_prev_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_email` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('pending','confirmed','completed','cancelled','rejected','reschedule_pending') COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
   `description` text COLLATE utf8mb4_unicode_ci,
   `notes` text COLLATE utf8mb4_unicode_ci,
   `confirmed_at` datetime DEFAULT NULL,
@@ -345,31 +377,20 @@ INSERT INTO `lost_found_matches` (`id`, `lost_report_id`, `found_report_id`, `si
 (7, 14, 15, NULL, 100, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\",\"Similar photo color profile\",\"Similar image pattern\"]', 'approved', NULL, '2026-05-24 14:59:32', '2026-05-24 06:58:14', '2026-05-24 06:59:32'),
 (8, 16, 17, NULL, 91, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\",\"Similar photo color profile\",\"Similar image pattern\"]', 'approved', NULL, '2026-05-24 15:08:36', '2026-05-24 07:03:08', '2026-05-24 07:08:36'),
 (9, 16, NULL, 1, 70, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-24 15:08:43', '2026-05-24 07:07:49', '2026-05-24 07:08:43'),
-(10, 18, NULL, 1, 70, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-24 17:13:21', '2026-05-24 07:23:10', '2026-05-24 09:13:21'),
-(11, 19, NULL, 1, 70, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-25 14:34:33', '2026-05-24 08:54:11', '2026-05-25 06:34:33'),
-(12, 20, NULL, 1, 62, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-25 14:34:46', '2026-05-25 03:22:22', '2026-05-25 06:34:46'),
 (13, 20, 21, NULL, 65, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'dismissed', NULL, '2026-05-25 14:34:35', '2026-05-25 03:29:11', '2026-05-25 06:34:35'),
 (14, 18, 22, NULL, 57, '[\"Same species\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Within 1 km\"]', 'dismissed', NULL, '2026-05-25 14:34:41', '2026-05-25 03:30:38', '2026-05-25 06:34:41'),
 (15, 20, 22, NULL, 45, '[\"Same species\",\"Same sex\",\"Within 1 km\"]', 'dismissed', NULL, '2026-05-25 14:34:48', '2026-05-25 03:30:38', '2026-05-25 06:34:48'),
 (16, 20, 23, NULL, 80, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-25 14:34:32', '2026-05-25 03:40:31', '2026-05-25 06:34:32'),
 (17, 24, 21, NULL, 64, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'dismissed', NULL, '2026-05-25 14:34:36', '2026-05-25 03:40:57', '2026-05-25 06:34:36'),
-(18, 24, NULL, 1, 62, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-25 14:34:39', '2026-05-25 03:40:57', '2026-05-25 06:34:39'),
 (19, 20, 25, NULL, 50, '[\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 03:49:51', '2026-05-25 03:50:05'),
 (20, 26, 22, NULL, 56, '[\"Same species\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'dismissed', NULL, '2026-05-25 14:34:45', '2026-05-25 06:33:04', '2026-05-25 06:34:45'),
 (21, 27, 25, NULL, 62, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Similar color or markings\",\"Same barangay\"]', 'dismissed', NULL, '2026-05-25 14:36:17', '2026-05-25 06:33:47', '2026-05-25 06:36:17'),
 (22, 28, 25, NULL, 72, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 06:36:53', '2026-05-25 06:36:58'),
 (23, 28, 29, NULL, 84, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 06:39:26', '2026-05-25 06:39:33'),
-(24, 18, NULL, 2, 65, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\"]', 'suggested', NULL, NULL, '2026-05-25 06:45:00', '2026-05-25 07:31:44'),
-(25, 20, NULL, 2, 48, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\"]', 'suggested', NULL, NULL, '2026-05-25 06:45:00', '2026-05-25 07:31:44'),
 (26, 28, NULL, 2, 53, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\"]', 'suggested', NULL, NULL, '2026-05-25 06:45:00', '2026-05-25 07:31:44'),
-(27, 18, NULL, 3, 65, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'suggested', NULL, NULL, '2026-05-25 07:30:44', '2026-05-25 07:30:44'),
-(28, 20, NULL, 3, 66, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'suggested', NULL, NULL, '2026-05-25 07:30:44', '2026-05-25 07:30:44'),
 (29, 28, NULL, 3, 66, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'suggested', NULL, NULL, '2026-05-25 07:30:44', '2026-05-25 07:30:44'),
-(30, 18, NULL, 4, 80, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 07:31:44', '2026-05-25 07:31:44'),
-(31, 20, NULL, 4, 62, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 07:31:44', '2026-05-25 07:31:44'),
 (32, 28, NULL, 4, 67, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\",\"Same barangay\"]', 'suggested', NULL, NULL, '2026-05-25 07:31:44', '2026-05-25 07:31:44'),
-(33, 30, 22, NULL, 56, '[\"Same species\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'suggested', NULL, NULL, '2026-05-25 07:36:48', '2026-05-25 07:36:48'),
-(34, 30, NULL, 2, 53, '[\"Same species\",\"Similar breed\",\"Same sex\",\"Same size\",\"Similar color or markings\"]', 'suggested', NULL, NULL, '2026-05-25 07:36:48', '2026-05-25 07:36:48');
+(33, 30, 22, NULL, 56, '[\"Same species\",\"Same sex\",\"Same size\",\"Within 1 km\"]', 'suggested', NULL, NULL, '2026-05-25 07:36:48', '2026-05-25 07:36:48');
 
 -- --------------------------------------------------------
 
@@ -511,6 +532,49 @@ INSERT INTO `mass_vaccination_events` (`id`, `event_date`, `barangay`, `vaccine`
 (1, '2026-06-02', 'Poblacion', '5-in-1', 'Completed', 25, 0, 0, 0, NULL, '2026-06-01 08:48:53', '2026-06-01 08:49:19'),
 (2, '2026-06-13', 'Paitan', 'Anti-Rabies', 'Completed', 25, 0, 25, 0, NULL, '2026-06-12 10:20:51', '2026-06-12 10:21:02'),
 (3, '2026-06-17', 'Pinagbarilan', 'Anti-Rabies', 'Completed', 50, 0, 0, 0, NULL, '2026-06-16 08:38:50', '2026-06-16 08:38:56');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `csp_programs`
+-- (Municipal Castration & Spay Program events. Also created idempotently
+--  at runtime by api/castration-spay/program.php's setupCspTables().)
+--
+
+CREATE TABLE `csp_programs` (
+  `id` int NOT NULL,
+  `title` varchar(150) NOT NULL DEFAULT 'Municipal Castration & Spay Program',
+  `program_date` date DEFAULT NULL,
+  `time_slot` varchar(50) DEFAULT NULL,
+  `venue` varchar(150) DEFAULT NULL,
+  `capacity` int DEFAULT NULL,
+  `status` enum('planning','open','scheduled','completed','cancelled') NOT NULL DEFAULT 'planning',
+  `created_by_user_id` int DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `csp_registrations`
+-- (Owner/pet waiting-list entries for the Castration & Spay Program.
+--  program_id is NULL while the pet is unassigned/waiting.)
+--
+
+CREATE TABLE `csp_registrations` (
+  `id` int NOT NULL,
+  `program_id` int DEFAULT NULL,
+  `owner_id` int NOT NULL,
+  `pet_id` int NOT NULL,
+  `status` enum('pending_schedule','scheduled','completed','cancelled') NOT NULL DEFAULT 'pending_schedule',
+  `queue_number` int DEFAULT NULL,
+  `notes` text,
+  `registered_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `assigned_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
 
@@ -776,7 +840,45 @@ CREATE TABLE `user_notification_preferences` (
   `lost_found_alerts` tinyint(1) NOT NULL DEFAULT '1',
   `appointment_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `chatbot_updates` tinyint(1) NOT NULL DEFAULT '0',
+  `quiet_hours_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `quiet_hours_start` time NOT NULL DEFAULT '22:00:00',
+  `quiet_hours_end` time NOT NULL DEFAULT '07:00:00',
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `notifications`
+--
+-- One feed for every role. A row belongs to exactly one recipient, so an
+-- event concerning several people writes several rows (fan-out on write,
+-- see notifyStaff() in api/config/notifications.php).
+--
+-- This replaced an `audience` enum whose single shared `is_read` meant one
+-- admin marking a notification read marked it read for every admin, and
+-- rows addressed to 'both' leaked read state between the admin and vet
+-- dashboards. Pet owners had no rows at all — their feed was rebuilt in the
+-- browser from six endpoints with read state in localStorage.
+--
+-- `dismissed_at` soft-deletes a notification for its own recipient. Safe
+-- only because rows are per-person now.
+--
+
+CREATE TABLE `notifications` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `type` varchar(50) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `message` text NOT NULL,
+  `reference_id` int DEFAULT NULL,
+  `is_read` tinyint(1) NOT NULL DEFAULT '0',
+  `dismissed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_created` (`user_id`,`created_at`),
+  KEY `idx_user_unread` (`user_id`,`is_read`,`dismissed_at`),
+  CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -856,7 +958,15 @@ ALTER TABLE `appointments`
   ADD KEY `owner_id` (`owner_id`),
   ADD KEY `pet_id` (`pet_id`),
   ADD KEY `veterinarian_id` (`veterinarian_id`),
-  ADD KEY `reviewed_by_user_id` (`reviewed_by_user_id`);
+  ADD KEY `reviewed_by_user_id` (`reviewed_by_user_id`),
+  ADD KEY `appointment_type` (`appointment_type`);
+
+--
+-- Indexes for table `visit_types`
+--
+ALTER TABLE `visit_types`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `name` (`name`);
 
 --
 -- Indexes for table `barangays`
@@ -952,6 +1062,24 @@ ALTER TABLE `mass_vaccination_events`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_mve_date` (`event_date`),
   ADD KEY `idx_mve_status` (`status`);
+
+--
+-- Indexes for table `csp_programs`
+--
+ALTER TABLE `csp_programs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csp_prog_status` (`status`),
+  ADD KEY `idx_csp_prog_date` (`program_date`);
+
+--
+-- Indexes for table `csp_registrations`
+--
+ALTER TABLE `csp_registrations`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csp_reg_program` (`program_id`),
+  ADD KEY `idx_csp_reg_owner` (`owner_id`),
+  ADD KEY `idx_csp_reg_status` (`status`),
+  ADD KEY `fk_csp_reg_pet` (`pet_id`);
 
 --
 -- Indexes for table `owner_profiles`
@@ -1062,6 +1190,12 @@ ALTER TABLE `appointments`
   MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
+-- AUTO_INCREMENT for table `visit_types`
+--
+ALTER TABLE `visit_types`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
 -- AUTO_INCREMENT for table `barangays`
 --
 ALTER TABLE `barangays`
@@ -1126,6 +1260,18 @@ ALTER TABLE `lost_found_sightings`
 --
 ALTER TABLE `mass_vaccination_events`
   MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
+-- AUTO_INCREMENT for table `csp_programs`
+--
+ALTER TABLE `csp_programs`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `csp_registrations`
+--
+ALTER TABLE `csp_registrations`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `owner_profiles`
@@ -1204,7 +1350,16 @@ ALTER TABLE `appointments`
   ADD CONSTRAINT `appointments_ibfk_1` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`),
   ADD CONSTRAINT `appointments_ibfk_2` FOREIGN KEY (`pet_id`) REFERENCES `pets` (`id`),
   ADD CONSTRAINT `appointments_ibfk_3` FOREIGN KEY (`veterinarian_id`) REFERENCES `users` (`id`),
-  ADD CONSTRAINT `appointments_ibfk_4` FOREIGN KEY (`reviewed_by_user_id`) REFERENCES `users` (`id`);
+  ADD CONSTRAINT `appointments_ibfk_4` FOREIGN KEY (`reviewed_by_user_id`) REFERENCES `users` (`id`),
+  ADD CONSTRAINT `fk_appointments_visit_type` FOREIGN KEY (`appointment_type`) REFERENCES `visit_types` (`name`) ON UPDATE CASCADE;
+
+--
+-- Constraints for table `csp_registrations`
+--
+ALTER TABLE `csp_registrations`
+  ADD CONSTRAINT `fk_csp_reg_program` FOREIGN KEY (`program_id`) REFERENCES `csp_programs` (`id`),
+  ADD CONSTRAINT `fk_csp_reg_owner` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`),
+  ADD CONSTRAINT `fk_csp_reg_pet` FOREIGN KEY (`pet_id`) REFERENCES `pets` (`id`);
 
 --
 -- Constraints for table `lost_found_claims`

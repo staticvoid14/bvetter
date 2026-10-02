@@ -1,7 +1,7 @@
-'use strict';
+﻿'use strict';
 
-const LF_ENDPOINT = '/bvetter/api/lost-found/lost_and_found.php';
-const FALLBACK_IMAGE = '/bvetter/public/images/img/upload-pet.png';
+const LF_ENDPOINT = '/api/lost-found/lost_and_found.php';
+const FALLBACK_IMAGE = '../../public/images/img/upload-pet.png';
 const PET_TYPES = ['Dog', 'Cat'];
 
 const lfData = {
@@ -23,34 +23,71 @@ const lfData = {
 	potentialMatches: [],
 	resolvedCases: [],
 	claims: [],
-	sightings: []
+	sightings: [],
+	// Every report regardless of status (pending/active/resolved/rejected) — separate
+	// from the status-scoped lists above, used only to look up the specific lost report
+	// a sighting was filed against (sighting.reportId), which can be in any status.
+	allReports: []
 };
 
 const barangayCoordinates = {
-	Tangos: [14.9599, 120.9083],
-	Poblacion: [14.9621, 120.9017],
-	'Sta. Cruz': [14.9578, 120.9066],
-	'Santa Cruz': [14.9578, 120.9066],
-	'San Jose': [14.9542, 120.9099],
-	Tibig: [14.9518, 120.8992],
-	Tibag: [14.9518, 120.8992],
-	'Sto. Cristo': [14.9498, 120.9038],
-	'Santa Cristo': [14.9498, 120.9038],
-	'Sta. Barbara': [14.9548, 120.9057],
-	'Santa Barbara': [14.9548, 120.9057],
-	Sabang: [14.9654, 120.9050],
-	Caniogan: [14.9680, 120.8952],
-	Pagala: [14.9562, 120.8980],
-	Subic: [14.9477, 120.9090],
-	Tilapayong: [14.9447, 120.9002],
-	Makinabang: [14.9584, 120.9001],
-	Matangtubig: [14.9516, 120.8979],
-	'Virgen delas Flores': [14.9568, 120.8947],
-	Tiaong: [14.9488, 120.8958],
-	'Santo Nino': [14.9630, 120.8940],
-	'Santo Niño': [14.9630, 120.8940],
+	Tiaong: [14.942488, 120.896141],
+	Poblacion: [14.952325, 120.902748],
+	'San Jose': [14.949194, 120.897469],
+	Tangos: [14.97498, 120.897369],
+	'Bagong Nayon': [14.96041, 120.898087],
+	Sulivan: [14.979081, 120.885002],
+	Pagala: [14.962781, 120.889984],
+	'Virgen Delas Flores': [14.946227, 120.88604],
+	Matangtubig: [14.954293, 120.861511],
+	Makinabang: [14.919284, 120.883728],
+	Tilapayong: [14.977394, 120.873024],
+	Tibag: [14.956218, 120.904831],
+	Hinukay: [15.001118, 120.891594],
+	Pinagbarilan: [14.952386, 120.878044],
+	Concepcion: [14.952222, 120.888626],
+	Tarcan: [14.935418, 120.866425],
+	'San Roque': [15.000359, 120.889992],
+	Calantipay: [14.970637, 120.863106],
+	Subic: [14.96235, 120.902748],
+	Barangca: [14.986587, 120.900276],
+	Paitan: [15.01128, 120.894753],
+	Sabang: [14.968414, 120.908592],
+	Piel: [14.986943, 120.88723],
+	'Sta. Barbara': [14.938139, 120.889046],
+	'Sto. Nino': [14.983848, 120.893478],
+	'Sto. Niño': [14.983848, 120.893478],
+	'Sto. Cristo': [14.956154, 120.893936],
+	Catulinan: [14.968497, 120.877312],
 	'Select Barangay': [14.9577, 120.9055]
 };
+
+function formatDate(value) {
+	if (!value) return 'No date';
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function todayISODate() {
+	const now = new Date();
+	const offset = now.getTimezoneOffset();
+	return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function nearestBarangay(lat, lng) {
+	let closest = null;
+	let closestDist = Infinity;
+	Object.keys(barangayCoordinates).forEach((name) => {
+		if (name === 'Select Barangay') return;
+		const [blat, blng] = barangayCoordinates[name];
+		const dist = Math.hypot(blat - lat, blng - lng);
+		if (dist < closestDist) {
+			closestDist = dist;
+			closest = name;
+		}
+	});
+	return closest;
+}
 
 const lfState = {
 	activeTab: 'pending',
@@ -59,9 +96,20 @@ const lfState = {
 	sourceFilter: 'All Sources',
 	barangayFilter: 'Select Barangay',
 	selectedMatchId: null,
+	matchesView: 'found', // 'found' = lost/found report pairs, 'sighting' = community sightings
 	modalMaps: [],
 	resolvedPage: 1
 };
+
+// Potential Matches only ever shows lost-vs-found report pairs by default.
+// Sighting-based candidates (found_report_id null, sighting_id set) are kept
+// out of that list and surfaced instead behind the "View Sighting Reports" toggle.
+function splitMatches(matches) {
+	return {
+		found: matches.filter((match) => match.found?.reportId),
+		sighting: matches.filter((match) => !match.found?.reportId && match.found?.sightingId)
+	};
+}
 
 // Desktop gets more rows per page than a phone screen can comfortably show.
 function pageSizeForViewport() {
@@ -78,9 +126,54 @@ function escapeHtml(value) {
 	}[char]));
 }
 
+/* ── Click-to-expand photos (lightbox) ──────────
+   Same pattern as the public-facing Lost & Found page: wraps a thumbnail with a
+   small expand-icon badge; clicking either opens it full-size. `small` shrinks
+   the badge for compact thumbnails (match-card pet photos). */
+const EXPAND_ICON_SVG = '<svg width="11" height="11" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M5.5 1.5H2.5a1 1 0 00-1 1v3M8.5 1.5h3a1 1 0 011 1v3M5.5 12.5H2.5a1 1 0 01-1-1v-3M8.5 12.5h3a1 1 0 001-1v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function expandableImg(src, alt, imgClass, small = false) {
+	const safeSrc = escapeHtml(src || FALLBACK_IMAGE);
+	const safeAlt = escapeHtml(alt || '');
+	return `
+		<div class="lf-img-expand-wrap${small ? ' small' : ''}" data-lightbox-src="${safeSrc}" data-lightbox-alt="${safeAlt}">
+			<img src="${safeSrc}" alt="${safeAlt}" class="${imgClass}" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';this.closest('.lf-img-expand-wrap').dataset.lightboxSrc='${FALLBACK_IMAGE}';">
+			<button type="button" class="lf-expand-badge" aria-label="Expand photo" tabindex="-1">${EXPAND_ICON_SVG}</button>
+		</div>
+	`;
+}
+
+function openLightbox(src, alt) {
+	const overlay = document.getElementById('lfLightbox');
+	const img = document.getElementById('lfLightboxImg');
+	if (!overlay || !img || !src) return;
+	img.src = src;
+	img.alt = alt || '';
+	overlay.hidden = false;
+}
+
+function closeLightboxDirect() {
+	const overlay = document.getElementById('lfLightbox');
+	if (overlay) overlay.hidden = true;
+}
+
+document.addEventListener('click', (event) => {
+	if (event.target.closest('[data-lightbox-close]')) {
+		closeLightboxDirect();
+		return;
+	}
+	const trigger = event.target.closest('[data-lightbox-src]');
+	if (trigger) {
+		event.stopPropagation();
+		openLightbox(trigger.dataset.lightboxSrc, trigger.dataset.lightboxAlt);
+		return;
+	}
+	if (event.target.id === 'lfLightbox') closeLightboxDirect();
+});
+
 function getSession() {
 	try {
-		return JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
+		return JSON.parse(localStorage.getItem('vbetter_session') || 'null');
 	} catch {
 		return null;
 	}
@@ -101,8 +194,18 @@ function lfForm(action, data = {}) {
 	return form;
 }
 
+// Staff actions on this endpoint are guarded by requireRole(), which reads the
+// Authorization header only -- the user_id in the form body is not identity.
+// Without this the whole management page 401s, which is what it was doing.
+// No Content-Type here: FormData sets its own multipart boundary.
+function lfAuthHeaders() {
+	const session = getSession();
+	const token = session?.token || localStorage.getItem('bvetter_token');
+	return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function lfRequest(action, data = {}) {
-	const response = await fetch(LF_ENDPOINT, { method: 'POST', body: lfForm(action, data) });
+	const response = await fetch(LF_ENDPOINT, { method: 'POST', headers: lfAuthHeaders(), body: lfForm(action, data) });
 	const result = await response.json();
 	if (!result.success) throw new Error(result.message || 'Lost and found request failed.');
 	return result;
@@ -140,7 +243,21 @@ function normalizeClaim(claim) {
 		barangay: claim.barangay_name || '',
 		uploadedAt: claim.created_at || '',
 		contact: claim.claimant_phone || '',
-		image: claim.photo_path || FALLBACK_IMAGE
+		image: claim.photo_path || FALLBACK_IMAGE,
+		finderName: claim.finder_name || 'Unknown',
+		finderContact: claim.finder_phone || claim.finder_email || 'No contact provided',
+		// Found report's own attributes, for the staff-only side-by-side comparison
+		// against what the claimant submitted — a claim has no structured pet data
+		// of its own (just contact info + a proof document), so there's nothing to
+		// auto-score; staff compare these against the proof themselves.
+		species: claim.report_species || '',
+		breed: claim.report_breed || '',
+		sex: claim.report_sex || '',
+		size: claim.report_size || '',
+		markings: claim.report_markings || '',
+		proofFile: claim.proof_file_path || null,
+		proofType: claim.proof_type || 'Evidence',
+		proofNotes: claim.proof_notes || ''
 	};
 }
 
@@ -158,7 +275,12 @@ function normalizeSighting(sighting) {
 		contact: sighting.contact_phone || '',
 		image: sighting.photo_path || FALLBACK_IMAGE,
 		lat: sighting.latitude ?? null,
-		lng: sighting.longitude ?? null
+		lng: sighting.longitude ?? null,
+		// The specific lost report this sighting was filed against — captured when the
+		// finder clicked "Report a Sighting" from that report's page (see
+		// public/js/lost-found.js submitSighting -> report_id). Null for the rare
+		// sighting submitted without that context.
+		reportId: sighting.report_id ? String(sighting.report_id) : null
 	};
 }
 
@@ -174,19 +296,21 @@ async function loadAllData() {
 	if (content) content.innerHTML = '<div class="list-note">Loading lost and found records...</div>';
 
 	try {
-		const [pending, active, resolved, matches, claims, sightings, barangays] = await Promise.all([
+		const [pending, active, resolved, all, matches, claims, sightings, barangays] = await Promise.all([
 			lfRequest('management_list', { status: 'pending' }),
 			lfRequest('management_list', { status: 'active' }),
 			lfRequest('management_list', { status: 'resolved' }),
+			lfRequest('management_list', { status: 'all' }),
 			lfRequest('matches'),
 			lfRequest('management_claims', { status: 'pending' }),
 			lfRequest('list_sightings', { status: 'pending' }),
-			fetch('/bvetter/api/barangays/list.php').then((r) => r.json()).catch(() => null)
+			fetch('/api/barangays/list.php').then((r) => r.json()).catch(() => null)
 		]);
 
 		lfData.pendingReports = (pending.data || []).map(normalizeReport);
 		lfData.activeReports = (active.data || []).map(normalizeReport);
 		lfData.resolvedCases = (resolved.data || []).map(normalizeReport);
+		lfData.allReports = (all.data || []).map(normalizeReport);
 		lfData.potentialMatches = matches.data || [];
 		lfData.claims = (claims.data || []).map(normalizeClaim);
 		lfData.sightings = (sightings.data || []).map(normalizeSighting);
@@ -194,7 +318,8 @@ async function loadAllData() {
 			lfData.filters.barangays = ['Select Barangay', ...barangays.data.map((item) => item.name)];
 			populateFilterSelects();
 		}
-		lfState.selectedMatchId = lfData.potentialMatches[0]?.id || null;
+		lfState.matchesView = 'found';
+		lfState.selectedMatchId = splitMatches(lfData.potentialMatches).found[0]?.id || null;
 		renderEverything();
 	} catch (error) {
 		if (content) content.innerHTML = `<div class="list-note">${escapeHtml(error.message)}</div>`;
@@ -263,7 +388,9 @@ function renderTabs() {
 	const tabRoot = document.getElementById('tabBar');
 	tabRoot.innerHTML = lfData.tabs.map((tab) => {
 		const activeClass = lfState.activeTab === tab.id ? 'active' : '';
-		const badge = tab.badge && lfData.potentialMatches.length ? `<span class="tab-pill">${tab.badge}</span>` : '';
+		// Scoped to real lost-vs-found report pairs only — the tab's own default
+		// view — not sighting-based candidates, which live behind the in-tab toggle.
+		const badge = tab.badge && splitMatches(lfData.potentialMatches).found.length ? `<span class="tab-pill">${tab.badge}</span>` : '';
 		return `<button type="button" class="tab-btn ${activeClass}" data-tab-id="${tab.id}">${escapeHtml(tab.label)}${badge}</button>`;
 	}).join('');
 	tabRoot.querySelectorAll('.tab-btn').forEach((button) => {
@@ -300,17 +427,27 @@ function empty(message) {
 	return `<div class="list-note">${escapeHtml(message)}</div>`;
 }
 
+// When an unreviewed owner report goes live on its own (2 hours after it
+// was submitted -- api/includes/timed_rules.php).
+function autoPublishNote(report) {
+	if (!report.autoPublishAt) return '';
+	const at = new Date(String(report.autoPublishAt).replace(' ', 'T'));
+	if (Number.isNaN(at.getTime())) return '';
+	return `<p class="meta-line">Auto-publishes ${escapeHtml(at.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</p>`;
+}
+
 function reportCard(report, mode) {
 	return `
 		<article class="report-card ${report.type === 'Found' ? 'pending-found' : 'pending-lost'}">
 			<div class="report-image">
-				<img src="${escapeHtml(report.image)}" alt="${escapeHtml(report.petName)}">
+				<img src="${escapeHtml(report.image)}" alt="${escapeHtml(report.petName)}" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';">
 				<span class="tag-chip ${report.type.toLowerCase()}">${escapeHtml(report.type.toUpperCase())}</span>
 			</div>
 			<div class="report-body">
 				<h3>${escapeHtml(report.title)}</h3>
 				<p class="meta-line">Submitted by ${escapeHtml(report.uploader)} - ${escapeHtml(report.date || 'No date')}</p>
 				<p class="desc-line">${escapeHtml(report.notes || 'No notes')}</p>
+				${mode === 'pending' ? autoPublishNote(report) : ''}
 				<div class="card-actions">
 					${mode === 'pending' ? `
 						<button type="button" class="btn btn-success" data-action="approve-pending" data-id="${report.id}">Approve</button>
@@ -338,7 +475,7 @@ function renderReportList(root, reports, mode) {
 		source: item.source,
 		type: item.type
 	}));
-	root.innerHTML = `${mode === 'pending' ? '<div class="list-note">Owner reports wait here until vet approval. Approved reports become public and active.</div>' : ''}${list.length ? list.map((item) => reportCard(item, mode)).join('') : empty('No records found.')}`;
+	root.innerHTML = `${mode === 'pending' ? '<div class="list-note">Owner reports wait here until vet approval. Approved reports become public and active. Unreviewed reports auto-publish after 2 hours.</div>' : ''}${list.length ? list.map((item) => reportCard(item, mode)).join('') : empty('No records found.')}`;
 	bindRootActions(root);
 }
 
@@ -353,15 +490,16 @@ function renderActive(root) {
 	root.innerHTML = list.length ? `<div class="active-grid">${list.map((item) => `
 		<article class="active-card" data-action="view-active" data-id="${item.id}">
 			<div class="active-card-media">
-				<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}">
+				<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';">
 				<span class="tag-chip ${(item.type || 'lost').toLowerCase()}">${escapeHtml((item.type || 'Lost').toUpperCase())}</span>
 			</div>
 			<div class="active-card-body">
 				<h4>${escapeHtml(item.title)}</h4>
 				<small>${escapeHtml(item.barangay)} &middot; ${escapeHtml(item.date || '')}</small>
 				<div class="mini-row">
+					${item.autoPublished ? '<span class="lf-status-pill lf-pill-pending">Auto-published</span>' : ''}
 					<span class="mini-chip">${escapeHtml(item.breed || '')}</span>
-					<span class="mini-chip">${escapeHtml(item.sex || '')}</span>
+					${item.sex ? `<span class="mini-chip">${escapeHtml(item.sex)}</span>` : ''}
 					<span class="mini-chip">${escapeHtml(item.size || '')}</span>
 				</div>
 				<div class="foot">
@@ -385,20 +523,39 @@ function confidenceGauge(confidence) {
 }
 
 function renderPotential(root) {
-	const selectedMatch = lfData.potentialMatches.find((item) => String(item.id) === String(lfState.selectedMatchId)) || lfData.potentialMatches[0];
-	root.innerHTML = lfData.potentialMatches.length ? `
+	const { found, sighting } = splitMatches(lfData.potentialMatches);
+	const showingSightings = lfState.matchesView === 'sighting';
+	const list = showingSightings ? sighting : found;
+	const selectedMatch = list.find((item) => String(item.id) === String(lfState.selectedMatchId)) || list[0];
+
+	const toggleBtn = (sighting.length || showingSightings)
+		? `<button type="button" class="btn btn-secondary matches-view-toggle" data-action="toggle-matches-view">
+			${showingSightings ? '&larr; Back to Potential Matches' : `View Sighting Reports (${sighting.length})`}
+		</button>`
+		: '';
+
+	if (!found.length && !sighting.length) {
+		root.innerHTML = empty('No potential matches yet.');
+		bindRootActions(root);
+		return;
+	}
+
+	root.innerHTML = `
 		<div class="potential-layout">
 			<div class="potential-main">
 				<div class="suggested-banner">
 					<span class="suggested-banner-icon">&#9432;</span>
-					Suggested matches are generated from pet details, image metadata, and location similarity.
+					${showingSightings
+						? 'Community-submitted sightings matched to lost reports. Approving marks the sighting as resolved.'
+						: 'Suggested matches are generated from pet details, image metadata, and location similarity.'}
 				</div>
-				${lfData.potentialMatches.map((match) => `
+				${toggleBtn ? `<div class="matches-toggle-row">${toggleBtn}</div>` : ''}
+				${list.length ? list.map((match) => `
 					<article class="match-card ${selectedMatch && String(match.id) === String(selectedMatch.id) ? 'is-selected' : ''}" data-action="select-match" data-id="${match.id}">
 						<div class="match-pair">
-							<div class="match-side"><img src="${escapeHtml(match.lost.image || FALLBACK_IMAGE)}" alt=""><h4>${escapeHtml(match.lost.name)}</h4><small>${escapeHtml(match.lost.breed || '')}</small></div>
+							<div class="match-side">${expandableImg(match.lost.image, match.lost.name, '', true)}<h4>${escapeHtml(match.lost.name)}</h4><small>${escapeHtml(match.lost.breed || '')}</small></div>
 							${confidenceGauge(match.confidence)}
-							<div class="match-side"><img src="${escapeHtml(match.found.image || FALLBACK_IMAGE)}" alt=""><h4>${escapeHtml(match.found.name)}</h4><small>${escapeHtml(match.found.breed || '')}</small></div>
+							<div class="match-side">${expandableImg(match.found.image, showingSightings ? 'Community Sighting' : match.found.name, '', true)}<h4>${escapeHtml(showingSightings ? 'Community Sighting' : match.found.name)}</h4><small>${escapeHtml(match.found.breed || '')}</small></div>
 						</div>
 						<div class="reason-row">${(match.reasons || []).map((reason) => `<span class="reason-chip">${escapeHtml(reason)}</span>`).join('')}</div>
 						<div class="match-actions">
@@ -406,7 +563,7 @@ function renderPotential(root) {
 							<button type="button" class="btn btn-success" data-action="approve-match" data-id="${match.id}">Approve Match</button>
 						</div>
 					</article>
-				`).join('')}
+				`).join('') : empty(showingSightings ? 'No sighting matches yet.' : 'No potential matches yet.')}
 			</div>
 			<aside class="approval-card">
 				<h3>Approve The Match</h3>
@@ -414,14 +571,14 @@ function renderPotential(root) {
 					<p>Approving marks the matching case as resolved and notifies both submitters.</p>
 					<div class="summary-box">
 						<div class="summary-row"><span class="summary-label">Lost</span><span class="summary-value">${escapeHtml(selectedMatch.lost.name)}</span></div>
-						<div class="summary-row"><span class="summary-label">Found</span><span class="summary-value">${escapeHtml(selectedMatch.found.name)}</span></div>
+						<div class="summary-row"><span class="summary-label">${showingSightings ? 'Sighting' : 'Found'}</span><span class="summary-value">${escapeHtml(showingSightings ? 'Community Sighting' : selectedMatch.found.name)}</span></div>
 						<div class="summary-row"><span class="summary-label">Confidence</span><span class="summary-value">${escapeHtml(String(selectedMatch.confidence))}%</span></div>
 					</div>
 					<button type="button" class="btn btn-primary approval-card-btn" data-action="approve-match" data-id="${selectedMatch.id}">Approve Match</button>
 				` : '<p>No suggested match selected.</p>'}
 			</aside>
 		</div>
-	` : empty('No potential matches yet.');
+	`;
 	bindRootActions(root);
 }
 
@@ -450,7 +607,7 @@ function renderResolved(root) {
 				</thead>
 				<tbody>
 					${pageRows.map((item) => `
-						<tr>
+						<tr data-action="view-resolved" data-id="${escapeHtml(String(item.id))}">
 							<td>
 								<div class="lf-pet-cell">
 									<div class="lf-pet-avatar">${escapeHtml((item.petName || '?')[0].toUpperCase())}</div>
@@ -474,6 +631,8 @@ function renderResolved(root) {
 		</div>
 		${renderTablePagination(pageRows.length, lfData.resolvedCases.length, lfState.resolvedPage, totalPages)}
 	`;
+	// Rows open the case's details with its Resolution section.
+	bindRootActions(root);
 
 	const paginationEl = root.querySelector('.report-footer');
 	if (paginationEl) {
@@ -506,7 +665,7 @@ function renderTablePagination(shown, total, page, totalPages) {
 function renderClaims(root) {
 	root.innerHTML = lfData.claims.length ? lfData.claims.map((claim) => `
 		<article class="report-card pending-found">
-			<div class="report-image"><img src="${escapeHtml(claim.image)}" alt="${escapeHtml(claim.petName)}"><span class="tag-chip found">CLAIM</span></div>
+			<div class="report-image"><img src="${escapeHtml(claim.image)}" alt="${escapeHtml(claim.petName)}" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';"><span class="tag-chip found">CLAIM</span></div>
 			<div class="report-body">
 				<h3>Claimant: ${escapeHtml(claim.title)}</h3>
 				<p class="meta-line">Uploaded: ${escapeHtml(claim.uploadedAt)}</p>
@@ -526,7 +685,7 @@ function renderClaims(root) {
 function renderSightings(root) {
 	root.innerHTML = lfData.sightings.length ? lfData.sightings.map((sighting) => `
 		<article class="report-card pending-found">
-			<div class="report-image"><img src="${escapeHtml(sighting.image)}" alt="${escapeHtml(sighting.title)}"><span class="tag-chip found">SIGHTING</span></div>
+			<div class="report-image"><img src="${escapeHtml(sighting.image)}" alt="${escapeHtml(sighting.title)}" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';"><span class="tag-chip found">SIGHTING</span></div>
 			<div class="report-body">
 				<h3>${escapeHtml(sighting.title)}</h3>
 				<p class="meta-line">Uploaded: ${escapeHtml(sighting.uploadedAt)}</p>
@@ -549,33 +708,77 @@ function renderSightings(root) {
 // per action drives both the root-level buttons and the buttons inside modals
 // (wireModalActionButtons below) so the copy and behavior can't drift apart.
 const CONFIRM_ACTIONS = {
-	'approve-pending': { tone: 'success', title: 'Approve this report?', message: 'The report will go public and become visible to pet owners.', confirmLabel: 'Approve', request: 'approve_report', idKey: 'report_id' },
-	'reject-pending': { tone: 'danger', title: 'Reject this report?', message: 'The submitter will be notified that their report was not approved.', confirmLabel: 'Reject', request: 'reject_report', idKey: 'report_id' },
-	'resolve-active': { tone: 'success', title: 'Mark this case as resolved?', message: 'The report will be moved to Resolved Cases and removed from the active list.', confirmLabel: 'Resolve', request: 'resolve_report', idKey: 'report_id' },
-	'approve-match': { tone: 'success', title: 'Approve this match?', message: 'This will mark both the lost and found reports as resolved and notify the submitters.', confirmLabel: 'Approve Match', request: 'approve_match', idKey: 'match_id' },
-	'dismiss-match': { tone: 'danger', title: 'Dismiss this match?', message: 'This suggested match will be removed. This cannot be undone.', confirmLabel: 'Dismiss Match', request: 'dismiss_match', idKey: 'match_id' },
-	'approve-claim': { tone: 'success', title: 'Approve this claim?', message: 'The claimant will be notified that their claim was approved.', confirmLabel: 'Approve', request: 'approve_claim', idKey: 'claim_id' },
-	'reject-claim': { tone: 'danger', title: 'Reject this claim?', message: 'The claimant will be notified that their claim was not approved.', confirmLabel: 'Reject', request: 'reject_claim', idKey: 'claim_id' },
-	'approve-sighting': { tone: 'success', title: 'Approve this sighting?', message: 'The sighting will be published and made visible to pet owners.', confirmLabel: 'Approve', request: 'approve_sighting', idKey: 'sighting_id' },
-	'reject-sighting': { tone: 'danger', title: 'Reject this sighting?', message: 'The sighting will be rejected and removed from the queue.', confirmLabel: 'Reject', request: 'reject_sighting', idKey: 'sighting_id' }
+	'approve-pending': { tone: 'success', title: 'Approve this report?', message: 'The report will go public and become visible to pet owners.', request: 'approve_report', idKey: 'report_id' },
+	'reject-pending': { tone: 'danger', title: 'Reject this report?', message: 'The submitter will be notified that their report was not approved.', request: 'reject_report', idKey: 'report_id' },
+	'mark-reviewed': { tone: 'success', title: 'Mark this report as reviewed?', message: 'It was published without review.', request: 'mark_reviewed', idKey: 'report_id' },
+	'resolve-active': { tone: 'success', title: 'Mark this case as resolved?', message: 'The report will be moved to Resolved Cases.', request: 'resolve_report', idKey: 'report_id' },
+	'approve-match': { tone: 'success', title: 'Approve this match?', message: 'This will mark both the lost and found reports as resolved and notify the submitters.', request: 'approve_match', idKey: 'match_id' },
+	'dismiss-match': { tone: 'danger', title: 'Dismiss this match?', message: 'This suggested match will be removed. This cannot be undone.', confirmLabel: 'Yes, dismiss', request: 'dismiss_match', idKey: 'match_id' },
+	'approve-claim': { tone: 'success', title: 'Approve this claim?', message: 'The claimant will be notified that their claim was approved.', request: 'approve_claim', idKey: 'claim_id' },
+	'reject-claim': { tone: 'danger', title: 'Reject this claim?', message: 'The claimant will be notified that their claim was not approved.', request: 'reject_claim', idKey: 'claim_id' },
+	'approve-sighting': { tone: 'success', title: 'Approve this sighting?', message: 'The sighting will be published and made visible to pet owners.', request: 'approve_sighting', idKey: 'sighting_id' },
+	'reject-sighting': { tone: 'danger', title: 'Reject this sighting?', message: 'The sighting will be rejected and removed from the queue.', request: 'reject_sighting', idKey: 'sighting_id' }
 };
 
 function runConfirmableAction(action, id) {
 	const config = CONFIRM_ACTIONS[action];
 	if (!config) return false;
+	const send = (extra = {}) => lfRequest(config.request, { [config.idKey]: id, ...extra });
+	if (action === 'approve-claim' || action === 'approve-match') {
+		confirmApproval(config, action === 'approve-claim' ? 'claim' : 'match', id, send);
+		return true;
+	}
 	openConfirmDialog({
 		tone: config.tone,
 		title: config.title,
 		message: config.message,
 		confirmLabel: config.confirmLabel,
-		onConfirm: () => lfRequest(config.request, { [config.idKey]: id })
+		onConfirm: () => send()
 	});
 	return true;
+}
+
+// Approving a claim or match for a found pet: if another claimant scores
+// higher, say so and ask why this one. The score is how alike the reports
+// look, not proof of ownership, so a lower pick is allowed with a reason
+// (saved with the decision). Other claims on the pet close on approval.
+async function confirmApproval(config, kind, id, send) {
+	let check = null;
+	try {
+		check = (await lfRequest('approval_check', { kind, id })).data;
+	} catch {
+		// Fall through to the plain confirmation; the server still checks.
+	}
+	const higher = check?.higher || [];
+	if (!higher.length) {
+		openConfirmDialog({ tone: config.tone, title: config.title, message: config.message, onConfirm: () => send() });
+		return;
+	}
+
+	const score = (c) => (c && c.score !== null && c.score !== undefined ? `${c.score}%` : 'No match score');
+	const row = (label, c) => `
+		<div class="summary-row">
+			<span class="summary-label">${label}</span>
+			<span class="summary-value">${escapeHtml(c?.name || '')} &middot; ${score(c)}</span>
+		</div>`;
+	openConfirmDialog({
+		tone: 'danger',
+		title: config.title,
+		message: 'Another claimant has a higher match.',
+		details: row(kind === 'claim' ? 'This claim' : 'This match', check.subject) + higher.map((c) => row('Higher match', c)).join(''),
+		reasonLabel: 'Reason',
+		onConfirm: (reason) => send({ review_notes: reason })
+	});
 }
 
 function bindRootActions(root) {
 	root.querySelectorAll('[data-action]').forEach((button) => {
 		button.addEventListener('click', async (event) => {
+			// Let a click on an expand-photo badge open the lightbox instead of
+			// triggering this card's own action (e.g. select-match) — otherwise
+			// stopPropagation() below would swallow the click before the
+			// document-level lightbox listener ever sees it.
+			if (event.target.closest('[data-lightbox-src]')) return;
 			event.preventDefault();
 			event.stopPropagation();
 			const action = button.dataset.action;
@@ -586,6 +789,10 @@ function bindRootActions(root) {
 					// Route claims and sightings to their own modal builders
 					if (mode === 'claim') return openModal(buildClaimModal(findRecord(action, id)));
 					if (mode === 'sighting') return openModal(buildSightingModal(findRecord(action, id)));
+					if (mode === 'resolved') {
+						openModal(buildDetailModal(findRecord(action, id), 'resolved'));
+						return loadResolution(id);
+					}
 					// Pending and active reports go to the report detail modal with mode
 					return openModal(buildDetailModal(findRecord(action, id), mode));
 				}
@@ -593,9 +800,15 @@ function bindRootActions(root) {
 					lfState.selectedMatchId = id;
 					return renderContent();
 				}
+				if (action === 'toggle-matches-view') {
+					lfState.matchesView = lfState.matchesView === 'sighting' ? 'found' : 'sighting';
+					const list = splitMatches(lfData.potentialMatches)[lfState.matchesView];
+					lfState.selectedMatchId = list[0]?.id || null;
+					return renderContent();
+				}
 				runConfirmableAction(action, id);
 			} catch (error) {
-				alert(error.message);
+				await vbAlert(error.message);
 			}
 		});
 	});
@@ -606,15 +819,69 @@ function findRecord(action, id) {
 	if (action.includes('active')) return lfData.activeReports.find((item) => item.id === id);
 	if (action.includes('claim')) return lfData.claims.find((item) => item.id === id);
 	if (action.includes('sighting')) return lfData.sightings.find((item) => item.id === id);
+	if (action.includes('resolved')) return lfData.resolvedCases.find((item) => item.id === id);
 	return null;
 }
 
-function openConfirmDialog({ tone = 'success', title, message, confirmLabel, cancelLabel = 'Cancel', onConfirm }) {
+// Resolution section of a resolved case's details (buildDetailModal, mode
+// 'resolved'): how it was closed, who got the pet, on what evidence, who
+// approved it, and any "This is My Pet" disputes filed since.
+const RESOLVED_HOW = {
+	claim: 'Claim approved',
+	match: 'Match approved',
+	sighting: 'Sighting approved',
+	staff: 'Resolved by staff',
+	owner: 'Marked resolved by owner'
+};
+
+async function loadResolution(reportId) {
+	const box = document.getElementById('lfResolution');
+	if (!box) return;
+	let data;
+	try {
+		data = (await lfRequest('resolution', { report_id: reportId })).data;
+	} catch (error) {
+		box.querySelector('.details-section-text').textContent = error.message;
+		return;
+	}
+	const row = (label, value) => (value ? `
+		<div class="summary-row">
+			<span class="summary-label">${label}</span>
+			<span class="summary-value">${value}</span>
+		</div>` : '');
+	const who = (p) => (p ? [p.name, p.phone].filter(Boolean).map(escapeHtml).join(' &middot; ') : '');
+
+	box.innerHTML = `
+		<h4 class="details-section-title green">Resolution</h4>
+		${row('Resolved', escapeHtml(formatDate(data.resolvedAt || '')))}
+		${row('How', escapeHtml(RESOLVED_HOW[data.how] || ''))}
+		${row('Returned to', who(data.returnedTo))}
+		${row('Found by', who(data.foundBy))}
+		${row('Matched with', data.counterpart ? escapeHtml(data.counterpart) : '')}
+		${data.confidence !== null && data.confidence !== undefined ? `<div class="summary-row"><span class="summary-label">Match</span>${confidenceGauge(data.confidence)}</div>` : ''}
+		${row('Proof', data.proof ? `<a href="${escapeHtml(data.proof)}" target="_blank" rel="noopener" style="color:inherit;">View file</a>` : '')}
+		${row('Reason', data.reason ? escapeHtml(data.reason) : '')}
+		${row('Approved by', data.approvedBy ? `${escapeHtml(data.approvedBy)}${data.approvedAt ? ' &middot; ' + escapeHtml(formatDate(data.approvedAt)) : ''}` : '')}
+		${row('Disputes', (data.disputes || []).map((d) => `<a href="support-tickets.html" style="color:inherit;">${escapeHtml(d.ticket)}</a> &middot; ${escapeHtml(d.status.replace('_', ' '))}`).join('<br>'))}
+	`;
+}
+
+// Yes / No, like vbConfirm: the title is the question. Only an action that
+// can't be undone passes its own label ('Yes, dismiss'). `details` adds
+// summary rows under the message; `reasonLabel` adds a required text box
+// whose value is passed to onConfirm.
+function openConfirmDialog({ tone = 'success', title, message, confirmLabel = 'Yes', cancelLabel = 'No', details = '', reasonLabel = '', onConfirm }) {
 	document.getElementById('lfModalBody').innerHTML = `
 		<div class="confirm-dialog">
 			<div class="confirm-icon confirm-icon--${tone}">${tone === 'danger' ? '&#33;' : '&#10003;'}</div>
 			<h3 class="confirm-title">${escapeHtml(title)}</h3>
 			<p class="confirm-message">${escapeHtml(message)}</p>
+			${details ? `<div style="width:100%;text-align:left;">${details}</div>` : ''}
+			${reasonLabel ? `
+				<div class="vet-lf-modal" style="width:100%;text-align:left;">
+					<label class="summary-label" for="lfConfirmReason">${escapeHtml(reasonLabel)}</label>
+					<textarea id="lfConfirmReason" class="form-textarea" rows="2" maxlength="500" required></textarea>
+				</div>` : ''}
 			<div class="confirm-actions">
 				<button type="button" class="btn btn-secondary" id="lfConfirmCancel">${escapeHtml(cancelLabel)}</button>
 				<button type="button" class="btn ${tone === 'danger' ? 'btn-danger-solid' : 'btn-success'}" id="lfConfirmOk">${escapeHtml(confirmLabel)}</button>
@@ -625,14 +892,20 @@ function openConfirmDialog({ tone = 'success', title, message, confirmLabel, can
 	document.getElementById('lfConfirmCancel').addEventListener('click', closeModal);
 	document.getElementById('lfConfirmOk').addEventListener('click', async () => {
 		const okButton = document.getElementById('lfConfirmOk');
+		const reasonBox = document.getElementById('lfConfirmReason');
+		if (reasonBox && !reasonBox.value.trim()) {
+			reasonBox.reportValidity();
+			reasonBox.focus();
+			return;
+		}
 		okButton.disabled = true;
 		try {
-			await onConfirm();
+			await onConfirm(reasonBox ? reasonBox.value.trim() : undefined);
 			closeModal();
 			await loadAllData(true);
 		} catch (error) {
 			okButton.disabled = false;
-			alert(error.message);
+			await vbAlert(error.message);
 		}
 	});
 }
@@ -642,14 +915,21 @@ function openModal(content) {
 	document.getElementById('lfModalOverlay').hidden = false;
 	setupModalMaps();
 	wireUploadFormIfPresent();
-	// Wire close buttons
+	// Wire close / back buttons
 	document.querySelectorAll('[data-modal-action]').forEach((button) => {
 		button.addEventListener('click', () => {
 			if (button.dataset.modalAction === 'close') closeModal();
+			if (button.dataset.modalAction === 'back-to-report') {
+				const report = findReportById(button.dataset.reportId);
+				if (report) openModal(buildDetailModal(report, 'active'));
+			}
 		});
 	});
 	// ─── BUG FIX: Wire approve/reject/resolve action buttons inside the modal
 	wireModalActionButtons();
+	// Wire embedded Potential Match cards (inside a report's own detail modal) to
+	// open the bigger Match Details view instead of sitting there inert.
+	wireEmbeddedMatchCards();
 }
 
 // ─── BUG FIX: Handle data-action buttons that live inside the modal body
@@ -660,6 +940,24 @@ function wireModalActionButtons() {
 			event.preventDefault();
 			event.stopPropagation();
 			runConfirmableAction(button.dataset.action, button.dataset.id);
+		});
+	});
+}
+
+// Embedded Potential Match cards live inside a report's own detail modal
+// (buildDetailModal's matchesSection) — clicking one opens buildMatchDetailModal()
+// for that specific match, without needing to close this modal and hunt for the
+// same match on the separate Potential Matches tab.
+function wireEmbeddedMatchCards() {
+	document.querySelectorAll('#lfModalBody .match-card[data-match-id]').forEach((card) => {
+		card.addEventListener('click', (event) => {
+			// A click on the expand-photo badge should only open the lightbox.
+			if (event.target.closest('[data-lightbox-src]')) return;
+			const reportId = card.closest('[data-report-id]')?.dataset.reportId;
+			const match = lfData.potentialMatches.find((m) => String(m.id) === String(card.dataset.matchId));
+			const report = findReportById(reportId);
+			if (!match || !report) return;
+			openModal(buildMatchDetailModal(match, report));
 		});
 	});
 }
@@ -686,23 +984,28 @@ function buildDetailModal(report, mode = 'view') {
 
 	// Reuses the same match-card / confidence-gauge component as the Potential
 	// Matches tab (renderPotential) instead of one-off markup, so styling stays consistent.
+	// Unlike the read-only cards this used to render, these are now clickable —
+	// wireEmbeddedMatchCards() (called from openModal()) opens buildMatchDetailModal()
+	// for whichever card was clicked, so staff can Approve/Dismiss without leaving
+	// the report they're already reviewing.
 	const matchesSection = matches.length
 		? `
 			<div class="details-section">
 				<h4 class="details-section-title green">Potential Matches</h4>
-				<div class="potential-main">
+				<p class="lf-matches-hint">Suggested from pet details, photo, and location similarity. Click a match for full details and to Approve or Dismiss it.</p>
+				<div class="potential-main" data-report-id="${escapeHtml(report.id)}">
 					${matches.map((m) => `
-						<article class="match-card static">
+						<article class="match-card" data-match-id="${escapeHtml(String(m.id))}">
 							<div class="match-pair">
 								<div class="match-side">
-									<img src="${escapeHtml(m.lost.image || FALLBACK_IMAGE)}" alt="">
+									${expandableImg(m.lost.image, m.lost.name || 'Lost Pet', '', true)}
 									<h4>${escapeHtml(m.lost.name || 'Lost Pet')}</h4>
 									<small>${escapeHtml(m.lost.breed || '')}</small>
 								</div>
 								${confidenceGauge(m.confidence)}
 								<div class="match-side">
-									<img src="${escapeHtml(m.found.image || FALLBACK_IMAGE)}" alt="">
-									<h4>${escapeHtml(m.found.name || 'Found Pet')}</h4>
+									${expandableImg(m.found.image, m.found.reportId ? (m.found.name || 'Found Pet') : 'Community Sighting', '', true)}
+									<h4>${escapeHtml(m.found.reportId ? (m.found.name || 'Found Pet') : 'Community Sighting')}</h4>
 									<small>${escapeHtml(m.found.breed || '')}</small>
 								</div>
 							</div>
@@ -726,10 +1029,20 @@ function buildDetailModal(report, mode = 'view') {
 			<button type="button" class="btn-details-success" data-action="approve-pending" data-id="${report.id}">Approve</button>
 		`;
 	} else if (mode === 'active') {
+		// A report that went live without review is marked reviewed here.
 		footerButtons += `
+			${report.autoPublished ? `<button type="button" class="btn-details-close" data-action="mark-reviewed" data-id="${report.id}" style="white-space:nowrap;">Mark Reviewed</button>` : ''}
 			<button type="button" class="btn-details-success" data-action="resolve-active" data-id="${report.id}">Resolve</button>
 		`;
 	}
+
+	// Filled in by loadResolution() once the details open.
+	const resolutionSection = mode === 'resolved'
+		? `<div class="details-section" id="lfResolution">
+				<h4 class="details-section-title green">Resolution</h4>
+				<p class="details-section-text">Loading...</p>
+			</div>`
+		: '';
 
 	const isLost = String(report.type).toLowerCase() === 'lost';
 	const locationLabel = isLost ? 'Last Seen Location' : 'Found Location';
@@ -739,8 +1052,9 @@ function buildDetailModal(report, mode = 'view') {
 	return `
     <div class="details-modal-box">
         <div class="details-img-side">
-            <img src="${escapeHtml(report.image)}" alt="${escapeHtml(report.petName || report.title)}" class="details-pet-img">
+            <img src="${escapeHtml(report.image)}" alt="${escapeHtml(report.petName || report.title)}" class="details-pet-img" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';">
             <div class="details-status-badge ${isLost ? 'lost' : 'found'}">${escapeHtml(report.type || 'Lost')}</div>
+            <button type="button" class="lf-expand-badge lf-expand-badge-lg" aria-label="Expand photo" data-lightbox-src="${escapeHtml(report.image || FALLBACK_IMAGE)}" data-lightbox-alt="${escapeHtml(report.petName || report.title || '')}">${EXPAND_ICON_SVG}</button>
         </div>
 
         <div class="details-info-side">
@@ -771,7 +1085,7 @@ function buildDetailModal(report, mode = 'view') {
                     data-map-zoom="14">
                 </div>
                 <div class="details-location-info">
-                    <img src="/bvetter/public/images/icons/icon-location.svg" alt="" class="details-loc-icon">
+                    <img src="../../public/images/icons/icon-location.svg" alt="" class="details-loc-icon">
                     <div>
                         <span class="details-date">${dateValue}${timeValue ? ` &middot; ${timeValue}` : ''}</span>
                         <span class="details-location-text">${escapeHtml(report.barangay || '')}, Baliwag</span>
@@ -791,6 +1105,7 @@ function buildDetailModal(report, mode = 'view') {
             </div>
 
             ${matchesSection}
+            ${resolutionSection}
 
             <div class="details-footer">
                 ${footerButtons}
@@ -800,95 +1115,354 @@ function buildDetailModal(report, mode = 'view') {
 `;
 }
 
-// ─── BUG FIX 4: Dedicated modal for Claim records with proper Approve / Reject buttons.
-function buildClaimModal(claim) {
-	if (!claim) return '<div class="upload-success"><h2 id="lfModalTitle">Record not found</h2></div>';
+// Bigger detail view of a single embedded Potential Match card — opened from
+// inside a report's own detail modal (see wireEmbeddedMatchCards). Unlike the
+// owner-facing version of this feature (public/js/lost-found.js), staff aren't
+// either party to the match, so both sides' contact info are shown here rather
+// than just the counterpart's. Approve/Dismiss reuse the exact same
+// CONFIRM_ACTIONS-backed actions the dedicated Potential Matches tab already uses.
+function buildMatchDetailModal(match, report) {
+	const isResolved = match.status === 'approved';
+	const foundIsSighting = !match.found?.reportId;
+	const lostIsCurrent = String(match.lost.reportId) === String(report.id);
+
+	const contactBlock = (label, contact) => `
+		<div class="match-detail-contact-card uploader">
+			<div class="profile-initial">${getInitials(contact.name)}</div>
+			<div>
+				<h5>${escapeHtml(label)}</h5>
+				<strong>${escapeHtml(contact.name || 'Not on file')}</strong><br>
+				<small>${escapeHtml(contact.phone || contact.email || 'No contact provided')}</small>
+			</div>
+		</div>
+	`;
+
+	const footerButtons = `
+		<button type="button" class="btn-details-close" data-modal-action="back-to-report" data-report-id="${escapeHtml(String(report.id))}">&larr; Back to Report</button>
+		${isResolved ? '' : `
+			<button type="button" class="btn-details-danger" data-action="dismiss-match" data-id="${escapeHtml(String(match.id))}">Dismiss</button>
+			<button type="button" class="btn-details-success" data-action="approve-match" data-id="${escapeHtml(String(match.id))}">Approve Match</button>
+		`}
+	`;
+
 	return `
-		<div class="modal-layout">
-			<aside class="modal-media">
-				<img src="${escapeHtml(claim.image)}" alt="${escapeHtml(claim.petName)}">
-			</aside>
-			<section class="modal-content" style="overflow-y:auto;">
-				<header class="modal-head">
-					<h2 id="lfModalTitle">Claim Report</h2>
-					<p>Case ID: ${escapeHtml(claim.caseId || '')}</p>
-				</header>
+		<div class="match-detail-modal">
+			<div>
+				<h2 id="lfModalTitle" class="match-detail-title">Match Details</h2>
+				<p class="match-detail-subtitle">${escapeHtml(String(match.confidence))}% match</p>
+			</div>
 
-				<span class="section-title">01. Pet Details</span>
-				<div class="modal-grid">
-					<div class="field"><label>Pet Name</label><p>${escapeHtml(claim.petName || 'Found Pet Report')}</p></div>
-					<div class="field"><label>Barangay</label><p>${escapeHtml(claim.barangay || '')}</p></div>
-					<div class="field"><label>Submitted</label><p>${escapeHtml(claim.uploadedAt || '')}</p></div>
+			<div class="match-pair">
+				<div class="match-side">
+					${expandableImg(match.lost.image, match.lost.name || 'Lost Pet', '')}
+					<h4>${escapeHtml(match.lost.name || 'Lost Pet')}</h4>
+					<small>${escapeHtml(match.lost.breed || '')}</small>
+					${lostIsCurrent ? '<span class="match-detail-viewing-tag">Currently Viewing</span>' : ''}
 				</div>
-
-				<span class="section-title">02. Claimant Information</span>
-				<div class="uploader">
-					<div class="profile-initial">${getInitials(claim.title)}</div>
-					<div>
-						<strong>${escapeHtml(claim.title)}</strong><br>
-						<small>${escapeHtml(claim.contact || 'No contact provided')}</small>
-					</div>
+				${confidenceGauge(match.confidence)}
+				<div class="match-side">
+					${expandableImg(match.found.image, foundIsSighting ? 'Community Sighting' : (match.found.name || 'Found Pet'), '')}
+					<h4>${escapeHtml(foundIsSighting ? 'Community Sighting' : (match.found.name || 'Found Pet'))}</h4>
+					<small>${escapeHtml(match.found.breed || '')}</small>
+					${!lostIsCurrent ? '<span class="match-detail-viewing-tag">Currently Viewing</span>' : ''}
 				</div>
+			</div>
 
-				<footer class="modal-footer">
-					<button type="button" class="btn btn-secondary" data-modal-action="close">Close</button>
-					<div class="modal-footer-actions">
-						<button type="button" class="btn btn-danger"  data-action="reject-claim"  data-id="${claim.id}">Reject</button>
-						<button type="button" class="btn btn-success" data-action="approve-claim" data-id="${claim.id}">Approve</button>
-					</div>
-				</footer>
-			</section>
+			<div class="reason-row">
+				${(match.reasons || []).map((r) => `<span class="reason-chip">${escapeHtml(r)}</span>`).join('')}
+			</div>
+
+			<div class="match-detail-contact-grid">
+				${contactBlock('Lost Report Submitter', { name: match.lost.contactName, phone: match.lost.contactPhone, email: match.lost.contactEmail })}
+				${contactBlock(foundIsSighting ? 'Sighting Submitter' : 'Found Report Submitter', { name: match.found.contactName, phone: match.found.contactPhone, email: match.found.contactEmail })}
+			</div>
+
+			${isResolved ? '<div class="lf-match-resolved-badge" style="text-align:center;padding:10px;background:var(--lf-green-soft);border-radius:8px;color:var(--lf-green-dark);font-weight:700;">Already approved and resolved</div>' : ''}
+
+			<div class="details-footer">
+				${footerButtons}
+			</div>
 		</div>
 	`;
 }
 
-// ─── BUG FIX 4: Dedicated modal for Sighting records with proper Approve / Reject buttons.
+// Side-by-side comparison of the found report vs. what the claimant submitted.
+// Unlike sightings, a claim has no structured pet data of its own (just contact
+// info + a proof document) and there's no image-similarity scoring between a
+// found-pet photo and a proof document — so no confidence score here, just the
+// facts laid out for staff to judge themselves. Staff-only, never shown to owners.
+function claimComparisonSection(claim) {
+	const proofIsPdf = String(claim.proofFile || '').toLowerCase().endsWith('.pdf');
+	return `
+		<div class="modal-grid">
+			<div class="field"><label>Species</label><p>${escapeHtml(claim.species || 'Not on file')}</p></div>
+			<div class="field"><label>Breed</label><p>${escapeHtml(claim.breed || 'Not on file')}</p></div>
+			<div class="field"><label>Sex</label><p>${escapeHtml(claim.sex || 'Not on file')}</p></div>
+			<div class="field"><label>Size</label><p>${escapeHtml(claim.size || 'Not on file')}</p></div>
+			<div class="field"><label>Markings (from found report)</label><p>${escapeHtml(claim.markings || 'Not on file')}</p></div>
+		</div>
+		<div class="match-pair" style="margin-top:12px;">
+			<div class="match-side">
+				${expandableImg(claim.image, 'Found Pet Photo', '', true)}
+				<h4>Found Pet Photo</h4>
+			</div>
+			<div class="match-side">
+				${claim.proofFile
+					? (proofIsPdf
+						? `<a href="${escapeHtml(claim.proofFile)}" target="_blank" rel="noopener" class="btn btn-secondary">View Proof (PDF)</a>`
+						: expandableImg(claim.proofFile, "Claimant's Proof", '', true))
+					: expandableImg(FALLBACK_IMAGE, '', '', true)}
+				<h4>Claimant's Proof</h4>
+				<small>${escapeHtml(claim.proofType)}</small>
+			</div>
+		</div>
+		${claim.proofNotes ? `<p class="details-section-text" style="margin-top:8px;">${escapeHtml(claim.proofNotes)}</p>` : ''}
+	`;
+}
+
+// Dedicated modal for Claim records — mirrors buildDetailModal's .details-modal-box
+// layout (used by Pending Review / Active Reports / Sighting Report) for visual
+// consistency across every report-review modal. Unlike the sighting modal, this
+// intentionally has no algorithmic "potential matches" section — a claim has no
+// image-similarity scoring, staff compare claimComparisonSection's fields directly.
+function buildClaimModal(claim) {
+	if (!claim) return '<div class="upload-success"><h2 id="lfModalTitle">Record not found</h2></div>';
+	return `
+		<div class="details-modal-box">
+			<div class="details-img-side">
+				<img src="${escapeHtml(claim.image)}" alt="${escapeHtml(claim.petName)}" class="details-pet-img" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';">
+				<div class="details-status-badge found">Claim</div>
+				<button type="button" class="lf-expand-badge lf-expand-badge-lg" aria-label="Expand photo" data-lightbox-src="${escapeHtml(claim.image || FALLBACK_IMAGE)}" data-lightbox-alt="${escapeHtml(claim.petName || '')}">${EXPAND_ICON_SVG}</button>
+			</div>
+
+			<div class="details-info-side">
+				<div class="details-info-header">
+					<h2 id="lfModalTitle" class="details-pet-name">Claim Report</h2>
+					<span class="details-case-id">Case ID: ${escapeHtml(claim.caseId || '')}</span>
+				</div>
+
+				<div class="details-tags">
+					<div class="details-tag"><span class="tag-label">Pet Name</span><span class="tag-value">${escapeHtml(claim.petName || 'Found Pet Report')}</span></div>
+					<div class="details-tag"><span class="tag-label">Barangay</span><span class="tag-value">${escapeHtml(claim.barangay || '')}</span></div>
+					<div class="details-tag"><span class="tag-label">Submitted</span><span class="tag-value">${escapeHtml(claim.uploadedAt || '')}</span></div>
+				</div>
+
+				<div class="details-section">
+					<h4 class="details-section-title">Found/Uploaded By</h4>
+					<div class="uploader">
+						<div class="profile-initial">${getInitials(claim.finderName)}</div>
+						<div>
+							<strong>${escapeHtml(claim.finderName)}</strong><br>
+							<small>${escapeHtml(claim.finderContact)}</small>
+						</div>
+					</div>
+				</div>
+
+				<div class="details-section">
+					<h4 class="details-section-title">Claimant Information</h4>
+					<div class="uploader">
+						<div class="profile-initial">${getInitials(claim.title)}</div>
+						<div>
+							<strong>${escapeHtml(claim.title)}</strong><br>
+							<small>${escapeHtml(claim.contact || 'No contact provided')}</small>
+						</div>
+					</div>
+				</div>
+
+				<div class="details-section">
+					<h4 class="details-section-title green">Comparison to Found Report (Staff Only)</h4>
+					${claimComparisonSection(claim)}
+				</div>
+
+				<div class="details-footer">
+					<button type="button" class="btn-details-close" data-modal-action="close">Close</button>
+					<button type="button" class="btn-details-danger" data-action="reject-claim" data-id="${claim.id}">Reject</button>
+					<button type="button" class="btn-details-success" data-action="approve-claim" data-id="${claim.id}">Approve</button>
+				</div>
+			</div>
+		</div>
+	`;
+}
+
+function findReportById(id) {
+	if (id === null || id === undefined) return null;
+	return (lfData.allReports || []).find((r) => String(r.id) === String(id)) || null;
+}
+
+const REPORT_STATUS_PILLS = {
+	pending: ['Pending Review', 'lf-pill-pending'],
+	active: ['Active', 'lf-pill-active'],
+	resolved: ['Resolved', 'lf-pill-resolved'],
+	rejected: ['Rejected', 'lf-pill-rejected']
+};
+
+function reportStatusPill(status) {
+	const [label, cls] = REPORT_STATUS_PILLS[String(status || '').toLowerCase()] || ['Unknown', 'lf-pill-pending'];
+	return `<span class="lf-status-pill ${cls}">${escapeHtml(label)}</span>`;
+}
+
+// The specific lost report a finder was responding to when they filed this sighting
+// (sighting.reportId) — the direct, authoritative comparison target, as opposed to
+// the algorithmic image/attribute matcher below. Its status is surfaced (e.g.
+// "Resolved") since staff should know if the case it responds to is already closed.
+function linkedReportCard(report, sighting) {
+	return `
+		<article class="match-card static">
+			<div class="match-pair">
+				<div class="match-side">
+					${expandableImg(report.image, report.petName || 'Lost Pet', '', true)}
+					<h4>${escapeHtml(report.petName || 'Lost Pet')}</h4>
+					<small>${escapeHtml(report.breed || '')}</small>
+				</div>
+				<div class="link-indicator" title="The lost report this sighting was filed against">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+						<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+					</svg>
+				</div>
+				<div class="match-side">
+					${expandableImg(sighting.image, 'This Sighting', '', true)}
+					<h4>This Sighting</h4>
+					<small>${escapeHtml(sighting.barangay || '')}</small>
+				</div>
+			</div>
+			<div class="reason-row">
+				<span class="reason-chip">Reported in response to this lost report</span>
+				${reportStatusPill(report.status)}
+			</div>
+		</article>
+	`;
+}
+
+// Same-pet comparison for a sighting against lost report(s), reusing the confidence
+// score already computed by the image/attribute matcher (see splitMatches/
+// lfData.potentialMatches) instead of judging similarity ourselves — staff-only,
+// never shown to the reporting owner.
+function renderAutoMatchCards(matches, sighting) {
+	return `
+		<div class="potential-main">
+			${matches.map((m) => `
+				<article class="match-card static">
+					<div class="match-pair">
+						<div class="match-side">
+							${expandableImg(m.lost.image, m.lost.name || 'Lost Pet', '', true)}
+							<h4>${escapeHtml(m.lost.name || 'Lost Pet')}</h4>
+							<small>${escapeHtml(m.lost.breed || '')}</small>
+						</div>
+						${confidenceGauge(m.confidence)}
+						<div class="match-side">
+							${expandableImg(sighting.image, 'This Sighting', '', true)}
+							<h4>This Sighting</h4>
+							<small>${escapeHtml(sighting.barangay || '')}</small>
+						</div>
+					</div>
+					<div class="reason-row">
+						${(m.reasons || []).map((r) => `<span class="reason-chip">${escapeHtml(r)}</span>`).join('')}
+					</div>
+				</article>
+			`).join('')}
+		</div>
+	`;
+}
+
+// Staff-only comparison. Primary signal is the specific lost report the finder was
+// responding to (sighting.reportId — captured when they clicked "Report a Sighting"
+// from that report's page, see public/js/lost-found.js submitSighting). The separate
+// algorithmic auto-matcher is shown underneath only when it surfaces a *different*
+// candidate than the direct link — a safety net for a finder picking the wrong report,
+// without cluttering the common case where the direct link is the whole story.
+function sightingComparisonSection(sighting) {
+	const linkedReport = findReportById(sighting.reportId);
+	const autoMatches = (lfData.potentialMatches || []).filter((m) => String(m.found?.sightingId) === String(sighting.id));
+
+	if (!linkedReport && !autoMatches.length) {
+		return '<div class="list-note" style="margin:8px 0;font-size:0.85rem;">No automatic comparison available yet — this sighting hasn\'t been matched to a lost report.</div>';
+	}
+
+	if (!linkedReport) {
+		return renderAutoMatchCards(autoMatches, sighting);
+	}
+
+	const otherMatches = autoMatches.filter((m) => String(m.lost?.reportId) !== String(linkedReport.id));
+	const secondary = otherMatches.length ? `
+		<div class="comparison-secondary">
+			<h5 class="comparison-secondary-title">Other Possible Matches</h5>
+			${renderAutoMatchCards(otherMatches, sighting)}
+		</div>
+	` : '';
+
+	return `<div class="potential-main">${linkedReportCard(linkedReport, sighting)}</div>${secondary}`;
+}
+
+// Dedicated modal for Sighting records — mirrors buildDetailModal's .details-modal-box
+// layout (used by Pending Review / Active Reports) for visual consistency across the
+// three report-review modals, adapted for a sighting's data shape (no breed/age/size/sex —
+// a sighting is an observation, not a full pet profile).
 function buildSightingModal(sighting) {
 	if (!sighting) return '<div class="upload-success"><h2 id="lfModalTitle">Record not found</h2></div>';
 	return `
-		<div class="modal-layout">
-			<aside class="modal-media">
-				<img src="${escapeHtml(sighting.image)}" alt="${escapeHtml(sighting.title)}">
-			</aside>
-			<section class="modal-content" style="overflow-y:auto; ">
-				<header class="modal-head">
-					<h2 id="lfModalTitle">Sighting Report</h2>
-					<p>Case ID: ${escapeHtml(sighting.caseId || '')}</p>
-				</header>
+		<div class="details-modal-box">
+			<div class="details-img-side">
+				<img src="${escapeHtml(sighting.image)}" alt="${escapeHtml(sighting.title)}" class="details-pet-img" onerror="this.onerror=null;this.src='${FALLBACK_IMAGE}';">
+				<div class="details-status-badge found">Sighting</div>
+				<button type="button" class="lf-expand-badge lf-expand-badge-lg" aria-label="Expand photo" data-lightbox-src="${escapeHtml(sighting.image || FALLBACK_IMAGE)}" data-lightbox-alt="${escapeHtml(sighting.title || '')}">${EXPAND_ICON_SVG}</button>
+			</div>
 
-				<span class="section-title">01. Sighting Details</span>
-				<div class="modal-grid">
-					<div class="field"><label>Notes</label><p>${escapeHtml(sighting.title || 'No notes provided')}</p></div>
-					<div class="field"><label>Barangay</label><p>${escapeHtml(sighting.barangay || '')}, Baliwag, Bulacan</p></div>
-					<div class="field"><label>Date Sighted</label><p>${escapeHtml(sighting.dateLost || '')}</p></div>
-					<div class="field"><label>Time Sighted</label><p>${escapeHtml(sighting.timeLost || '')}</p></div>
-					<div class="field"><label>Submitted</label><p>${escapeHtml(sighting.uploadedAt || '')}</p></div>
-				</div>
-				<span class="section-title">02. Last Seen Location</span>
-				<div id="mapSighting${escapeHtml(sighting.id)}" class="map-api"
-					data-map-lat="${mapLat(sighting)}"
-					data-map-lng="${mapLng(sighting)}"
-					data-map-zoom="14">
+			<div class="details-info-side">
+				<div class="details-info-header">
+					<h2 id="lfModalTitle" class="details-pet-name">Sighting Report</h2>
+					<span class="details-case-id">Case ID: ${escapeHtml(sighting.caseId || '')}</span>
 				</div>
 
-				<span class="section-title">03. Reporter Information</span>
-				<div class="uploader">
-					<div class="profile-initial">${getInitials(sighting.uploader)}</div>
-					<div>
-						<strong>${escapeHtml(sighting.uploader || 'Unknown')}</strong><br>
-						<small>${escapeHtml(sighting.contact || 'No contact provided')}</small>
+				<div class="details-tags">
+					<div class="details-tag"><span class="tag-label">Barangay</span><span class="tag-value">${escapeHtml(sighting.barangay || '')}</span></div>
+					<div class="details-tag"><span class="tag-label">Date Sighted</span><span class="tag-value">${escapeHtml(sighting.dateLost || '')}</span></div>
+					<div class="details-tag"><span class="tag-label">Submitted</span><span class="tag-value">${escapeHtml(sighting.uploadedAt || '')}</span></div>
+				</div>
+
+				<div class="details-section">
+					<h4 class="details-section-title">Notes</h4>
+					<p class="details-section-text">${escapeHtml(sighting.title || 'No notes provided')}</p>
+				</div>
+
+				<div class="details-section">
+					<h4 class="details-section-title green">Last Seen Location</h4>
+					<div id="mapSighting${escapeHtml(sighting.id)}" class="map-api details-map-api"
+						data-map-lat="${mapLat(sighting)}"
+						data-map-lng="${mapLng(sighting)}"
+						data-map-zoom="14">
+					</div>
+					<div class="details-location-info">
+						<img src="../../public/images/icons/icon-location.svg" alt="" class="details-loc-icon">
+						<div>
+							<span class="details-date">${escapeHtml(sighting.dateLost || '')}</span>
+							<span class="details-location-text">${escapeHtml(sighting.barangay || '')}, Baliwag</span>
+						</div>
 					</div>
 				</div>
-				
 
-				<footer class="modal-footer">
-				<button type="button" class="btn btn-secondary" data-modal-action="close">Close</button>
-				<div class="modal-footer-actions">
-				<button type="button" class="btn btn-danger"  data-action="reject-sighting"  data-id="${sighting.id}">Reject</button>
-				<button type="button" class="btn btn-success" data-action="approve-sighting" data-id="${sighting.id}">Approve</button>
+				<div class="details-section">
+					<h4 class="details-section-title">Reporter Information</h4>
+					<div class="uploader">
+						<div class="profile-initial">${getInitials(sighting.uploader)}</div>
+						<div>
+							<strong>${escapeHtml(sighting.uploader || 'Unknown')}</strong><br>
+							<small>${escapeHtml(sighting.contact || 'No contact provided')}</small>
+						</div>
+					</div>
 				</div>
-				</footer>
-			</section>
+
+				<div class="details-section">
+					<h4 class="details-section-title green">Comparison to Lost Report (Staff Only)</h4>
+					${sightingComparisonSection(sighting)}
+				</div>
+
+				<div class="details-footer">
+					<button type="button" class="btn-details-close" data-modal-action="close">Close</button>
+					<button type="button" class="btn-details-danger" data-action="reject-sighting" data-id="${sighting.id}">Reject</button>
+					<button type="button" class="btn-details-success" data-action="approve-sighting" data-id="${sighting.id}">Approve</button>
+				</div>
+			</div>
 		</div>
 	`;
 }
@@ -918,7 +1492,7 @@ function buildUploadModal() {
 			<div class="modal-header">
 				<div class="modal-header-left">
 					<div class="modal-header-icon">
-						<img src="/bvetter/public/images/icons/report-paw.svg" alt="" class="modal-header-icon-img">
+						<img src="../../public/images/icons/report-paw.svg" alt="" class="modal-header-icon-img">
 					</div>
 					<div>
 						<h2 class="modal-title" id="lfModalTitle">Report Lost Pet</h2>
@@ -928,10 +1502,10 @@ function buildUploadModal() {
 				<div class="modal-header-right">
 					<div class="report-type-toggle" role="group" aria-label="Report type">
 						<button type="button" class="type-toggle-btn active" data-type="lost">
-							<img src="/bvetter/public/images/icons/report-paw.svg" alt="" class="type-toggle-icon">Lost
+							<img src="../../public/images/icons/report-paw.svg" alt="" class="type-toggle-icon">Lost
 						</button>
 						<button type="button" class="type-toggle-btn" data-type="found">
-							<img src="/bvetter/public/images/icons/report-paw.svg" alt="" class="type-toggle-icon">Found
+							<img src="../../public/images/icons/report-paw.svg" alt="" class="type-toggle-icon">Found
 						</button>
 					</div>
 				</div>
@@ -944,7 +1518,7 @@ function buildUploadModal() {
 					<div class="modal-section-label">Pet Identification Photo</div>
 					<label class="upload-box" for="uploadPhotoInput">
 						<div id="uploadPhotoPreviewText">
-							<img src="/bvetter/public/images/icons/report-upload.svg" alt="" class="upload-cam-icon">
+							<img src="../../public/images/icons/report-upload.svg" alt="" class="upload-cam-icon">
 							<span class="upload-text">Upload Clear Portrait</span>
 							<span class="upload-hint">High-res JPG or PNG preferred</span>
 						</div>
@@ -966,7 +1540,7 @@ function buildUploadModal() {
 							<label>Type</label>
 							<div class="select-wrap">
 								<select name="species" class="form-select">${speciesOpts}</select>
-								<img src="/bvetter/public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
+								<img src="../../public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
 							</div>
 						</div>
 						<div class="form-group">
@@ -977,12 +1551,13 @@ function buildUploadModal() {
 
 					<div class="form-row">
 						<div class="form-group">
-							<label>Sex</label>
+							<label>Sex <span id="sexOptionalHint" style="font-weight:400;color:#9ba3ae;text-transform:none;" hidden>(if known)</span></label>
 							<div class="sex-toggle">
-								<button type="button" class="sex-btn active" data-value="Male">Male</button>
+								<button type="button" class="sex-btn" data-value="Male">Male</button>
 								<button type="button" class="sex-btn" data-value="Female">Female</button>
+								<button type="button" class="sex-btn" data-value="Unknown" id="sexBtnUnknown">Unknown</button>
 							</div>
-							<input type="hidden" name="sex" id="sexInput" value="Male">
+							<input type="hidden" name="sex" id="sexInput" value="">
 						</div>
 						<div class="form-group">
 							<label>Size</label>
@@ -992,7 +1567,7 @@ function buildUploadModal() {
 									<option>Medium (10-25kg)</option>
 									<option>Large (25kg+)</option>
 								</select>
-								<img src="/bvetter/public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
+								<img src="../../public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
 							</div>
 						</div>
 					</div>
@@ -1000,7 +1575,8 @@ function buildUploadModal() {
 					<div class="form-row">
 						<div class="form-group full">
 							<label>Color / Markings</label>
-							<input name="color_markings" class="form-input" placeholder="e.g. White with brown patches, black collar" required>
+							<textarea name="color_markings" id="markingsTextarea" class="form-textarea" maxlength="200" rows="2" placeholder="e.g. White with brown patches, black collar" required></textarea>
+							<span class="char-counter" id="markingsCounter">0/200</span>
 						</div>
 					</div>
 				</div>
@@ -1011,13 +1587,13 @@ function buildUploadModal() {
 					<div class="form-row">
 						<div class="form-group">
 							<label id="dateLostLabel">Date Lost</label>
-							<input name="incident_date" type="date" class="form-input" required>
+							<input name="incident_date" id="incidentDateInput" type="date" class="form-input" required>
 						</div>
 						<div class="form-group">
 							<label>Barangay Last Seen</label>
 							<div class="select-wrap">
 								<select name="barangay" id="uploadBarangay" class="form-select">${barangayOpts}</select>
-								<img src="/bvetter/public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
+								<img src="../../public/images/icons/icon-dropwdown.svg" alt="" class="sel-arrow-img">
 							</div>
 						</div>
 					</div>
@@ -1037,7 +1613,8 @@ function buildUploadModal() {
 
 					<div class="form-group" style="margin-top:8px;">
 						<label id="notesLabel">Additional Details</label>
-						<textarea name="notes" id="notesTextarea" class="form-textarea" placeholder="Last behavior, collar color, chip ID if known..." required></textarea>
+						<textarea name="notes" id="notesTextarea" class="form-textarea" maxlength="500" placeholder="Last behavior, collar color, chip ID if known..." required></textarea>
+						<span class="char-counter" id="notesCounter">0/500</span>
 					</div>
 				</div>
 			</div>
@@ -1048,7 +1625,7 @@ function buildUploadModal() {
 					<button type="button" class="vlf-cancel" data-modal-action="close">Cancel</button>
 					<button type="submit" class="vlf-submit" id="submitReportBtn">
 						<span id="submitReportBtnText">Submit Lost Pet Report</span>
-						<img src="/bvetter/public/images/icons/report-submit.svg" alt="" class="btn-icon-img">
+						<img src="../../public/images/icons/report-submit.svg" alt="" class="btn-icon-img">
 					</button>
 				</div>
 			</footer>
@@ -1092,6 +1669,19 @@ function wireUploadFormIfPresent() {
 		if (petNameInput) petNameInput.required = isLost;
 		if (petNameOptional) petNameOptional.hidden = isLost;
 
+		// Sex rules differ per type: found reports allow "Unknown" (finder may
+		// not be able to check the animal) and default to it; lost reports hide
+		// Unknown and force an explicit Male/Female pick (no silent default).
+		const unknownBtn = document.getElementById('sexBtnUnknown');
+		const sexOptionalHint = document.getElementById('sexOptionalHint');
+		const sexInput = document.getElementById('sexInput');
+		if (unknownBtn) unknownBtn.style.display = isLost ? 'none' : '';
+		if (sexOptionalHint) sexOptionalHint.hidden = isLost;
+		form.querySelectorAll('.sex-btn').forEach((btn) => {
+			btn.classList.toggle('active', !isLost && btn.dataset.value === 'Unknown');
+		});
+		if (sexInput) sexInput.value = '';
+
 		form.querySelectorAll('.type-toggle-btn').forEach((btn) => {
 			btn.classList.toggle('active', btn.dataset.type === type);
 		});
@@ -1108,9 +1698,34 @@ function wireUploadFormIfPresent() {
 			form.querySelectorAll('.sex-btn').forEach((b) => b.classList.remove('active'));
 			btn.classList.add('active');
 			const sexInput = document.getElementById('sexInput');
-			if (sexInput) sexInput.value = btn.dataset.value;
+			// "Unknown" is stored as blank → NULL, so the match scorer keeps
+			// treating it as no-signal instead of matching Unknown-to-Unknown.
+			if (sexInput) sexInput.value = btn.dataset.value === 'Unknown' ? '' : btn.dataset.value;
 		});
 	});
+
+	const incidentDateInput = document.getElementById('incidentDateInput');
+	if (incidentDateInput) incidentDateInput.max = todayISODate();
+
+	const notesTextarea = document.getElementById('notesTextarea');
+	const notesCounter  = document.getElementById('notesCounter');
+	if (notesTextarea && notesCounter) {
+		const updateNotesCounter = () => {
+			notesCounter.textContent = `${notesTextarea.value.length}/${notesTextarea.maxLength}`;
+		};
+		notesTextarea.addEventListener('input', updateNotesCounter);
+		updateNotesCounter();
+	}
+
+	const markingsTextarea = document.getElementById('markingsTextarea');
+	const markingsCounter  = document.getElementById('markingsCounter');
+	if (markingsTextarea && markingsCounter) {
+		const updateMarkingsCounter = () => {
+			markingsCounter.textContent = `${markingsTextarea.value.length}/${markingsTextarea.maxLength}`;
+		};
+		markingsTextarea.addEventListener('input', updateMarkingsCounter);
+		updateMarkingsCounter();
+	}
 
 	photoInput.addEventListener('change', () => {
 		const file = photoInput.files?.[0];
@@ -1133,7 +1748,16 @@ function wireUploadFormIfPresent() {
 		event.preventDefault();
 		const formData = new FormData(form);
 		if (formData.get('type') === 'lost' && !String(formData.get('pet_name') || '').trim()) {
-			alert('Pet name is required for lost pet reports.');
+			await vbAlert('Pet name is required for lost pet reports.');
+			return;
+		}
+		if (formData.get('type') === 'lost' && !String(formData.get('sex') || '').trim()) {
+			await vbAlert("Please select the pet's sex.");
+			return;
+		}
+		const incidentDate = String(formData.get('incident_date') || '');
+		if (incidentDate && incidentDate > todayISODate()) {
+			await vbAlert('Date lost/found cannot be a future date.');
 			return;
 		}
 		const session = getSession();
@@ -1146,7 +1770,7 @@ function wireUploadFormIfPresent() {
 			await loadAllData();
 			openModal(buildUploadSuccessModal());
 		} catch (error) {
-			alert(error.message);
+			await vbAlert(error.message);
 		}
 	});
 }
@@ -1174,6 +1798,9 @@ function setupModalMaps() {
 					latInput.value = clickLat.toFixed(6);
 					lngInput.value = clickLng.toFixed(6);
 				}
+				const barangaySelect = document.getElementById('uploadBarangay');
+				const nearest = nearestBarangay(clickLat, clickLng);
+				if (barangaySelect && nearest) barangaySelect.value = nearest;
 			});
 		} else {
 			L.marker([lat, lng])

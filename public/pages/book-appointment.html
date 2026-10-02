@@ -1,34 +1,26 @@
 <!DOCTYPE html>
-<!--
-  Page:    book-appointment.html
-  Feature: Vet selection + 4-step booking form + history
-  CSS:     variables.css → components.css → book-appointment.css
-  JS:      nav.js → api.js → book-appointment.js
-
-  TODO backend:
-  - s4Confirm: api.bookAppointment(data) then show step 5
-  - pageHistory: api.getAppointments() to populate rows
-  - Vet list sidebar: api.getVets() to populate dynamically
--->
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>BVETTER - Book An Appointment</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+  <title>BVetter - Book An Appointment</title>
+  <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <!-- 1. Design tokens (ALWAYS first) -->
   <link rel="stylesheet" href="../css/variables.css"/>
-  <!-- 2. Shared components -->
   <link rel="stylesheet" href="../css/components.css"/>
-  <!-- Page-specific styles -->
-  <!-- 3. Page-specific -->
-  <link rel="stylesheet" href="../css/book-appointment.css"/>
+  <link rel="stylesheet" href="../../shared/css/form-validation.css"/>
+  <link rel="stylesheet" href="../css/book-appointment.css?v=20260928-wording"/>
 </head>
 <body>
 
-  <!-- ===================== NAVBAR - LOGGED IN ===================== -->
   <nav class="navbar">
     <div class="nav-left">
       <img src="../images/logos/logo-color.png" alt="Baliwag City Vet" class="nav-logo"/>
@@ -37,12 +29,13 @@
         <li><a href="landing.html">Home</a></li>
         <li><a href="book-appointment.html" class="active">Book An Appointment</a></li>
         <li><a href="lost-found.html" class="">Lost And Found</a></li>
+        <li><a href="my-pets.html">My Pets</a></li>
       </ul>
     </div>
     <div class="nav-right nav-right-auth">
       <button class="nav-notif-btn" id="notification-icon-btn">
         <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
-        <span class="nav-notif-dot"></span>
+        <span class="nav-notif-dot" hidden></span>
       </button>
       <div class="nav-user-pill" onclick="toggleUserMenu()">
         <div class="nav-user-info">
@@ -61,6 +54,9 @@
       <a href="notification-settings.html" class="dropdown-item">
         <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
       </a>
+      <a href="my-tickets.html" class="dropdown-item">
+        <img src="../images/icons/icon-warning.svg" alt="Report a problem" class="dropdown-icon"/> Report a Problem
+      </a>
       <div class="dropdown-divider"></div>
       <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
         <img src="../images/icons/account-logout.svg" alt="" class="dropdown-icon"/> Log Out
@@ -69,9 +65,6 @@
   </div>
 </nav>
 
-<!-- ══════════════════════════════════════════
-     PAGE 1 — VET SELECTION
-══════════════════════════════════════════ -->
 <div id="pageVet" class="page active">
 
   <div class="hero-wrap">
@@ -87,18 +80,14 @@
   <div class="vet-wrap">
     <div class="vet-layout">
 
-      <!-- Sidebar -->
       <div class="vet-sidebar" id="vetContainer">
         <div class="sidebar-label">Available Vets</div>
         <div class="sidebar-sub">Select your preferred specialist</div>
       </div>
 
-      <!-- Vet Profile -->
       <div class="vet-profile-card">
         <div class="vet-profile-header">
-          <img alt="Dr. Kizea" class="vet-profile-img" id="profile-heads"
-               src="../images/img/vet-profile.png"
-               onerror="this.onerror=null;this.src='../images/img/vet-profile.png';"/>
+          <div class="vet-profile-img" id="profile-heads"></div>
           <div class="vet-profile-info">
             <div class="vet-profile-name" id="profile-name">Dr. Kizea Bien Igaya</div>
             <div class="vet-profile-title" id="profile-title">Senior Veterinary Surgeon</div>
@@ -108,24 +97,20 @@
             </div>
             <div class="vet-profile-rating">
               <img src="../images/icons/rating.svg" alt="star" class="info-icon"/>
-              <span class="rating-num" id="profile-rating">4.9</span>
-              <span class="rating-count" id="profile-review-count">(124 reviews)</span>
+              <span class="rating-num" id="profile-rating">New</span>
+              <span class="rating-count" id="profile-review-count">(No reviews yet)</span>
             </div>
           </div>
         </div>
 
         <div class="vet-stats-row">
           <div class="vet-stat">
-            <div class="vet-stat-label" id="stat-experience">Experience</div>
-            <div class="vet-stat-val" id="stat-experience-val">12+ Years</div>
-          </div>
-          <div class="vet-stat">
             <div class="vet-stat-label" id="stat-patients">Patients</div>
             <div class="vet-stat-val" id="stat-patients-val">2.4k</div>
           </div>
           <div class="vet-stat">
             <div class="vet-stat-label" id="stat-rating">Rating</div>
-            <div class="vet-stat-val" id="stat-rating-val">98%</div>
+            <div class="vet-stat-val" id="stat-rating-val">New</div>
           </div>
         </div>
 
@@ -166,7 +151,6 @@
         </div>
       </div>
 
-      <!-- All Reviews Modal -->
       <div class="reviews-modal-overlay" id="reviewsModalOverlay">
         <div class="reviews-modal">
           <div class="reviews-modal-header">
@@ -177,7 +161,6 @@
         </div>
       </div>
 
-      <!-- Calendar -->
       <div class="vet-right-col">
         <div class="vet-calendar-card">
           <div class="cal-title">Calendar</div>
@@ -205,9 +188,9 @@
           <div class="hours-legend">
             <span class="legend-label"><span class="legend-dot na"></span> Not Available</span>
             <span class="legend-label"><span class="legend-dot av"></span> Available</span>
+            <span class="legend-label"><span class="legend-dot rq"></span> Requested</span>
           </div>
          <div class="time-grid" id="timeGrid">
-  <!-- slots populated dynamically by buildTimeSlots() in book-appointment.js -->
 </div>
 
           <button class="btn-book" id="btnBook">
@@ -219,8 +202,8 @@
 
     </div>
 
-    <!-- History strip -->
     <div class="history-section">
+      <div id="cspStatusCard" class="csp-status-card is-hidden"></div>
       <div class="history-header">
         <div class="history-title">Recent Appointment History</div>
         <a href="#" class="view-all" id="btnViewAll">View All Records</a>
@@ -233,23 +216,19 @@
 </div>
 
 
-<!-- ══════════════════════════════════════════
-     PAGE 2 — BOOKING STEPS
-══════════════════════════════════════════ -->
 <div id="pageBooking" class="page">
   <div class="booking-page">
 
-    <!-- Split booking header -->
     <div class="booking-top">
       <div class="booking-top-left">
         <a class="back-pill" id="btnBackToVet">
           &#8592; Back to selection
         </a>
         <div class="vet-booked-preview">
-          <div class="vet-booked-initials">KI</div>
+          <div class="vet-booked-initials" id="vet-booked-initials">—</div>
           <div>
-            <div class="vet-booked-name">Dr. Kizea Bien Igaya</div>
-            <div class="vet-booked-role">Senior Surgeon</div>
+            <div class="vet-booked-name" id="vet-booked-name">Dr. Jane Igaya</div>
+            <div class="vet-booked-role" id="vet-booked-role">Senior Veterinarian</div>
           </div>
         </div>
       </div>
@@ -281,30 +260,39 @@
       </div>
     </div>
 
-    <!-- Form steps -->
     <div class="booking-form-wrap">
-    <!-- Step 1 -->
     <div id="step1" class="step-content">
       <div class="form-card">
         <div class="form-card-title">Owner Information</div>
+        <!--
+          On by default: the fields come from the owner's account, so nobody
+          retypes them. Off means someone else is bringing the pet -- name,
+          number and email then become this appointment's contact.
+          Barangay and address always stay the account's (see book-appointment.js).
+        -->
+        <label class="account-switch" for="useAccountDetails">
+          <input type="checkbox" id="useAccountDetails" checked/>
+          <span class="account-switch-track" aria-hidden="true"><span class="account-switch-knob"></span></span>
+          <span class="account-switch-text">Use my account details</span>
+        </label>
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label">Full Name *</label>
-            <input type="text" class="form-input" placeholder="Enter your full name" id="ownerName"/>
+            <input type="text" class="form-input" placeholder="Enter your full name" id="ownerName" required/>
           </div>
           <div class="form-group">
             <label class="form-label">Contact Number *</label>
-            <input type="tel" class="form-input" placeholder="Enter your contact number" id="ownerContact"/>
+            <input type="tel" class="form-input" placeholder="Enter your contact number" id="ownerContact" required/>
           </div>
           <div class="form-group">
             <label class="form-label">Email Address *</label>
-            <input type="email" class="form-input" placeholder="Enter your email address" id="ownerEmail"/>
+            <input type="email" class="form-input" placeholder="Enter your email address" id="ownerEmail" required/>
             <span class="field-hint">For appointment confirmation</span>
           </div>
           <div class="form-group">
             <label class="form-label">Barangay *</label>
             <div class="select-wrap">
-              <select class="form-select" id="ownerBarangay">
+              <select class="form-select" id="ownerBarangay" required>
                 <option value="">Select your barangay</option>
                 <option>Bagong Nayon</option><option>Burol</option><option>Calasag</option>
                 <option>Camalig</option><option>Canalate</option><option>Caniogan</option>
@@ -319,7 +307,8 @@
           </div>
           <div class="form-group full">
             <label class="form-label">Complete Address *</label>
-            <input type="text" class="form-input" placeholder="House No., Street, Purok / Subdivision" id="ownerAddress"/>
+            <input type="text" class="form-input" placeholder="House No., Street, Purok / Subdivision" id="ownerAddress" required/>
+            <span class="field-hint">From your account. <a href="account-settings.html" style="color:inherit;">Edit in Account Settings</a></span>
           </div>
         </div>
         <div class="step-nav">
@@ -332,36 +321,41 @@
       </div>
     </div>
 
-    <!-- Step 2 -->
     <div id="step2" class="step-content" style="display:none;">
       <div class="form-card">
         <div class="form-card-title">Pet Information</div>
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label">Pet Name *</label>
-            <input type="text" class="form-input" placeholder="e.g. Depa" id="petName"/>
+            <input type="text" class="form-input" placeholder="e.g. Depa" id="petName" required/>
           </div>
           <div class="form-group">
             <label class="form-label">Pet Type *</label>
             <div class="select-wrap">
-              <select class="form-select" id="petType">
-                <option>Dog</option><option>Cat</option><option>Other</option>
+              <select class="form-select" id="petType" required>
+                <option>Dog</option><option>Cat</option>
               </select>
               <img src="../images/icons/icon-dropwdown.svg" alt="" class="sel-icon"/>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Breed *</label>
-            <input type="text" class="form-input" placeholder="e.g. Golden Retriever" id="petBreed"/>
+            <input type="text" class="form-input" placeholder="e.g. Golden Retriever" id="petBreed" required/>
           </div>
           <div class="form-group">
-            <label class="form-label">Age *</label>
-            <input type="text" class="form-input" placeholder="e.g. 2 years" id="petAge"/>
+            <label class="form-label">Age (optional)</label>
+            <div class="field-row">
+              <input type="number" min="0" step="1" class="form-input" placeholder="e.g. 2" id="petAgeValue"/>
+              <select class="form-input" id="petAgeUnit">
+                <option>Years</option>
+                <option>Months</option>
+              </select>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Sex *</label>
             <div class="select-wrap">
-              <select class="form-select" id="petSex">
+              <select class="form-select" id="petSex" required>
                 <option>Male</option><option>Female</option>
               </select>
               <img src="../images/icons/icon-dropwdown.svg" alt="" class="sel-icon"/>
@@ -386,7 +380,6 @@
       </div>
     </div>
 
-    <!-- Step 3 -->
     <div id="step3" class="step-content" style="display:none;">
       <div class="form-card">
         <div class="form-card-title">Appointment Info</div>
@@ -394,20 +387,30 @@
           <div class="form-group">
             <label class="form-label">Type of Visit *</label>
             <div class="select-wrap">
-              <select class="form-select" id="visitType">
-                <option>Consultation</option><option>Vaccination</option>
-                <option>Surgery</option><option>Grooming</option><option>Check-up</option>
+              <select class="form-select" id="visitType" required>
+                <option>Consultation</option><option>Anti-Rabies</option>
+                <option>Deworming</option>
               </select>
               <img src="../images/icons/icon-dropwdown.svg" alt="" class="sel-icon"/>
             </div>
+            <span class="field-warning is-hidden" id="dewormingNotice">
+              The clinic will only entertain deworming appointments for pets 3 months old and above.
+            </span>
           </div>
-          <div class="form-group">
+          <div class="form-group" id="apptDateGroup">
             <label class="form-label">Preferred Date *</label>
             <input type="date" class="form-input" id="apptDate"/>
           </div>
         </div>
+        <div class="form-group full is-hidden" id="cspProgramNotice">
+          <div class="field-warning">
+            The Municipal Castration &amp; Spay Program isn't a scheduled visit — no date or time is needed.
+            Submitting this form adds your pet to the waiting list. The veterinary office batches registrations
+            and holds this program a couple of times a year; you'll be notified by email once a date is set.
+          </div>
+        </div>
         <div class="form-row-2">
-          <div class="form-group">
+          <div class="form-group" id="apptTimeGroup">
             <label class="form-label">Select Time Slot *</label>
             <div class="slot-grid">
               <button class="slot-btn" data-slot="8:00 AM">8:00 AM</button>
@@ -421,7 +424,7 @@
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">Additional Details *</label>
+            <label class="form-label" id="apptNotesLabel">Additional Details (optional)</label>
             <textarea class="form-textarea" placeholder="Describe your pet’s condition or reason for visit" id="apptNotes"></textarea>
           </div>
         </div>
@@ -438,7 +441,6 @@
       </div>
     </div>
 
-    <!-- Step 4 -->
     <div id="step4" class="step-content" style="display:none;">
       <div class="form-card wide">
         <div class="form-card-title">Review &amp; Confirm</div>
@@ -475,18 +477,30 @@
       </div>
     </div>
 
-    <!-- Step 5: Success -->
     <div id="step5" class="step-content" style="display:none;">
-      <div class="success-card">
+      <div class="success-card" id="step5Default">
         <div class="success-icon">
           <img src="../images/icons/icon-success.png" alt="booked"/>
         </div>
         <div class="success-title">Appointment Booked!</div>
-        <div class="success-desc">Your appointment request has been submitted and is pending clinic approval. You'll be notified via SMS/Email once confirmed.</div>
+        <div class="success-desc">Your appointment request has been submitted and is pending clinic approval. You'll be notified via SMS/Email once confirmed. Unconfirmed requests expire after 1 working day.</div>
         <div class="success-ref">
           <span class="ref-label">Reference No.</span>
-          <span class="ref-val">#BB-2025-12</span>
+          <span class="ref-val" id="rv-refNo">#BB-2025-12</span>
         </div>
+      </div>
+      <div class="success-card is-hidden" id="step5Csp">
+        <div class="success-icon">
+          <img src="../images/icons/icon-success.png" alt="registered"/>
+        </div>
+        <div class="success-title">Registration Submitted</div>
+        <div class="success-desc">Your pet has been added to the waiting list for the Municipal Castration &amp; Spay Program.</div>
+        <div class="review-block csp-success-block">
+          <div class="review-row"><span class="review-key">Status:</span><span class="review-val">Pending Schedule</span></div>
+          <div class="review-row"><span class="review-key">Current Waiting List:</span><span class="review-val" id="csp-waiting-count">— Pets Registered</span></div>
+          <div class="review-row"><span class="review-key">Program Date:</span><span class="review-val">To Be Announced</span></div>
+        </div>
+        <div class="success-desc csp-success-footnote">You will receive an email once the veterinary office schedules the next program.</div>
       </div>
       <div class="success-btns">
         <button class="btn-back-step" id="btnBackHome">
@@ -505,9 +519,6 @@
 </div>
 
 
-<!-- ══════════════════════════════════════════
-     PAGE 3 — APPOINTMENT HISTORY
-══════════════════════════════════════════ -->
 <div id="pageHistory" class="page">
 
   <div class="hero-wrap">
@@ -517,16 +528,13 @@
         <h1>Complete Care History</h1>
         <p>Review past visits, medical summaries, and help us improve with your feedback.</p>
       </div>
-      <div class="hist-hero-art">
-        <img src="../images/icons/book-edit.svg" alt="" class="hist-hero-img"/>
-      </div>
+      <div class="hist-hero-art"></div>
     </div>
   </div>
 
   <div class="hist-body">
     <div class="hist-layout">
 
-      <!-- Main: Appointment list -->
       <div class="hist-main">
         <div class="past-header">
           <div class="past-title">Past Appointments</div>
@@ -548,7 +556,6 @@
           </button>
         </div>
 
-        <!-- APPOINTMENT ROWS — hidden by default, shown when records exist -->
         <div class="appt-list" id="histList" style="display:none;">
 
           <div class="appt-row appt-pending">
@@ -625,10 +632,9 @@
             </div>
           </div>
 
-        </div><!-- /histList -->
+        </div>
       </div>
 
-      <!-- Sidebar: Health stats -->
       <div class="hist-sidebar">
         <div class="health-card">
           <div class="health-label">Care Summary</div>
@@ -654,7 +660,6 @@
 </div>
 
 
-  <!-- ===================== FOOTER ===================== -->
   <footer class="footer">
     <img src="../images/img/paw-print.svg" alt="" class="footer-paw"/>
     <div class="footer-grid">
@@ -665,10 +670,8 @@
       <div class="footer-links">
         <h4>QUICK LINKS</h4>
         <ul>
-          <li><a href="#">Privacy Policy</a></li>
-          <li><a href="#">Terms of Service</a></li>
-          <li><a href="#">Emergency Care</a></li>
-          <li><a href="#">Careers</a></li>
+          <li><a href="privacy-policy.html">Privacy Policy</a></li>
+          <li><a href="terms-of-service.html">Terms of Service</a></li>
         </ul>
       </div>
       <div class="footer-contact">
@@ -687,7 +690,6 @@
     </div>
   </footer>
 
-  <!-- ══════════ RATE & REVIEW MODAL ══════════ -->
   <div class="modal-overlay" id="ratingModal" onclick="if(event.target===this) closeRatingModal()">
     <div class="modal-box rating-modal-box">
       <div class="modal-header">
@@ -701,11 +703,11 @@
       </div>
       <div class="rating-body">
         <div class="rating-stars" id="ratingStars" role="radiogroup" aria-label="Rating from 1 to 5 stars">
-          <button type="button" class="rating-star" data-value="1" aria-label="1 star"><img src="../images/icons/rating.svg" alt=""/></button>
-          <button type="button" class="rating-star" data-value="2" aria-label="2 stars"><img src="../images/icons/rating.svg" alt=""/></button>
-          <button type="button" class="rating-star" data-value="3" aria-label="3 stars"><img src="../images/icons/rating.svg" alt=""/></button>
-          <button type="button" class="rating-star" data-value="4" aria-label="4 stars"><img src="../images/icons/rating.svg" alt=""/></button>
-          <button type="button" class="rating-star" data-value="5" aria-label="5 stars"><img src="../images/icons/rating.svg" alt=""/></button>
+          <button type="button" class="rating-star" data-value="1" aria-label="1 star"><img src="../images/icons/rating-outline.svg" alt=""/></button>
+          <button type="button" class="rating-star" data-value="2" aria-label="2 stars"><img src="../images/icons/rating-outline.svg" alt=""/></button>
+          <button type="button" class="rating-star" data-value="3" aria-label="3 stars"><img src="../images/icons/rating-outline.svg" alt=""/></button>
+          <button type="button" class="rating-star" data-value="4" aria-label="4 stars"><img src="../images/icons/rating-outline.svg" alt=""/></button>
+          <button type="button" class="rating-star" data-value="5" aria-label="5 stars"><img src="../images/icons/rating-outline.svg" alt=""/></button>
         </div>
         <p class="rating-hint" id="ratingHint">Tap a star to rate</p>
         <div class="form-group">
@@ -721,14 +723,15 @@
     </div>
   </div>
 
-  <!-- SCRIPTS - auth.js must load first -->
-   <script src="../../shared/js/auth.js"></script>
-  <!-- <script>
+   <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+  <script>
     VBetterAuth.requireAuth(['owner']);
-  </script> --> 
-  <script src="../js/nav.js"></script>
-  <script src="../js/api.js"></script>
-  <script src="../js/book-appointment.js"></script>
-  <script src="../js/site-settings.js"></script>
+  </script>
+  <script src="../js/nav.js?v=20260829-preview"></script>
+  <script src="../js/api.js?v=20260819-authfix"></script>
+  <!-- Must load before book-appointment.js, which calls VBForm at validate time. -->
+  <script src="../../shared/js/form-validation.js"></script>
+  <script src="../js/book-appointment.js?v=20260928-fair"></script>
+  <script src="../js/site-settings.js?v=20260829-preview"></script>
 </body>
 </html>

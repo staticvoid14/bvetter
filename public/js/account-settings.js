@@ -1,26 +1,56 @@
 /* =============================================
-   BVETTER — Account Settings JS
+   BVetter — Account Settings JS
    File: js/account-settings.js
    Depends: nav.js, api.js
 
    Functions:
+   - loadProfile()          — api.getProfile() on load, fills the form
    - (avatar upload preview)
-   - (save profile)
-   - (password modal open/close/confirm)
+   - (save profile)         — api.updateProfile(data)
+   - (password modal open/close/confirm) — api.changePassword(data)
    - (pw eye toggles)
-   - (2FA toggle)
-   - (deactivate modal)
+   - (2FA toggle)           — api.setTwoFactor(enabled); enforced at login
+                              via api/auth/login.php (email-OTP challenge)
+   - (deactivate modal)     — api.deactivateAccount(); blocks the account with
+                              reason 'user_request' and revokes every session,
+                              then logs out. Reversible by the vet office.
    - showToast(msg, type)
-
-   TODO backend:
-   - btnSaveProfile: replace with api.updateProfile(data)
-   - btnConfirmPw: replace with api.changePassword(data)
-   - btnManage2FA: call real 2FA toggle endpoint
-   - btnDeactivate confirm: call DELETE /api/user
    ============================================= */
 
 (function () {
   'use strict';
+
+  const session = typeof getCurrentUser === 'function' ? getCurrentUser() : null;
+
+  // Set by loadProfile() and re-based after every successful save.
+  let loadedEmail = '';
+
+  /* ── Load current profile into the form ───── */
+  async function loadProfile() {
+    if (!session) return;
+    const result = await api.getProfile().catch(() => ({ success: false }));
+    if (!result.success) {
+      showToast(result.message || 'Could not load your profile.', 'error');
+      return;
+    }
+    const profile = result.data;
+    const nameInput = document.getElementById('inputFullName');
+    const emailInput = document.getElementById('inputEmail');
+    const phoneInput = document.getElementById('inputPhone');
+    const avatarImg = document.getElementById('profileAvatarImg');
+    const navName = document.querySelector('.nav-user-name');
+
+    if (nameInput) nameInput.value = profile.fullName || '';
+    if (emailInput) emailInput.value = profile.email || '';
+    // Remembered so Save can tell a real email change from an untouched field.
+    loadedEmail = profile.email || '';
+    if (phoneInput) phoneInput.value = profile.phone || '';
+    if (avatarImg && profile.avatarUrl) avatarImg.src = profile.avatarUrl;
+    if (navName) navName.textContent = profile.fullName || session.name || 'Pet Owner';
+    applyTwoFactorState(Boolean(profile.twoFactorEnabled));
+  }
+
+  document.addEventListener('DOMContentLoaded', loadProfile);
 
   /* ── Avatar upload preview ────────────────── */
   const avatarInput = document.getElementById('avatarFileInput');
@@ -35,17 +65,48 @@
     });
   }
 
-  /* ── Save Profile ─────────────────────────── 
-     TODO backend: api.updateProfile({ name, email, phone }) */
+  /* ── Save Profile ─────────────────────────── */
   const btnSave = document.getElementById('btnSaveProfile');
   if (btnSave) {
-    btnSave.addEventListener('click', () => {
+    btnSave.addEventListener('click', async () => {
       const name  = document.getElementById('inputFullName')?.value || '';
       const email = document.getElementById('inputEmail')?.value    || '';
+      const phone = document.getElementById('inputPhone')?.value    || '';
       if (!name.trim() || !email.trim()) {
         showToast('Please fill in all required fields.', 'error');
         return;
       }
+
+      // Changing the email address is not the same kind of edit as changing a
+      // phone number: it is where password resets and 2FA codes are sent, so a
+      // typo here quietly moves the keys to the account somewhere the owner
+      // cannot read. Save was one button with nothing between it and that.
+      // Name and phone stay unguarded on purpose — both are correctable from
+      // this same form, and a prompt on every save trains people past it.
+      if (loadedEmail && email.trim().toLowerCase() !== loadedEmail.toLowerCase()) {
+        const ok = await vbConfirm(
+          `Change your sign-in email from ${loadedEmail} to ${email.trim()}? Password resets and `
+          + `login codes will go to the new address, so make sure you can open it.`
+        );
+        if (!ok) return;
+      }
+
+      const result = await api.updateProfile({
+        user_id: session?.userId,
+        fullName: name.trim(),
+        email: email.trim(),
+        phone: phone.trim()
+      }).catch(() => ({ success: false }));
+
+      if (!result.success) {
+        showToast(result.message || 'Could not save your profile.', 'error');
+        return;
+      }
+      // Re-based on what the server stored, so a second save in the same visit
+      // compares against the new address rather than re-prompting off the old.
+      loadedEmail = result.data.email || email.trim();
+      const navName = document.querySelector('.nav-user-name');
+      if (navName) navName.textContent = result.data.fullName;
       showToast('Profile saved successfully.', 'success');
     });
   }
@@ -62,20 +123,36 @@
   if (btnCancelPw) btnCancelPw.addEventListener('click',  () => pwModal.classList.remove('open'));
   if (pwModal)     pwModal    .addEventListener('click',  e => { if (e.target === pwModal) pwModal.classList.remove('open'); });
 
-  /* TODO backend: api.changePassword({ current_password, new_password }) */
   if (btnConfirmPw) {
-    btnConfirmPw.addEventListener('click', () => {
+    btnConfirmPw.addEventListener('click', async () => {
       const cur  = document.getElementById('inputCurrentPw')?.value || '';
       const next = document.getElementById('inputNewPw')?.value     || '';
       const conf = document.getElementById('inputConfirmPw')?.value || '';
       if (!cur || !next || !conf) { showToast('Fill in all password fields.', 'error'); return; }
-      if (next.length < 8)        { showToast('New password must be at least 8 characters.', 'error'); return; }
+      const pwError = window.PasswordPolicy
+        ? PasswordPolicy.validate(next)
+        : (next.length < 12 ? 'New password must be at least 12 characters.' : null);
+      if (pwError)                { showToast(pwError, 'error'); return; }
       if (next !== conf)          { showToast('Passwords do not match.', 'error'); return; }
+
+      const result = await api.changePassword({
+        user_id: session?.userId,
+        currentPassword: cur,
+        newPassword: next
+      }).catch(() => ({ success: false }));
+
+      if (!result.success) {
+        showToast(result.message || 'Could not update your password.', 'error');
+        return;
+      }
+
       pwModal.classList.remove('open');
+      // Clears any forced-upgrade hold, so navigation is free again.
+      window.VBetterAuth?.clearPasswordUpgrade?.();
       showToast('Password updated successfully.', 'success');
       ['inputCurrentPw', 'inputNewPw', 'inputConfirmPw'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.value = '';
+        if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
       });
     });
   }
@@ -88,33 +165,127 @@
     });
   });
 
-  /* ── 2FA Toggle ───────────────────────────── 
-     TODO backend: call PATCH /api/user/2fa       */
+  /* ── 2FA Toggle ─────────────────────────────
+     Persists to users.two_factor_enabled and is enforced at login: once on,
+     signing in requires a 6-digit code emailed to the account (same OTP
+     flow admin accounts use, see api/auth/login.php). */
+  function applyTwoFactorState(enabled) {
+    const twofaBadge = document.getElementById('twofaBadge');
+    if (!twofaBadge) return;
+    twofaBadge.classList.toggle('enabled', enabled);
+    twofaBadge.classList.toggle('disabled', !enabled);
+    twofaBadge.textContent = enabled ? 'ENABLED' : 'DISABLED';
+  }
+
   const btnManage  = document.getElementById('btnManage2FA');
   const twofaBadge = document.getElementById('twofaBadge');
   if (btnManage && twofaBadge) {
-    btnManage.addEventListener('click', () => {
-      const isEnabled = twofaBadge.classList.contains('enabled');
-      twofaBadge.classList.toggle('enabled',  !isEnabled);
-      twofaBadge.classList.toggle('disabled',  isEnabled);
-      twofaBadge.textContent = isEnabled ? 'DISABLED' : 'ENABLED';
-      showToast(isEnabled ? '2FA has been disabled.' : '2FA enabled.', 'success');
+    btnManage.addEventListener('click', async () => {
+      const enabling = !twofaBadge.classList.contains('enabled');
+      const confirmMsg = enabling
+        ? "Enable two-factor authentication? You'll need to enter a 6-digit code emailed to you every time you log in."
+        : 'Disable two-factor authentication?';
+      if (!(await vbConfirm(confirmMsg))) return;
+
+      btnManage.disabled = true;
+      const result = await api.setTwoFactor(enabling).catch(() => ({ success: false }));
+      btnManage.disabled = false;
+
+      if (!result.success) {
+        showToast(result.message || 'Could not update two-factor authentication.', 'error');
+        return;
+      }
+      applyTwoFactorState(enabling);
+      showToast(enabling ? '2FA has been enabled.' : '2FA has been disabled.', 'success');
     });
   }
 
-  /* ── Deactivate Modal ─────────────────────── */
-  const deactivateModal     = document.getElementById('deactivateModal');
-  const btnDeactivate       = document.getElementById('btnDeactivate');
-  const btnCancelDeactivate = document.getElementById('btnCancelDeactivate');
-  if (btnDeactivate)       btnDeactivate      .addEventListener('click', () => deactivateModal.classList.add('open'));
-  if (btnCancelDeactivate) btnCancelDeactivate.addEventListener('click', () => deactivateModal.classList.remove('open'));
-  if (deactivateModal)     deactivateModal    .addEventListener('click', e => { if (e.target === deactivateModal) deactivateModal.classList.remove('open'); });
+  /* ── Deactivate Modal ───────────────────────
+     Deactivates, does not delete: the account is blocked with reason
+     'user_request' and every session is revoked server-side, so the vet
+     office can reopen it the same way it lifts an inactivity block.
+     Deletion is a separate request routed through the office — see the
+     Privacy Policy link in the modal. */
+  const deactivateModal      = document.getElementById('deactivateModal');
+  const btnDeactivate        = document.getElementById('btnDeactivate');
+  const btnCancelDeactivate  = document.getElementById('btnCancelDeactivate');
+  const btnConfirmDeactivate = document.getElementById('btnConfirmDeactivate');
+  const deactivateInput      = document.getElementById('deactivateConfirmInput');
+
+  /* "Yes, Deactivate" is the one control on this page whose effect the person
+     pressing it cannot undo on their own: the server revokes every session and
+     blocks the account, and only the vet office can reopen it. Typing the word
+     is what separates meaning it from brushing past it. A fixed word rather
+     than the account's own name, because the risk here is a reflexive click —
+     there is only ever one account in this dialog to get wrong. */
+  const DEACTIVATE_WORD = 'DEACTIVATE';
+
+  function deactivateTyped() {
+    return (deactivateInput?.value || '').trim().toUpperCase() === DEACTIVATE_WORD;
+  }
+
+  function syncDeactivateButton() {
+    const ok = deactivateTyped();
+    if (btnConfirmDeactivate) btnConfirmDeactivate.disabled = !ok;
+    deactivateInput?.classList.toggle('deact-match', ok);
+  }
+
+  // Re-armed from scratch on open and on close, so a word left in the box
+  // cannot survive a cancel and greet the next visit already unlocked.
+  function resetDeactivateModal() {
+    if (deactivateInput) deactivateInput.value = '';
+    syncDeactivateButton();
+  }
+
+  function closeDeactivateModal() {
+    deactivateModal?.classList.remove('open');
+    resetDeactivateModal();
+  }
+
+  deactivateInput?.addEventListener('input', syncDeactivateButton);
+
+  if (btnDeactivate) {
+    btnDeactivate.addEventListener('click', () => {
+      resetDeactivateModal();
+      deactivateModal.classList.add('open');
+      deactivateInput?.focus();
+    });
+  }
+  if (btnCancelDeactivate) btnCancelDeactivate.addEventListener('click', closeDeactivateModal);
+  if (deactivateModal)     deactivateModal    .addEventListener('click', e => { if (e.target === deactivateModal) closeDeactivateModal(); });
+
+  if (btnConfirmDeactivate) {
+    btnConfirmDeactivate.addEventListener('click', async () => {
+      // Checked here as well as through the disabled attribute: the typed word
+      // is what actually authorises this call, the button state only mirrors it.
+      if (!deactivateTyped()) return;
+
+      btnConfirmDeactivate.disabled = true;
+      const result = await api.deactivateAccount().catch(() => ({ success: false }));
+
+      if (!result.success) {
+        syncDeactivateButton();
+        showToast(result.message || 'Could not deactivate the account. Please try again.', 'error');
+        return;
+      }
+
+      // The server has already revoked every session, so this session is dead
+      // whatever happens next. Clear the local copy and send them to the login
+      // page rather than leaving a signed-in-looking page behind.
+      deactivateModal.classList.remove('open');
+      showToast('Your account has been deactivated.', 'success');
+      setTimeout(() => {
+        if (window.VBetterAuth) window.VBetterAuth.logout();
+        else window.location.replace('login.html');
+      }, 1200);
+    });
+  }
 
   /* ── Escape key closes any open modal ──────── */
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (pwModal)         pwModal.classList.remove('open');
-      if (deactivateModal) deactivateModal.classList.remove('open');
+      if (deactivateModal) closeDeactivateModal();
     }
   });
 

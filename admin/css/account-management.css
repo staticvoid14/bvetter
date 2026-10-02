@@ -445,6 +445,11 @@ body {
 
 .am-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* "Left by request" — the owner closed the account themselves. Deliberately
+   visible rather than a tooltip: restoring an account someone chose to close
+   is the one mistake here with a real person on the other end of it. */
+.am-status-note { font-weight: 500; color: var(--text-tertiary); white-space: nowrap; }
+
 .am-status.active   .am-status-dot { background: var(--secondary-light-green); }
 .am-status.blocked  .am-status-dot { background: var(--accent-red); }
 .am-status.pending  .am-status-dot { background: #D97706; }
@@ -453,7 +458,7 @@ body {
 /* Actions */
 .am-actions-cell { display: flex; align-items: center; gap: 6px; }
 
-.am-btn-unblock, .am-btn-approve, .am-btn-reject {
+.am-btn-unblock, .am-btn-approve, .am-btn-reject, .am-btn-block {
     font-size: 12px;
     font-weight: 700;
     font-family: 'Manrope', sans-serif;
@@ -467,8 +472,9 @@ body {
 .am-btn-unblock  { color: var(--secondary-light-green); }
 .am-btn-approve  { color: var(--secondary-light-green); }
 .am-btn-reject   { color: var(--accent-red); }
+.am-btn-block    { color: var(--accent-red); }
 
-.am-btn-unblock:hover, .am-btn-approve:hover, .am-btn-reject:hover { opacity: 0.7; }
+.am-btn-unblock:hover, .am-btn-approve:hover, .am-btn-reject:hover, .am-btn-block:hover { opacity: 0.7; }
 
 .am-btn-edit {
     width: 28px; height: 28px;
@@ -746,6 +752,24 @@ body {
 
 .am-btn-unblock-lg:hover { background: #FED7D7; border-color: #FC8181; }
 
+.am-btn-block-lg {
+    margin: 14px 28px 0;
+    width: calc(100% - 56px);
+    padding: 13px;
+    background: #FFF2F2;
+    border: 1.5px solid #FECACA;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    color: #E53E3E;
+    cursor: pointer;
+    transition: var(--transition);
+    letter-spacing: 0.1px;
+}
+
+.am-btn-block-lg:hover { background: #FED7D7; border-color: #FC8181; }
+
 .am-modal-footer {
     display: flex;
     justify-content: flex-end;
@@ -873,6 +897,67 @@ body {
 }
 
 .am-btn-delete-confirm:hover { background: #9B2C2C; }
+
+/* Typed-confirmation block. Deleting an account is the one action on this
+   page with no undo and no audit trail to walk back, and the modal alone was
+   defeated by a single mis-aimed click on a table row -- the admin never had
+   to read WHICH account was in the dialog. Retyping the name makes that
+   reading mandatory, so the failure being guarded against is picking the
+   wrong row, not misunderstanding what delete means. */
+.am-delete-modal-body .am-delete-user-meta {
+    margin-top: 4px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+.am-delete-modal-body .am-delete-warning {
+    margin-top: 10px;
+    color: #9B2C2C;
+    font-weight: 600;
+}
+
+.am-delete-confirm-label {
+    display: block;
+    margin-top: 18px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: left;
+}
+
+.am-delete-confirm-input {
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px 12px;
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    color: var(--text-primary);
+    background: #fff;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.am-delete-confirm-input:focus {
+    outline: none;
+    border-color: #C53030;
+}
+
+.am-delete-confirm-input.am-match { border-color: #2F855A; }
+
+.am-delete-confirm-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-align: left;
+}
+
+.am-btn-delete-confirm:disabled {
+    background: #E9B8B8;
+    cursor: not-allowed;
+}
+
+.am-btn-delete-confirm:disabled:hover { background: #E9B8B8; }
 
 .am-btn-cancel-outline {
     flex: 1;
@@ -1060,15 +1145,52 @@ body {
 
 /* ── RESPONSIVE ─────────────────────────────────────────────── */
 @media (max-width: 960px) {
+    /* Below 768px the sidebar leaves position:fixed and rejoins the flex
+       flow (see shared/css/sidebar.css) — without this, body's default
+       flex-direction:row crams it into one row with .am-main instead of
+       stacking them, which is what pushed the page into horizontal
+       overflow on phones. */
+    body { flex-direction: column; }
     .am-main { margin-left: 0; width: 100%; padding: 20px; }
     .am-kpi-strip { grid-template-columns: 1fr; }
     .am-form-row { grid-template-columns: 1fr; }
     .am-hero { flex-direction: column; align-items: flex-start; }
 }
 
-@media (max-width: 600px) {
-    .am-table th:nth-child(4),
-    .am-table td:nth-child(4) { display: none; }
+@media (max-width: 768px) {
+    .am-main { padding: 16px; }
+
+    /* Title above a full-width search, instead of "All User" squeezed
+       onto two lines beside it. */
+    .am-table-topbar { flex-direction: column; align-items: stretch; padding: 16px 16px 0; }
+    .am-table-controls { width: 100%; }
+    .am-search-wrap { flex: 1; }
+
+    /* The four tabs are wider than a phone. They scroll inside their own
+       row; left alone they widened the whole page. */
+    .am-tab-row { overflow-x: auto; padding: 12px 16px 0; scrollbar-width: none; }
+    .am-tab-row::-webkit-scrollbar { display: none; }
+    .am-tab { flex-shrink: 0; white-space: nowrap; }
+
+    /* Room around the row cards (shared/css/table-cards.css). */
+    .am-table-wrap { padding: 12px; }
+
+    /* Full-width in a card, the bare text buttons read as labels; give
+       them an edge so they look tappable. */
+    .am-actions-cell .am-btn-block,
+    .am-actions-cell .am-btn-delete {
+        background: #FFF5F3;
+        border: 1px solid #FAD4CC;
+        border-radius: var(--radius-sm);
+    }
+
+    .am-actions-cell .am-btn-unblock,
+    .am-actions-cell .am-btn-approve {
+        background: #EDFBEF;
+        border: 1px solid #BCEBC5;
+        border-radius: var(--radius-sm);
+    }
+    .am-table-footer { flex-wrap: wrap; gap: 10px; }
 }
 
 /* ── ADD ACCOUNT MODAL (dash-* form) ───────────────────────── */
@@ -1320,4 +1442,138 @@ body {
 @media (max-width: 540px) {
     .dash-form-row { grid-template-columns: 1fr; }
     .dash-modal { border-radius: var(--radius-md); }
-}
+}
+/* ── Walk-in records ────────────────────────────────────────────
+   A walk-in is someone a vet entered at the counter during a visit: a real
+   person with real clinical history who has never signed in, and whose
+   users.email is usually a synthetic owner_<hash>@vbetter.local placeholder
+   minted only to satisfy the UNIQUE constraint. Before these styles existed
+   such rows were indistinguishable from self-registered members, so the
+   member count read as app users when most of it was clinic patients. */
+
+.am-walkin-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: #FEF3C7;
+    color: #92400E;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+/* Italic and muted so it reads as an absence rather than as an address. */
+.am-email-none {
+    font-style: italic;
+    color: var(--text-tertiary);
+    opacity: 0.75;
+}
+
+.am-walkin-wrap {
+    margin-top: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.am-walkin-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-page);
+    border-bottom: 1px solid var(--border);
+}
+
+.am-walkin-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.am-walkin-hint {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+}
+
+.am-walkin-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.am-walkin-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+}
+
+.am-walkin-card:last-child { border-bottom: none; }
+.am-walkin-card:hover      { background: var(--bg-page); }
+
+/* Selection is deliberately loud. Linking cannot be undone, so which row is
+   armed must never be something the admin has to squint at. */
+.am-walkin-card.selected {
+    background: #F0FDF4;
+    box-shadow: inset 3px 0 0 var(--secondary-light-green);
+}
+
+.am-walkin-card input { margin-top: 3px; flex-shrink: 0; }
+
+.am-walkin-body { display: flex; flex-direction: column; gap: 2px; }
+
+.am-walkin-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.am-walkin-meta {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* The consequence line: what actually transfers if this row is chosen. */
+.am-walkin-detail {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.am-walkin-why {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+/* ── Clickable rows + Account Details window ──────────────── */
+.am-table tbody tr.am-row-clickable { cursor: pointer; }
+.am-table tbody tr.am-row-clickable:focus-visible { outline: 2px solid #00B928; outline-offset: -2px; }
+
+.am-details-note { font-weight: 500; color: #8A94A6; }
+
+.am-details-doc {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1px solid #e5e9f0;
+    border-radius: 10px;
+}
+
+.am-details-doc[hidden] { display: none; }
+
+#modal-details .am-verify-footer { justify-content: space-between; }
+.am-details-actions { display: flex; gap: 10px; }

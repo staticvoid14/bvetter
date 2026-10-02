@@ -1,7 +1,7 @@
 <?php
 
 header('Content-Type: application/json');
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
 
 try {
     $stmt = $pdo->query("
@@ -15,6 +15,7 @@ try {
         'data' => $stmt->fetchAll()
     ]);
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'success' => false,

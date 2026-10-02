@@ -6,7 +6,9 @@ error_reporting(E_ALL);
 
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
+require_once __DIR__ . '/../config/input_validation.php';
+require_once __DIR__ . '/../includes/clinic_calendar.php';
 
 function respond($statusCode, $payload)
 {
@@ -39,6 +41,12 @@ function truthy($value)
     return in_array($value, [1, '1', true, 'true', 'on'], true);
 }
 
+/* How long a computed stat (visits, rating) is trusted before re-querying.
+   Keeps the public landing page from running COUNT()/AVG() on every visit —
+   appointments/reviews grow without bound, unlike the small users table
+   activeSpecialistsCount() scans. */
+const STATS_CACHE_TTL_SECONDS = 900;
+
 function setupSiteSettings($pdo)
 {
     $pdo->exec("
@@ -64,15 +72,76 @@ function setupSiteSettings($pdo)
              'AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026')
     ");
 
-    $clinicCapacityCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'clinic_capacity'")->fetch();
-    if (!$clinicCapacityCheck) {
-        $pdo->exec("ALTER TABLE site_settings ADD COLUMN clinic_capacity VARCHAR(20) NOT NULL DEFAULT '24/7' AFTER address");
+    /* visits_override / rating_override: admin-typed text that, when non-blank,
+       wins over the computed value. Renamed in place from the old
+       clinic_capacity / surgery_recovery_rate columns so existing admin
+       input is preserved as an override rather than lost. */
+    $visitsOverrideCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'visits_override'")->fetch();
+    if (!$visitsOverrideCheck) {
+        $oldColumn = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'clinic_capacity'")->fetch();
+        if ($oldColumn) {
+            $pdo->exec("ALTER TABLE site_settings CHANGE clinic_capacity visits_override VARCHAR(30) NOT NULL DEFAULT ''");
+        } else {
+            $pdo->exec("ALTER TABLE site_settings ADD COLUMN visits_override VARCHAR(30) NOT NULL DEFAULT '' AFTER address");
+        }
     }
 
-    $surgeryRecoveryCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'surgery_recovery_rate'")->fetch();
-    if (!$surgeryRecoveryCheck) {
-        $pdo->exec("ALTER TABLE site_settings ADD COLUMN surgery_recovery_rate VARCHAR(20) NOT NULL DEFAULT '98.4%' AFTER clinic_capacity");
+    $ratingOverrideCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'rating_override'")->fetch();
+    if (!$ratingOverrideCheck) {
+        $oldColumn = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'surgery_recovery_rate'")->fetch();
+        if ($oldColumn) {
+            $pdo->exec("ALTER TABLE site_settings CHANGE surgery_recovery_rate rating_override VARCHAR(30) NOT NULL DEFAULT ''");
+        } else {
+            $pdo->exec("ALTER TABLE site_settings ADD COLUMN rating_override VARCHAR(30) NOT NULL DEFAULT '' AFTER visits_override");
+        }
     }
+
+    /* visits_cache / rating_cache (+ _at timestamps): last computed value and
+       when it was computed, so the public page can reuse it until it goes
+       stale instead of re-querying appointments/reviews on every load. */
+    $visitsCacheCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'visits_cache'")->fetch();
+    if (!$visitsCacheCheck) {
+        $pdo->exec("ALTER TABLE site_settings ADD COLUMN visits_cache INT NULL AFTER visits_override");
+        $pdo->exec("ALTER TABLE site_settings ADD COLUMN visits_cached_at TIMESTAMP NULL AFTER visits_cache");
+    }
+
+    $ratingCacheCheck = $pdo->query("SHOW COLUMNS FROM site_settings LIKE 'rating_cache'")->fetch();
+    if (!$ratingCacheCheck) {
+        $pdo->exec("ALTER TABLE site_settings ADD COLUMN rating_cache DECIMAL(3,1) NULL AFTER rating_override");
+        $pdo->exec("ALTER TABLE site_settings ADD COLUMN rating_cached_at TIMESTAMP NULL AFTER rating_cache");
+    }
+
+    /* closed_dates: extra weekdays the clinic is closed, one "YYYY-MM-DD
+       Name" per line, on top of the built-in Philippine holidays (see
+       api/includes/clinic_calendar.php). */
+    if (!$pdo->query("SHOW COLUMNS FROM site_settings LIKE 'closed_dates'")->fetch()) {
+        $pdo->exec("ALTER TABLE site_settings ADD COLUMN closed_dates TEXT NULL");
+    }
+}
+
+/**
+ * Checks and tidies the Clinic Closed Dates text. Each non-blank line must
+ * start with a real YYYY-MM-DD date; the name after it is optional. Returns
+ * [normalizedText, errorMessage|null].
+ */
+function normalizeClosedDates($text)
+{
+    $lines = [];
+    foreach (preg_split('/\R/', (string) $text) as $index => $line) {
+        $line = trim($line);
+        if ($line === '') continue;
+        if (!preg_match('/^(\d{4}-\d{2}-\d{2})\s*(.*)$/', $line, $m) || !isValidYmd($m[1])) {
+            return ['', 'Clinic Closed Dates, line ' . ($index + 1) . ': "' . mb_substr($line, 0, 40)
+                . '" doesn\'t start with a date. Write one date per line as YYYY-MM-DD, optionally followed by a name.'];
+        }
+        // Names are shown to residents on the booking calendar.
+        $name = trim(str_replace(['<', '>'], '', $m[2]));
+        $lines[] = $m[1] . ($name !== '' ? ' ' . mb_substr($name, 0, 80) : '');
+    }
+    if (count($lines) > 200) {
+        return ['', 'Clinic Closed Dates can list at most 200 dates.'];
+    }
+    return [implode("\n", $lines), null];
 }
 
 function activeSpecialistsCount($pdo)
@@ -85,21 +154,76 @@ function activeSpecialistsCount($pdo)
     return (int) $stmt->fetchColumn();
 }
 
-function formatSettings($row, $specialistsCount)
+function computeVisitsCount($pdo)
 {
+    if (!$pdo->query("SHOW TABLES LIKE 'appointments'")->fetch()) {
+        return 0;
+    }
+    $stmt = $pdo->query("SELECT COUNT(*) FROM appointments WHERE status = 'completed'");
+    return (int) $stmt->fetchColumn();
+}
+
+function computeAverageRating($pdo)
+{
+    if (!$pdo->query("SHOW TABLES LIKE 'reviews'")->fetch()) {
+        return null;
+    }
+    $stmt = $pdo->query("SELECT AVG(rating) FROM reviews");
+    $value = $stmt->fetchColumn();
+    return $value !== null ? round((float) $value, 1) : null;
+}
+
+/* Returns the fresh-enough cached value, or recomputes + persists it (and
+   returns the new value) once it's older than STATS_CACHE_TTL_SECONDS. */
+function cachedStat($pdo, $row, $cacheCol, $cachedAtCol, callable $compute)
+{
+    $cachedAt = $row[$cachedAtCol] ?? null;
+    if ($cachedAt !== null && strtotime($cachedAt) > time() - STATS_CACHE_TTL_SECONDS) {
+        return $row[$cacheCol];
+    }
+
+    $value = $compute($pdo);
+    $stmt = $pdo->prepare("UPDATE site_settings SET {$cacheCol} = :value, {$cachedAtCol} = NOW() WHERE id = 1");
+    $stmt->execute([':value' => $value]);
+    return $value;
+}
+
+function formatSettings($row, $specialistsCount, $visitsComputed, $ratingComputed)
+{
+    $visitsOverride = trim((string) $row['visits_override']);
+    $ratingOverride = trim((string) $row['rating_override']);
+
     return [
-        'primaryColor'        => $row['primary_color'],
-        'logo'                => $row['logo_path'],
-        'heroBanner'          => $row['hero_banner_path'],
-        'teamImage'           => $row['team_image_path'],
-        'about'               => $row['about_text'],
-        'email'               => $row['contact_email'],
-        'phone'               => $row['contact_phone'],
-        'address'             => $row['address'],
-        'clinicCapacity'      => $row['clinic_capacity'],
-        'surgeryRecoveryRate' => $row['surgery_recovery_rate'],
-        'specialistsCount'    => $specialistsCount,
-        'updatedAt'           => $row['updated_at'],
+        'primaryColor'  => $row['primary_color'],
+        'logo'          => $row['logo_path'],
+        'heroBanner'    => $row['hero_banner_path'],
+        'teamImage'     => $row['team_image_path'],
+        /* Every field below renders on the public landing page. about_text is
+           free text (an admin may reasonably write "open 8am > 5pm"), so it is
+           defanged on output rather than rejected on input; the contact fields
+           are short labels and are additionally rejected on write in
+           saveSettings(). */
+        'about'         => apiSafeText($row['about_text']),
+        'email'         => apiSafeText($row['contact_email']),
+        'phone'         => apiSafeText($row['contact_phone']),
+        'address'       => apiSafeText($row['address']),
+
+        /* Effective value shown on the public page: admin override wins,
+           otherwise the live/cached computed value. */
+        'visitsCount'            => $visitsOverride !== '' ? $visitsOverride : number_format($visitsComputed),
+        'visitsCountOverride'    => $visitsOverride,
+        'visitsCountComputed'    => $visitsComputed,
+
+        'avgRatingPerVet'         => $ratingOverride !== '' ? $ratingOverride : ($ratingComputed !== null ? number_format($ratingComputed, 1) . '/5' : 'N/A'),
+        'avgRatingPerVetOverride' => $ratingOverride,
+        'avgRatingPerVetComputed' => $ratingComputed,
+
+        'specialistsCount' => $specialistsCount,
+        'updatedAt'         => $row['updated_at'],
+
+        // Normalized on save (normalizeClosedDates), so it holds only dates
+        // and names with no markup.
+        'closedDates'       => (string) ($row['closed_dates'] ?? ''),
     ];
 }
 
@@ -108,9 +232,23 @@ function getSettings($pdo)
     $stmt = $pdo->query('SELECT * FROM site_settings WHERE id = 1');
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    $visitsComputed = cachedStat($pdo, $row, 'visits_cache', 'visits_cached_at', 'computeVisitsCount');
+    $ratingComputed = cachedStat($pdo, $row, 'rating_cache', 'rating_cached_at', 'computeAverageRating');
+
+    $data = formatSettings($row, activeSpecialistsCount($pdo), $visitsComputed, $ratingComputed);
+
+    // What the booking calendar will block over the next four months, built-in
+    // holidays included, so an admin can see the list is right.
+    clinicExtraClosedDates(parseClosedDates($row['closed_dates'] ?? ''));
+    $upcoming = [];
+    foreach (clinicClosedDatesBetween(date('Y-m-d'), date('Y-m-d', strtotime('+120 days'))) as $date => $name) {
+        $upcoming[] = ['date' => $date, 'name' => $name];
+    }
+    $data['upcomingClosedDates'] = $upcoming;
+
     respond(200, [
         'success' => true,
-        'data' => formatSettings($row, activeSpecialistsCount($pdo))
+        'data' => $data
     ]);
 }
 
@@ -168,30 +306,63 @@ function saveUploadedImage($fieldName, $prefix)
         ]);
     }
 
-    return '/bvetter/storage/site_settings/' . $fileName;
+    return '/storage/site_settings/' . $fileName;
 }
 
 function saveSettings($pdo, $data)
 {
+    /* Short-label fields that render on the public landing page get the
+       identity-field rule; about_text does not, because it is a paragraph and
+       "open 8am > 5pm" is a legitimate thing to write there -- it is defanged
+       on output in formatSettings() instead. It still gets a length cap, since
+       unbounded text is a denial-of-service surface. */
+    $fieldError = firstIdentityFieldError([
+        [clean($data['email'] ?? ''),   'Contact email', 190, 0],
+        [clean($data['phone'] ?? ''),   'Contact phone', 40,  0],
+        [clean($data['address'] ?? ''), 'Address',       255, 0],
+    ]);
+    if ($fieldError !== null) {
+        respond(422, ['success' => false, 'message' => $fieldError]);
+    }
+
+    if (mb_strlen(clean($data['about'] ?? '')) > 5000) {
+        respond(422, [
+            'success' => false,
+            'message' => 'About text must be 5000 characters or fewer.'
+        ]);
+    }
+
     $set = [
         'primary_color = :primary_color',
         'about_text = :about_text',
         'contact_email = :contact_email',
         'contact_phone = :contact_phone',
         'address = :address',
-        'clinic_capacity = :clinic_capacity',
-        'surgery_recovery_rate = :surgery_recovery_rate',
+        'visits_override = :visits_override',
+        'rating_override = :rating_override',
     ];
 
     $params = [
-        ':primary_color'          => clean($data['primary_color'] ?? '') ?: '#002A58',
-        ':about_text'             => clean($data['about'] ?? ''),
-        ':contact_email'          => nullableClean($data['email'] ?? ''),
-        ':contact_phone'          => nullableClean($data['phone'] ?? ''),
-        ':address'                => nullableClean($data['address'] ?? ''),
-        ':clinic_capacity'        => clean($data['clinicCapacity'] ?? '') ?: '24/7',
-        ':surgery_recovery_rate'  => clean($data['surgeryRecoveryRate'] ?? '') ?: '98.4%',
+        ':primary_color'    => clean($data['primary_color'] ?? '') ?: '#002A58',
+        ':about_text'       => clean($data['about'] ?? ''),
+        ':contact_email'    => nullableClean($data['email'] ?? ''),
+        ':contact_phone'    => nullableClean($data['phone'] ?? ''),
+        ':address'          => nullableClean($data['address'] ?? ''),
+        /* Blank means "no override" — the effective value falls back to the
+           computed count/rating (see formatSettings()). */
+        ':visits_override'  => clean($data['visitsCountOverride'] ?? ''),
+        ':rating_override'  => clean($data['avgRatingPerVetOverride'] ?? ''),
     ];
+
+    // Only when the form sent it, so an older copy of the page can't wipe it.
+    if (array_key_exists('closed_dates', $data)) {
+        [$closedDates, $closedError] = normalizeClosedDates($data['closed_dates']);
+        if ($closedError !== null) {
+            respond(422, ['success' => false, 'message' => $closedError]);
+        }
+        $set[] = 'closed_dates = :closed_dates';
+        $params[':closed_dates'] = $closedDates;
+    }
 
     $imageFields = [
         'logo'         => ['upload' => 'logo_file',        'column' => 'logo_path',         'remove' => 'remove_logo'],
@@ -220,11 +391,11 @@ function saveSettings($pdo, $data)
         getSettings($pdo);
 
     } catch (PDOException $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
 
         respond(500, [
             'success' => false,
-            'message' => 'Could not save site settings.',
-            'error' => $e->getMessage()
+            'message' => 'Could not save site settings.'
         ]);
     }
 }
@@ -232,6 +403,12 @@ function saveSettings($pdo, $data)
 $input = inputData();
 
 $action = clean($input['action'] ?? 'get');
+
+// Reading site settings is public (landing page needs it); writing is admin-only.
+if ($action !== 'get') {
+    require_once __DIR__ . '/../config/auth_guard.php';
+    requireRole($pdo, ['admin']);
+}
 
 try {
 
@@ -251,10 +428,10 @@ try {
     ]);
 
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
 
     respond(500, [
         'success' => false,
-        'message' => 'Site settings request failed.',
-        'error' => $e->getMessage()
+        'message' => 'Site settings request failed.'
     ]);
 }

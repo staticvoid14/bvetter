@@ -12,8 +12,12 @@ if ($method !== 'POST') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
+require_once __DIR__ . '/../config/input_validation.php';
 require_once __DIR__ . '/../config/mailer.php';
+require_once __DIR__ . '/../config/notifications.php';
+require_once __DIR__ . '/matching.php';
+require_once __DIR__ . '/../includes/timed_rules.php';
 
 function respond($statusCode, $payload)
 {
@@ -29,11 +33,6 @@ function inputData()
         return array_merge($_POST, $json);
     }
     return $_POST;
-}
-
-function clean($value)
-{
-    return trim((string) $value);
 }
 
 function nullableClean($value)
@@ -258,7 +257,7 @@ function assertDateNotFuture($normalizedDate, $label)
 
 function publicUploadPath($fileName, $folder)
 {
-    return '/bvetter/storage/' . $folder . '/' . $fileName;
+    return '/storage/' . $folder . '/' . $fileName;
 }
 
 function absoluteUploadPath($publicPath)
@@ -314,7 +313,25 @@ function saveUpload($field, $folder, $required = false)
     $name = $folder . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $allowed[$mime];
     $absolute = $directory . '/' . $name;
 
-    if (!move_uploaded_file($file['tmp_name'], $absolute)) {
+    $moved = move_uploaded_file($file['tmp_name'], $absolute);
+    if (!$moved) {
+        // Transient lock/permission-propagation issues (common right after a fresh
+        // deploy or under momentary disk contention) can make the first attempt fail
+        // even though the directory is otherwise writable — one short retry self-heals
+        // those without bothering the user.
+        usleep(150000);
+        $moved = move_uploaded_file($file['tmp_name'], $absolute);
+    }
+
+    if (!$moved) {
+        $lastError = error_get_last();
+        error_log(sprintf(
+            'Lost & Found upload failed: field=%s dest=%s dir_writable=%s reason=%s',
+            $field,
+            $absolute,
+            is_writable($directory) ? 'yes' : 'no',
+            $lastError['message'] ?? 'unknown'
+        ));
         respond(500, ['success' => false, 'message' => 'Could not save uploaded file.']);
     }
 
@@ -415,138 +432,6 @@ function pythonImageFeatures($absolutePath)
     return null;
 }
 
-function tokenSet($text)
-{
-    $text = strtolower((string) $text);
-    $text = preg_replace('/[^a-z0-9]+/', ' ', $text);
-    $parts = preg_split('/\s+/', trim($text));
-    $tokens = [];
-    foreach ($parts as $part) {
-        if (strlen($part) >= 2) $tokens[$part] = true;
-    }
-    return array_keys($tokens);
-}
-
-function jaccard($a, $b)
-{
-    $a = tokenSet($a);
-    $b = tokenSet($b);
-    if (!$a || !$b) return 0.0;
-    $setA = array_fill_keys($a, true);
-    $setB = array_fill_keys($b, true);
-    $intersection = count(array_intersect_key($setA, $setB));
-    $union = count($setA + $setB);
-    return $union > 0 ? $intersection / $union : 0.0;
-}
-
-function hammingSimilarity($a, $b)
-{
-    if (!$a || !$b || strlen($a) !== strlen($b)) return null;
-    $diff = 0;
-    $len = strlen($a);
-    for ($i = 0; $i < $len; $i++) {
-        if ($a[$i] !== $b[$i]) $diff++;
-    }
-    return 1.0 - ($diff / $len);
-}
-
-function rgbSimilarity($a, $b)
-{
-    if (!is_array($a) || !is_array($b) || count($a) < 3 || count($b) < 3) return null;
-    $distance = sqrt(pow($a[0] - $b[0], 2) + pow($a[1] - $b[1], 2) + pow($a[2] - $b[2], 2));
-    return max(0.0, 1.0 - ($distance / 441.68));
-}
-
-function distanceKm($lat1, $lng1, $lat2, $lng2)
-{
-    if ($lat1 === null || $lng1 === null || $lat2 === null || $lng2 === null) return null;
-    $earth = 6371;
-    $dLat = deg2rad((float) $lat2 - (float) $lat1);
-    $dLng = deg2rad((float) $lng2 - (float) $lng1);
-    $a = sin($dLat / 2) * sin($dLat / 2) + cos(deg2rad((float) $lat1)) * cos(deg2rad((float) $lat2)) * sin($dLng / 2) * sin($dLng / 2);
-    return $earth * (2 * atan2(sqrt($a), sqrt(1 - $a)));
-}
-
-function scoreMatch($lost, $candidate)
-{
-    $score = 0;
-    $reasons = [];
-    $lostSpecies = strtolower(clean($lost['species'] ?? ''));
-    $candidateSpecies = strtolower(clean($candidate['species'] ?? ''));
-
-    if ($lostSpecies !== '' && $candidateSpecies !== '' && $lostSpecies !== $candidateSpecies) {
-        return [0, ['Different species']];
-    }
-
-    if ($lostSpecies !== '' && $candidateSpecies !== '' && $lostSpecies === $candidateSpecies) {
-        $score += 12;
-        $reasons[] = 'Same species';
-    }
-
-    $breed = jaccard($lost['breed'], $candidate['breed']);
-    if ($breed >= 0.5) $reasons[] = 'Similar breed';
-    $score += (int) round($breed * 14);
-
-    if (clean($lost['sex']) !== '' && clean($candidate['sex']) !== '' && strtolower($lost['sex']) === strtolower($candidate['sex'])) {
-        $score += 8;
-        $reasons[] = 'Same sex';
-    }
-
-    if (clean($lost['size']) !== '' && clean($candidate['size']) !== '' && strtolower($lost['size']) === strtolower($candidate['size'])) {
-        $score += 10;
-        $reasons[] = 'Same size';
-    }
-
-    $markings = jaccard($lost['color_markings'] . ' ' . $lost['notes'], $candidate['color_markings'] . ' ' . $candidate['notes']);
-    if ($markings >= 0.25) $reasons[] = 'Similar color or markings';
-    $score += (int) round($markings * 18);
-
-    if ($lost['barangay_id'] && $candidate['barangay_id'] && (int) $lost['barangay_id'] === (int) $candidate['barangay_id']) {
-        $score += 18;
-        $reasons[] = 'Same barangay';
-    } else {
-        $distance = distanceKm($lost['latitude'], $lost['longitude'], $candidate['latitude'], $candidate['longitude']);
-        if ($distance !== null) {
-            if ($distance <= 1) {
-                $score += 18;
-                $reasons[] = 'Within 1 km';
-            } elseif ($distance <= 3) {
-                $score += 12;
-                $reasons[] = 'Nearby location';
-            } elseif ($distance <= 7) {
-                $score += 6;
-                $reasons[] = 'Same city area';
-            }
-        }
-    }
-
-    $lostFeatures = json_decode((string) $lost['image_features'], true);
-    $candidateFeatures = json_decode((string) $candidate['image_features'], true);
-    if (is_array($lostFeatures) && is_array($candidateFeatures)) {
-        $rgb = rgbSimilarity($lostFeatures['avg_rgb'] ?? null, $candidateFeatures['avg_rgb'] ?? null);
-        if ($rgb !== null) {
-            if ($rgb >= 0.78) $reasons[] = 'Similar photo color profile';
-            $score += (int) round($rgb * 10);
-        }
-
-        $hash = hammingSimilarity($lostFeatures['brightness_hash'] ?? null, $candidateFeatures['brightness_hash'] ?? null);
-        if ($hash !== null) {
-            if ($hash >= 0.68) $reasons[] = 'Similar image pattern';
-            $score += (int) round($hash * 10);
-        } elseif (($lostFeatures['width'] ?? 0) && ($candidateFeatures['width'] ?? 0)) {
-            $ratioA = ((float) $lostFeatures['width']) / max(1, (float) $lostFeatures['height']);
-            $ratioB = ((float) $candidateFeatures['width']) / max(1, (float) $candidateFeatures['height']);
-            $ratioScore = max(0, 1 - min(1, abs($ratioA - $ratioB)));
-            $score += (int) round($ratioScore * 4);
-        }
-    }
-
-    $score = min(100, max(0, $score));
-    if (!$reasons) $reasons[] = 'Low-confidence candidate';
-
-    return [$score, array_values(array_unique($reasons))];
-}
-
 function reportRowToArray($row)
 {
     return [
@@ -565,7 +450,7 @@ function reportRowToArray($row)
         'sex' => $row['sex'],
         'size' => $row['size'],
         'markings' => $row['color_markings'],
-        'notes' => $row['notes'],
+        'notes' => apiSafeText($row['notes']),
         'barangay' => $row['barangay_name'],
         'location' => $row['location_text'] ?: ($row['barangay_name'] ? $row['barangay_name'] . ', Baliwag' : null),
         'lat' => $row['latitude'] !== null ? (float) $row['latitude'] : null,
@@ -582,7 +467,89 @@ function reportRowToArray($row)
         'created_at' => $row['created_at'],
         'updated_at' => $row['updated_at'] ?? $row['created_at'],
         'resolved_at' => $row['resolved_at'] ?? null,
+        // Time limits (api/includes/timed_rules.php): when a pending owner
+        // report goes live on its own, and whether a live one got there that
+        // way without a vet having looked at it yet.
+        'autoPublishAt' => $row['auto_publish_at'] ?? null,
+        'autoPublished' => !empty($row['auto_published_at']) && empty($row['reviewed_by_user_id']),
     ];
+}
+
+/**
+ * Owner reports nobody reviewed within BV_LF_AUTO_PUBLISH_MINUTES go live on
+ * their own, tagged "Auto-published" for the vets until one marks it
+ * reviewed. Every poster is an ID-verified resident, and a lost pet can't
+ * wait for the vets to come back from the field.
+ *
+ * Runs at the start of every Lost & Found request -- the board loading is
+ * exactly when it matters -- and from api/cron/timed-rules.php. Only reports
+ * made after this shipped have auto_publish_at; older pending ones stay in
+ * the vets' queue.
+ */
+function autoPublishDueReports($pdo)
+{
+    try {
+        if (!ensureTimedRulesSchema($pdo)) return;
+
+        $stmt = $pdo->prepare("
+            SELECT id, owner_id, report_type, pet_name
+            FROM lost_found_reports
+            WHERE status = 'pending' AND auto_publish_at IS NOT NULL AND auto_publish_at <= :now
+        ");
+        $stmt->execute([':now' => date('Y-m-d H:i:s')]);
+
+        foreach ($stmt->fetchAll() as $row) {
+            $id = (int) $row['id'];
+            $publish = $pdo->prepare("UPDATE lost_found_reports SET status = 'active', auto_published_at = NOW() WHERE id = :id AND status = 'pending'");
+            $publish->execute([':id' => $id]);
+            if ($publish->rowCount() !== 1) continue;
+
+            rebuildMatchesForReport($pdo, $id);
+            notifyReportOwnerStatus($pdo, (int) $row['owner_id'], $id, 'active');
+            notifyStaff(
+                $pdo,
+                'both',
+                'lost_found_new',
+                'Report Auto-Published',
+                'A ' . $row['report_type'] . ' pet report' . ($row['pet_name'] ? ' (' . $row['pet_name'] . ')' : '')
+                    . ' went live after 2 hours without review. Please check it and mark it reviewed.',
+                $id,
+                false
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('[BVetter] lost & found auto-publish: ' . $e->getMessage());
+    }
+}
+
+/** A vet has now looked at an auto-published report; clears its tag. */
+function markReportReviewed($pdo, $data, $staffSession)
+{
+    $id = (int) ($data['id'] ?? $data['report_id'] ?? 0);
+    if ($id <= 0) respond(422, ['success' => false, 'message' => 'Invalid report id.']);
+
+    $pdo->prepare('UPDATE lost_found_reports SET reviewed_by_user_id = :user, reviewed_at = NOW() WHERE id = :id')
+        ->execute([':user' => (int) $staffSession['user_id'], ':id' => $id]);
+
+    respond(200, ['success' => true, 'message' => 'Marked as reviewed.']);
+}
+
+// A logged-out visitor only ever sees reports through the landing page, which
+// shows the type, photo, pet name and barangay. Everything that identifies or
+// locates the person who posted -- their name, phone, email, account id and the
+// exact map pin -- is blanked for them. Fields are nulled rather than removed so
+// the response shape stays the same for every caller.
+function withoutPosterDetails(array $report)
+{
+    foreach (['owner_id', 'lat', 'lng', 'uploadedBy', 'uploader', 'contact', 'email'] as $field) {
+        $report[$field] = null;
+    }
+    return $report;
+}
+
+function isStaffViewer($viewer)
+{
+    return $viewer !== null && in_array($viewer['role_name'], ['veterinarian', 'admin'], true);
 }
 
 function reportSelectSql()
@@ -594,17 +561,43 @@ function reportSelectSql()
     ";
 }
 
-function listReports($pdo, $data, $management = false)
+/**
+ * How long a claimed/reunited report stays in the main board grid, grayed
+ * out, before it moves under the Reunited filter only.
+ */
+const CLAIMED_ON_BOARD_DAYS = 30;
+
+function listReports($pdo, $data, $management = false, $viewer = null)
 {
     $where = [];
     $params = [];
 
+    // The public board shows active reports and, grayed out, the ones resolved
+    // in the last CLAIMED_ON_BOARD_DAYS days. A resolved report used to vanish
+    // the moment a claim or match was approved, so if the wrong person claimed
+    // a pet, its real owner never saw that it had been claimed at all.
+    // 'reunited' lists every resolved report, for the board's Reunited filter.
+    //
+    // The status filter used to be honoured for anyone, so a logged-out
+    // request for status=rejected or status=pending returned posts a vet had
+    // turned down or not yet reviewed, contact details included. Only staff
+    // may browse other statuses here.
     $status = clean($data['status'] ?? '');
-    if ($status !== '' && $status !== 'all') {
+    $reunitedOnly = !$management && strtolower($status) === 'reunited';
+    if (!$management && !isStaffViewer($viewer)) {
+        // Open cases only is the one narrower view the public may ask for --
+        // the landing page's "recent reports" strip does.
+        $status = strtolower($status) === 'active' ? 'active' : '';
+    }
+    if ($reunitedOnly) {
+        $where[] = "lost_found_reports.status = 'resolved'";
+    } elseif ($status !== '' && $status !== 'all') {
         $where[] = 'lost_found_reports.status = :status';
         $params[':status'] = normalizeStatus($status, $management ? 'pending' : 'active');
     } elseif (!$management) {
-        $where[] = "lost_found_reports.status = 'active'";
+        $where[] = "(lost_found_reports.status = 'active'
+                     OR (lost_found_reports.status = 'resolved' AND lost_found_reports.resolved_at >= :claimed_since))";
+        $params[':claimed_since'] = date('Y-m-d H:i:s', time() - CLAIMED_ON_BOARD_DAYS * 86400);
     }
 
     $type = clean($data['type'] ?? $data['report_type'] ?? '');
@@ -627,13 +620,24 @@ function listReports($pdo, $data, $management = false)
 
     $search = clean($data['search'] ?? '');
     if ($search !== '') {
-        $where[] = '(lost_found_reports.pet_name LIKE :search OR lost_found_reports.breed LIKE :search OR lost_found_reports.color_markings LIKE :search OR lost_found_reports.notes LIKE :search OR lost_found_reports.case_number LIKE :search)';
-        $params[':search'] = '%' . $search . '%';
+        // One placeholder per use: prepares are native (not emulated), and a
+        // named placeholder repeated in one statement fails outright -- which
+        // made every search on this board return an error.
+        $columns = ['pet_name', 'breed', 'color_markings', 'notes', 'case_number'];
+        $likes = [];
+        foreach ($columns as $i => $column) {
+            $likes[] = "lost_found_reports.{$column} LIKE :search{$i}";
+            $params[":search{$i}"] = '%' . $search . '%';
+        }
+        $where[] = '(' . implode(' OR ', $likes) . ')';
     }
 
     $sql = reportSelectSql();
     if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
-    $sql .= ' ORDER BY lost_found_reports.created_at DESC';
+    // Open cases first; the grayed-out claimed ones after them.
+    $sql .= $reunitedOnly
+        ? ' ORDER BY lost_found_reports.resolved_at DESC'
+        : " ORDER BY (lost_found_reports.status = 'resolved') ASC, lost_found_reports.created_at DESC";
 
     $limit = (int) ($data['limit'] ?? 0);
     if ($limit > 0 && $limit <= 100) {
@@ -643,6 +647,12 @@ function listReports($pdo, $data, $management = false)
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $reports = array_map('reportRowToArray', $stmt->fetchAll());
+    // A closed case needs nobody's phone number any more; a dispute goes
+    // through the clinic ("This is my pet" files a ticket), not the poster.
+    $reports = array_map(function ($report) use ($management, $viewer) {
+        $hide = !$management && ($viewer === null || ($report['status'] === 'resolved' && !isStaffViewer($viewer)));
+        return $hide ? withoutPosterDetails($report) : $report;
+    }, $reports);
 
     respond(200, ['success' => true, 'data' => $reports]);
 }
@@ -677,7 +687,7 @@ function listMyReports($pdo, $data)
     respond(200, ['success' => true, 'data' => $reports]);
 }
 
-function getReport($pdo, $data)
+function getReport($pdo, $data, $viewer = null)
 {
     $id = (int) ($data['id'] ?? $data['report_id'] ?? 0);
     if ($id <= 0) respond(422, ['success' => false, 'message' => 'Invalid report id.']);
@@ -685,9 +695,20 @@ function getReport($pdo, $data)
     $stmt = $pdo->prepare(reportSelectSql() . ' WHERE lost_found_reports.id = :id LIMIT 1');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch();
-    if (!$row) respond(404, ['success' => false, 'message' => 'Report not found.']);
 
-    respond(200, ['success' => true, 'data' => reportRowToArray($row)]);
+    // Same rule as the board: anyone may open an active report, the person who
+    // posted it may open it in any state, and only staff see the rest. Anything
+    // else answers exactly like a missing id, so ids can't be probed for
+    // pending or rejected posts.
+    $isOwnReport = $row && $viewer !== null && (int) $row['owner_id'] === (int) $viewer['user_id'];
+    $publicStatus = $row && in_array($row['status'], ['active', 'resolved'], true);
+    if (!$row || (!$publicStatus && !$isOwnReport && !isStaffViewer($viewer))) {
+        respond(404, ['success' => false, 'message' => 'Report not found.']);
+    }
+
+    $report = reportRowToArray($row);
+    $hide = $viewer === null || ($row['status'] === 'resolved' && !$isOwnReport && !isStaffViewer($viewer));
+    respond(200, ['success' => true, 'data' => $hide ? withoutPosterDetails($report) : $report]);
 }
 
 function createReport($pdo, $data)
@@ -714,20 +735,43 @@ function createReport($pdo, $data)
     $contactPhone = nullableClean($data['contact_phone'] ?? $data['contact'] ?? $data['phone'] ?? '') ?: ($accountContact['phone'] ?? null);
     $contactEmail = nullableClean($data['contact_email'] ?? $data['email'] ?? '') ?: ($accountContact['email'] ?? null);
 
+    $lfFieldError = firstIdentityFieldError([
+        [(string) $petName,     'Pet name', 120, 0],
+        [(string) $species,     'Species', 60, 0],
+        [(string) $breed,       'Breed', 80, 0],
+        [(string) $contactName, 'Contact name', 150, 0],
+        [(string) $contactPhone,'Contact number', 30, 0],
+        [(string) $contactEmail,'Contact email', 190, 0],
+    ]);
+    if ($lfFieldError !== null) {
+        respond(422, ['success' => false, 'message' => $lfFieldError]);
+    }
+
     if (!$species || !$breed) {
         respond(422, ['success' => false, 'message' => 'Species and breed are required.']);
     }
-    if (!nullableClean($data['sex'] ?? '') || !nullableClean($data['size'] ?? '')) {
-        respond(422, ['success' => false, 'message' => 'Sex and size are required.']);
+    // Sex is optional for found reports (a finder often can't check the
+    // animal); "Unknown" is normalized to NULL so match scoring keeps
+    // treating it as no-signal. Lost reports still require Male/Female.
+    $sex = nullableClean($data['sex'] ?? '');
+    if ($sex !== null && strcasecmp($sex, 'unknown') === 0) {
+        $sex = null;
     }
-    if (!nullableClean($data['color_markings'] ?? $data['markings'] ?? '')) {
+    if ($type === 'lost' && !$sex) {
+        respond(422, ['success' => false, 'message' => 'Sex is required for lost pet reports.']);
+    }
+    if (!nullableClean($data['size'] ?? '')) {
+        respond(422, ['success' => false, 'message' => 'Size is required.']);
+    }
+    $colorMarkings = nullableClean($data['color_markings'] ?? $data['markings'] ?? '');
+    if (!$colorMarkings) {
         respond(422, ['success' => false, 'message' => 'Color or markings are required.']);
     }
-    $notes = nullableClean($data['notes'] ?? '');
-    if (!$notes) {
-        respond(422, ['success' => false, 'message' => 'Additional notes are required.']);
+    if (mb_strlen($colorMarkings) > 200) {
+        respond(422, ['success' => false, 'message' => 'Color / markings must be 200 characters or fewer.']);
     }
-    if (mb_strlen($notes) > 500) {
+    $notes = nullableClean($data['notes'] ?? '');
+    if ($notes && mb_strlen($notes) > 500) {
         respond(422, ['success' => false, 'message' => 'Additional details must be 500 characters or fewer.']);
     }
     $incidentDate = normalizeDate($data['incident_date'] ?? $data['dateLost'] ?? $data['date'] ?? '');
@@ -769,9 +813,9 @@ function createReport($pdo, $data)
         ':pet_name' => $petName,
         ':species' => $species,
         ':breed' => $breed,
-        ':sex' => nullableClean($data['sex'] ?? ''),
+        ':sex' => $sex,
         ':size' => nullableClean($data['size'] ?? ''),
-        ':color_markings' => nullableClean($data['color_markings'] ?? $data['markings'] ?? ''),
+        ':color_markings' => $colorMarkings,
         ':notes' => $notes,
         ':barangay_id' => $barangayId,
         ':barangay_name' => $barangayName,
@@ -790,13 +834,30 @@ function createReport($pdo, $data)
     $reportId = (int) $pdo->lastInsertId();
     rebuildMatchesForReport($pdo, $reportId);
 
+    if ($status === 'pending') {
+        setReportAutoPublish($pdo, $reportId);
+    }
+
     if ($status === 'active') {
-        notifyReportOwnerActive($pdo, $ownerId, $reportId);
+        notifyReportOwnerStatus($pdo, $ownerId, $reportId, 'active');
+    } else {
+        $label = $type === 'lost' ? 'lost pet' : 'found pet';
+        notifyStaff(
+            $pdo,
+            'both',
+            'lost_found_new',
+            'New Lost & Found Report',
+            "A new {$label} report ({$contactName}) is awaiting review.",
+            $reportId,
+            true
+        );
     }
 
     respond(201, [
         'success' => true,
-        'message' => $status === 'active' ? 'Report published.' : 'Report submitted for vet review.',
+        'message' => $status === 'active'
+            ? 'Report published.'
+            : 'Report submitted for vet review.',
         'report_id' => $reportId,
         'status' => $status
     ]);
@@ -829,10 +890,13 @@ function updateReportStatus($pdo, $data, $status)
 
     if ($status === 'active') {
         rebuildMatchesForReport($pdo, $id);
+    }
+
+    if (in_array($status, ['active', 'rejected'], true)) {
         $ownerStmt = $pdo->prepare('SELECT owner_id FROM lost_found_reports WHERE id = :id LIMIT 1');
         $ownerStmt->execute([':id' => $id]);
         $ownerId = (int) ($ownerStmt->fetchColumn() ?: 0);
-        notifyReportOwnerActive($pdo, $ownerId, $id);
+        notifyReportOwnerStatus($pdo, $ownerId, $id, $status);
     }
 
     respond(200, ['success' => true, 'message' => 'Report status updated.']);
@@ -845,52 +909,61 @@ function fetchReportForMatch($pdo, $id)
     return $stmt->fetch();
 }
 
-function reportPhotoAbsolutePath($photoPath)
-{
-    if (!$photoPath) return null;
-    $marker = '/storage/';
-    $pos = strpos($photoPath, $marker);
-    if ($pos === false) return null;
-    return dirname(dirname(__DIR__)) . substr($photoPath, $pos);
-}
-
-function notifyReportOwnerActive($pdo, $ownerId, $reportId)
+function notifyReportOwnerStatus($pdo, $ownerId, $reportId, $status)
 {
     $ownerId = (int) $ownerId;
-    if ($ownerId <= 0 || !userWantsNotification($pdo, $ownerId, 'lost_found_alerts')) {
-        return;
-    }
+    if ($ownerId <= 0) return;
 
     $stmt = $pdo->prepare('SELECT case_number, report_type, pet_name, photo_path FROM lost_found_reports WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => (int) $reportId]);
     $report = $stmt->fetch();
     if (!$report) return;
 
+    $label = $report['report_type'] === 'lost' ? 'lost pet' : 'found pet';
+
+    // In-app row first, and unconditionally. The lost_found_alerts toggle is
+    // an email channel on the settings page, so gating this on it would hide
+    // the outcome of the owner's own report from them entirely.
+    notifyUser(
+        $pdo,
+        $ownerId,
+        'lost_found_report_status',
+        $status === 'active' ? 'Report Published' : 'Report Rejected',
+        "Your {$label} report" . ($report['pet_name'] ? " for {$report['pet_name']}" : '')
+            . " (case #{$report['case_number']}) was "
+            . ($status === 'active' ? 'published and is now live.' : 'rejected.'),
+        (int) $reportId
+    );
+
+    if (!userWantsNotification($pdo, $ownerId, 'lost_found_alerts')) return;
+
     $userStmt = $pdo->prepare('SELECT full_name, email FROM users WHERE id = :id LIMIT 1');
     $userStmt->execute([':id' => $ownerId]);
     $user = $userStmt->fetch();
     if (!$user || !$user['email']) return;
 
-    $label = $report['report_type'] === 'lost' ? 'lost pet' : 'found pet';
-    $subject = 'VBetter – Your ' . $label . ' report is now live';
+    $petLabel = $report['pet_name'] ? " for <strong>" . htmlspecialchars($report['pet_name']) . "</strong>" : '';
 
-    $embeds = [];
-    $photoCid = null;
-    $photoAbsolute = reportPhotoAbsolutePath($report['photo_path'] ?? null);
-    if ($photoAbsolute && is_file($photoAbsolute)) {
-        $photoCid = 'pet_photo';
-        $embeds[] = ['path' => $photoAbsolute, 'cid' => $photoCid];
+    if ($status === 'active') {
+        $subject = 'BVetter – Your ' . $label . ' report is now live';
+        $photoUrl = !empty($report['photo_path']) ? emailPhotoUrl($report['photo_path']) : null;
+        $body = notificationEmailWrapper(
+            'Report Published',
+            "<p>Your {$label} report{$petLabel} (case #{$report['case_number']}) is now live and visible to the community.</p>",
+            $photoUrl,
+            ['label' => 'View', 'url' => APP_URL . '/public/pages/lost-found.html?tab=myreports']
+        );
+    } else {
+        $subject = 'BVetter – Your ' . $label . ' report was rejected';
+        $body = notificationEmailWrapper(
+            'Report Rejected',
+            "<p>Your {$label} report{$petLabel} (case #{$report['case_number']}) has been <strong>rejected</strong>.</p>",
+            null,
+            ['label' => 'View', 'url' => APP_URL . '/public/pages/lost-found.html?tab=myreports']
+        );
     }
 
-    $body = notificationEmailWrapper(
-        'Report Published',
-        "<p>Your {$label} report" . ($report['pet_name'] ? " for <strong>" . htmlspecialchars($report['pet_name']) . "</strong>" : '') . "
-           (case #{$report['case_number']}) is now live and visible to the community.</p>",
-        $photoCid,
-        ['label' => 'View', 'url' => APP_URL . '/public/pages/lost-found.html?tab=myreports']
-    );
-
-    sendAppMail($user['email'], nullableClean($user['full_name'] ?? ''), $subject, $body, $embeds);
+    sendAppMail($user['email'], nullableClean($user['full_name'] ?? ''), $subject, $body);
 }
 
 function userContactFromAccount($pdo, $data)
@@ -963,6 +1036,7 @@ function rebuildMatchesForReport($pdo, $reportId)
                 ':confidence' => $score,
                 ':reasons_json' => json_encode($reasons),
             ]);
+            notifyLostReportOwnerOfMatch($pdo, (int) $lostReport['id'], (int) $pdo->lastInsertId());
         }
     }
 
@@ -970,27 +1044,66 @@ function rebuildMatchesForReport($pdo, $reportId)
     if ($lostId > 0) rebuildSightingMatches($pdo, $lostId);
 }
 
+/**
+ * Tell the owner of a lost report that a new possible match turned up.
+ *
+ * Only called from the INSERT branches of the match rebuilds, never the
+ * UPDATE ones — rebuilds are upserts rather than delete-and-recreate, so an
+ * insert really is a match that did not exist before. Re-scoring an existing
+ * match must stay silent or every rebuild would notify the whole board.
+ */
+function notifyLostReportOwnerOfMatch($pdo, $lostReportId, $matchId)
+{
+    $stmt = $pdo->prepare('
+        SELECT owner_id, case_number, pet_name FROM lost_found_reports WHERE id = :id LIMIT 1
+    ');
+    $stmt->execute([':id' => (int) $lostReportId]);
+    $report = $stmt->fetch();
+    if (!$report || (int) $report['owner_id'] <= 0) return;
+
+    notifyUser(
+        $pdo,
+        (int) $report['owner_id'],
+        'lost_found_match',
+        'New Potential Match Found',
+        'A possible match was found for your lost report'
+            . ($report['pet_name'] ? " for {$report['pet_name']}" : '')
+            . " (case #{$report['case_number']}).",
+        (int) $matchId
+    );
+}
+
 function rebuildSightingMatches($pdo, $lostReportId)
 {
     $lost = fetchReportForMatch($pdo, $lostReportId);
     if (!$lost || $lost['status'] !== 'active') return;
 
-    $stmt = $pdo->query("SELECT * FROM lost_found_sightings WHERE status = 'active'");
+    // A sighting is only ever a candidate for the lost report it was actually
+    // submitted against — matching it here by species/location similarity
+    // against every other active lost report is what caused one sighting to
+    // fan out and appear under unrelated reports.
+    $stmt = $pdo->prepare("SELECT * FROM lost_found_sightings WHERE status = 'active' AND report_id = :lost_report_id");
+    $stmt->execute([':lost_report_id' => $lostReportId]);
     foreach ($stmt->fetchAll() as $sighting) {
+        // Sightings never collect species/breed/sex/size (the sighting form only
+        // asks for date, barangay, location, photo, and notes) — leave these blank
+        // instead of copying the lost report's own values onto the candidate.
+        // Copying them made every sighting trivially "match" every active lost
+        // report via the species/breed/sex/size score components, regardless of
+        // what the sighting actually reported.
         $candidate = [
-            'species' => $lost['species'],
-            'breed' => $lost['breed'],
-            'sex' => $lost['sex'],
-            'size' => $lost['size'],
+            'species' => '',
+            'breed' => '',
+            'sex' => '',
+            'size' => '',
             'color_markings' => '',
-            'notes' => $sighting['notes'],
+            'notes' => apiSafeText($sighting['notes']),
             'barangay_id' => $sighting['barangay_id'],
             'latitude' => $sighting['latitude'],
             'longitude' => $sighting['longitude'],
             'image_features' => $sighting['image_features'],
         ];
         [$score, $reasons] = scoreMatch($lost, $candidate);
-        if ($score < 38) continue;
 
         $existing = $pdo->prepare("
             SELECT id
@@ -1006,6 +1119,10 @@ function rebuildSightingMatches($pdo, $lostReportId)
         ]);
         $matchId = $existing->fetchColumn();
 
+        // The sighting was explicitly submitted against this report, so it's
+        // always linked here — $score/$reasons are kept only as display/sort
+        // metadata (confidence, ORDER BY confidence in listMatches()), never
+        // as a gate on whether the match exists.
         if ($matchId) {
             $update = $pdo->prepare('UPDATE lost_found_matches SET confidence = :confidence, reasons_json = :reasons_json, updated_at = NOW() WHERE id = :id');
             $update->execute([
@@ -1024,14 +1141,26 @@ function rebuildSightingMatches($pdo, $lostReportId)
                 ':confidence' => $score,
                 ':reasons_json' => json_encode($reasons),
             ]);
+            notifyLostReportOwnerOfMatch($pdo, (int) $lostReportId, (int) $pdo->lastInsertId());
         }
     }
 }
 
-function listMatches($pdo, $data)
+function listMatches($pdo, $data, $viewer)
 {
     $reportId = (int) ($data['report_id'] ?? $data['id'] ?? 0);
     $includeResolved = (int) ($data['include_resolved'] ?? 0) === 1;
+
+    // Every match carries both sides' contact details, so a pet owner only gets
+    // the matches for a report of their own -- the My Reports panel is the one
+    // place they are shown. Without a report id, or with someone else's, the
+    // answer is an empty list. Staff review every match and keep seeing all.
+    if (!isStaffViewer($viewer)) {
+        $ownReport = $reportId > 0 ? fetchReportForMatch($pdo, $reportId) : null;
+        if (!$ownReport || (int) $ownReport['owner_id'] !== (int) $viewer['user_id']) {
+            respond(200, ['success' => true, 'data' => []]);
+        }
+    }
 
     // A "suggested" match is only actionable while every party involved is still
     // active. An "approved" match only ever exists once every party involved has
@@ -1068,9 +1197,12 @@ function listMatches($pdo, $data)
     $sql = "
         SELECT
             lost_found_matches.*,
-            lost.case_number AS lost_case, lost.pet_name AS lost_name, lost.species AS lost_species, lost.breed AS lost_breed, lost.photo_path AS lost_photo, lost.barangay_name AS lost_barangay, lost.created_at AS lost_created_at,
-            found.case_number AS found_case, found.pet_name AS found_name, found.species AS found_species, found.breed AS found_breed, found.photo_path AS found_photo, found.barangay_name AS found_barangay, found.created_at AS found_created_at,
-            sightings.case_number AS sighting_case, sightings.photo_path AS sighting_photo, sightings.barangay_name AS sighting_barangay, sightings.notes AS sighting_notes, sightings.created_at AS sighting_created_at
+            lost.case_number AS lost_case, lost.pet_name AS lost_name, lost.species AS lost_species, lost.breed AS lost_breed, lost.sex AS lost_sex, lost.size AS lost_size, lost.color_markings AS lost_markings, lost.notes AS lost_notes, lost.photo_path AS lost_photo, lost.barangay_name AS lost_barangay, lost.created_at AS lost_created_at,
+            lost.contact_name AS lost_contact_name, lost.contact_phone AS lost_contact_phone, lost.contact_email AS lost_contact_email,
+            found.case_number AS found_case, found.pet_name AS found_name, found.species AS found_species, found.breed AS found_breed, found.sex AS found_sex, found.size AS found_size, found.color_markings AS found_markings, found.notes AS found_notes, found.photo_path AS found_photo, found.barangay_name AS found_barangay, found.created_at AS found_created_at,
+            found.contact_name AS found_contact_name, found.contact_phone AS found_contact_phone, found.contact_email AS found_contact_email,
+            sightings.case_number AS sighting_case, sightings.photo_path AS sighting_photo, sightings.barangay_name AS sighting_barangay, sightings.notes AS sighting_notes, sightings.created_at AS sighting_created_at,
+            sightings.sighting_date AS sighting_spotted_date, sightings.contact_name AS sighting_contact_name, sightings.contact_phone AS sighting_contact_phone, sightings.contact_email AS sighting_contact_email
         FROM lost_found_matches
         INNER JOIN lost_found_reports lost ON lost.id = lost_found_matches.lost_report_id
         LEFT JOIN lost_found_reports found ON found.id = lost_found_matches.found_report_id
@@ -1095,9 +1227,16 @@ function listMatches($pdo, $data)
                 'name' => $row['lost_name'] ?: 'Lost Pet Report',
                 'species' => $row['lost_species'],
                 'breed' => $row['lost_breed'],
+                'sex' => $row['lost_sex'],
+                'size' => $row['lost_size'],
+                'markings' => $row['lost_markings'],
+                'notes' => apiSafeText($row['lost_notes']),
                 'location' => $row['lost_barangay'],
                 'image' => $row['lost_photo'],
                 'createdAt' => $row['lost_created_at'],
+                'contactName' => $row['lost_contact_name'],
+                'contactPhone' => $row['lost_contact_phone'],
+                'contactEmail' => $row['lost_contact_email'],
             ],
             'found' => [
                 'reportId' => $row['found_report_id'] ? (int) $row['found_report_id'] : null,
@@ -1106,15 +1245,395 @@ function listMatches($pdo, $data)
                 'name' => $row['found_report_id'] ? ($row['found_name'] ?: 'Found Pet Report') : 'Sighting Report',
                 'species' => $row['found_species'],
                 'breed' => $row['found_breed'],
+                'sex' => $row['found_sex'],
+                'size' => $row['found_size'],
+                'markings' => $row['found_markings'],
                 'location' => $row['found_barangay'] ?: $row['sighting_barangay'],
                 'image' => $row['found_photo'] ?: $row['sighting_photo'],
-                'notes' => $row['sighting_notes'],
+                'notes' => apiSafeText($row['found_report_id'] ? $row['found_notes'] : $row['sighting_notes']),
                 'createdAt' => $row['found_report_id'] ? $row['found_created_at'] : $row['sighting_created_at'],
+                'spottedDate' => $row['sighting_spotted_date'],
+                'contactName' => $row['found_report_id'] ? $row['found_contact_name'] : $row['sighting_contact_name'],
+                'contactPhone' => $row['found_report_id'] ? $row['found_contact_phone'] : $row['sighting_contact_phone'],
+                'contactEmail' => $row['found_report_id'] ? $row['found_contact_email'] : $row['sighting_contact_email'],
             ],
         ];
     }
 
     respond(200, ['success' => true, 'data' => $matches]);
+}
+
+/* ── Competing claimants for one found pet ─────────────────────────────
+ *
+ * Faculty feedback: when two people claim the same pet, warn the approver
+ * if they are about to pick the lower match. A "candidate" for a found pet
+ * is either a pending claim (scored by the claimant's own lost report's
+ * match to this pet, when they filed one -- a claim on its own has no
+ * score) or a suggested match from a lost report whose owner hasn't claimed
+ * yet: the owner who hasn't seen the found report is the likeliest real
+ * owner to lose out. The percentage measures how alike the reports look,
+ * not who owns the pet, so a lower pick is allowed -- with a reason.
+ */
+
+/** review_notes on matches holds the approver's reason for a lower pick. */
+function ensureMatchReviewNotes($pdo)
+{
+    static $ready = null;
+    if ($ready !== null) return $ready;
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM lost_found_matches LIKE 'review_notes'")->fetch()) {
+            $pdo->exec('ALTER TABLE lost_found_matches ADD COLUMN review_notes TEXT NULL');
+        }
+    } catch (PDOException $e) {
+        error_log('[BVetter] lost_found_matches.review_notes: ' . $e->getMessage());
+        return $ready = false;
+    }
+    return $ready = true;
+}
+
+function foundPetCandidates($pdo, $foundReportId)
+{
+    $claims = $pdo->prepare("
+        SELECT c.id, c.claimant_user_id, COALESCE(u.full_name, c.claimant_name) AS name,
+               (SELECT MAX(m.confidence)
+                FROM lost_found_matches m
+                INNER JOIN lost_found_reports lr ON lr.id = m.lost_report_id
+                WHERE m.found_report_id = c.report_id AND lr.owner_id = c.claimant_user_id
+                  AND m.status IN ('suggested', 'approved')) AS score
+        FROM lost_found_claims c
+        LEFT JOIN users u ON u.id = c.claimant_user_id
+        WHERE c.report_id = :found AND c.status = 'pending'
+    ");
+    $claims->execute([':found' => $foundReportId]);
+
+    $candidates = [];
+    $claimantIds = [];
+    foreach ($claims->fetchAll() as $row) {
+        $candidates[] = [
+            'kind' => 'claim',
+            'id' => (int) $row['id'],
+            'ownerId' => (int) $row['claimant_user_id'],
+            'name' => $row['name'] ?: 'Claimant',
+            'score' => $row['score'] !== null ? (int) $row['score'] : null,
+        ];
+        if ((int) $row['claimant_user_id'] > 0) $claimantIds[] = (int) $row['claimant_user_id'];
+    }
+
+    $matches = $pdo->prepare("
+        SELECT m.id, m.confidence, lr.owner_id, lr.case_number,
+               COALESCE(NULLIF(lr.contact_name, ''), u.full_name) AS name
+        FROM lost_found_matches m
+        INNER JOIN lost_found_reports lr ON lr.id = m.lost_report_id
+        LEFT JOIN users u ON u.id = lr.owner_id
+        WHERE m.found_report_id = :found AND m.status = 'suggested' AND lr.status = 'active'
+    ");
+    $matches->execute([':found' => $foundReportId]);
+    foreach ($matches->fetchAll() as $row) {
+        // Someone who both claimed and has a matching lost report is one
+        // person, already listed through their claim.
+        if (in_array((int) $row['owner_id'], $claimantIds, true)) continue;
+        $candidates[] = [
+            'kind' => 'match',
+            'id' => (int) $row['id'],
+            'ownerId' => (int) $row['owner_id'],
+            'name' => ($row['name'] ?: 'Owner') . ' (' . $row['case_number'] . ')',
+            'score' => (int) $row['confidence'],
+        ];
+    }
+    return $candidates;
+}
+
+/**
+ * The candidate being approved and any others that score higher. Returns
+ * null when there is no found pet to compare over (e.g. a sighting match).
+ */
+function approvalComparison($pdo, $kind, $id)
+{
+    if ($kind === 'claim') {
+        $stmt = $pdo->prepare('SELECT report_id, claimant_user_id FROM lost_found_claims WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $id]);
+        $row = $stmt->fetch();
+        if (!$row) return null;
+        $foundId = (int) $row['report_id'];
+        $ownerId = (int) $row['claimant_user_id'];
+    } else {
+        $stmt = $pdo->prepare('
+            SELECT m.found_report_id, m.confidence, lr.owner_id
+            FROM lost_found_matches m
+            INNER JOIN lost_found_reports lr ON lr.id = m.lost_report_id
+            WHERE m.id = :id LIMIT 1
+        ');
+        $stmt->execute([':id' => $id]);
+        $row = $stmt->fetch();
+        if (!$row || !$row['found_report_id']) return null;
+        $foundId = (int) $row['found_report_id'];
+        $ownerId = (int) $row['owner_id'];
+    }
+
+    $subject = null;
+    $others = [];
+    foreach (foundPetCandidates($pdo, $foundId) as $candidate) {
+        $isSubject = ($candidate['kind'] === $kind && $candidate['id'] === $id)
+            || ($ownerId > 0 && $candidate['ownerId'] === $ownerId);
+        if ($isSubject) $subject = $candidate;
+        else $others[] = $candidate;
+    }
+    if ($subject === null && $kind === 'match') {
+        $subject = ['kind' => 'match', 'id' => $id, 'ownerId' => $ownerId, 'name' => 'This match', 'score' => (int) $row['confidence']];
+    }
+    if ($subject === null) return null;
+
+    // No score counts as lowest.
+    $rank = function ($c) { return $c['score'] === null ? -1 : $c['score']; };
+    $higher = array_values(array_filter($others, function ($c) use ($rank, $subject) {
+        return $rank($c) > $rank($subject);
+    }));
+    usort($higher, function ($a, $b) use ($rank) { return $rank($b) <=> $rank($a); });
+
+    return ['foundId' => $foundId, 'subject' => $subject, 'higher' => $higher];
+}
+
+function approvalCheck($pdo, $data)
+{
+    $kind = ($data['kind'] ?? '') === 'match' ? 'match' : 'claim';
+    $id = (int) ($data['id'] ?? 0);
+    $comparison = $id > 0 ? approvalComparison($pdo, $kind, $id) : null;
+    respond(200, [
+        'success' => true,
+        'data' => [
+            'subject' => $comparison['subject'] ?? null,
+            'higher' => $comparison['higher'] ?? [],
+        ],
+    ]);
+}
+
+/**
+ * Refuses a lower-scoring approval that came without a reason. The page
+ * asks for one; this keeps a direct request from skipping it.
+ */
+function assertReasonForLowerPick($pdo, $kind, $id, $reason)
+{
+    $comparison = approvalComparison($pdo, $kind, $id);
+    if ($comparison && $comparison['higher'] && trim($reason) === '') {
+        respond(422, [
+            'success' => false,
+            'message' => 'Another claimant has a higher match. Enter a reason to approve this one.',
+        ]);
+    }
+    return $comparison;
+}
+
+/**
+ * Once a found pet goes to someone, the other pending claims on it are
+ * closed (each claimant notified), and the other suggested matches are
+ * dismissed quietly -- those owners' lost reports stay active, because
+ * their own pet is still missing. A claim by the owner of the approved
+ * match is theirs, so it is approved rather than closed.
+ */
+function closeOtherCandidates($pdo, $foundId, $keptKind, $keptId, $keptOwnerId)
+{
+    $closed = [];
+    foreach (foundPetCandidates($pdo, $foundId) as $candidate) {
+        if ($candidate['kind'] === $keptKind && $candidate['id'] === $keptId) continue;
+
+        if ($candidate['kind'] === 'claim') {
+            $isKeptOwner = $keptOwnerId > 0 && $candidate['ownerId'] === $keptOwnerId;
+            $pdo->prepare("
+                UPDATE lost_found_claims
+                SET status = :status, reviewed_at = NOW(), review_notes = :notes
+                WHERE id = :id AND status = 'pending'
+            ")->execute([
+                ':status' => $isKeptOwner ? 'approved' : 'rejected',
+                ':notes' => $isKeptOwner ? 'Approved with the matching report.' : 'Returned to another claimant.',
+                ':id' => $candidate['id'],
+            ]);
+            if (!$isKeptOwner) $closed[] = $candidate['id'];
+        } else {
+            $pdo->prepare("UPDATE lost_found_matches SET status = 'dismissed', reviewed_at = NOW() WHERE id = :id AND status = 'suggested'")
+                ->execute([':id' => $candidate['id']]);
+        }
+    }
+    return $closed;
+}
+
+/** Tells a claimant the pet they claimed went to someone else. */
+function notifyClaimReturnedToOther($pdo, $claimId)
+{
+    $stmt = $pdo->prepare('
+        SELECT c.claimant_user_id, c.claimant_email, c.claimant_name, r.case_number
+        FROM lost_found_claims c
+        INNER JOIN lost_found_reports r ON r.id = c.report_id
+        WHERE c.id = :id LIMIT 1
+    ');
+    $stmt->execute([':id' => $claimId]);
+    $claim = $stmt->fetch();
+    if (!$claim) return;
+
+    $message = "Case {$claim['case_number']}: the pet was returned to another claimant.";
+    try {
+        $userId = (int) $claim['claimant_user_id'];
+        if ($userId > 0) notifyUser($pdo, $userId, 'lost_found_claim_status', 'Claim Closed', $message, $claimId);
+        $email = nullableClean($claim['claimant_email'] ?? '');
+        if ($email && userWantsNotification($pdo, $userId, 'lost_found_alerts')) {
+            sendAppMail(
+                $email,
+                nullableClean($claim['claimant_name'] ?? ''),
+                'BVetter – Claim closed',
+                notificationEmailWrapper(
+                    'Claim Closed',
+                    '<p>' . htmlspecialchars($message, ENT_QUOTES) . '</p>',
+                    null,
+                    ['label' => 'View', 'url' => APP_URL . '/public/pages/my-claims.html']
+                )
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('[BVetter] claim-closed notice failed for claim ' . $claimId . ': ' . $e->getMessage());
+    }
+}
+
+/**
+ * How a resolved report was closed, for the staff Resolved Cases view:
+ * who got the pet, on what evidence, who approved it, and whether anyone
+ * has disputed it since (a "This is My Pet" ticket on either case).
+ */
+function reportResolution($pdo, $data)
+{
+    $id = (int) ($data['report_id'] ?? $data['id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT * FROM lost_found_reports WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $report = $stmt->fetch();
+    if (!$report) respond(404, ['success' => false, 'message' => 'Report not found.']);
+
+    $person = function ($name, $phone, $email) {
+        return ($name || $phone || $email) ? ['name' => $name, 'phone' => $phone, 'email' => $email] : null;
+    };
+    $userName = function ($userId) use ($pdo) {
+        if (!$userId) return null;
+        $s = $pdo->prepare('SELECT full_name FROM users WHERE id = :id');
+        $s->execute([':id' => (int) $userId]);
+        return $s->fetchColumn() ?: null;
+    };
+    $reportContact = function ($r) use ($pdo, $person) {
+        if (!$r) return null;
+        $name = $r['contact_name'] ?: null; $phone = $r['contact_phone'] ?: null; $email = $r['contact_email'] ?: null;
+        if ((!$name || !$phone) && $r['owner_id']) {
+            $s = $pdo->prepare('SELECT full_name, phone_number, email FROM users WHERE id = :id');
+            $s->execute([':id' => (int) $r['owner_id']]);
+            if ($u = $s->fetch()) { $name = $name ?: $u['full_name']; $phone = $phone ?: $u['phone_number']; $email = $email ?: $u['email']; }
+        }
+        return $person($name, $phone, $email);
+    };
+    $fetchReport = function ($rid) use ($pdo) {
+        if (!$rid) return null;
+        $s = $pdo->prepare('SELECT * FROM lost_found_reports WHERE id = :id');
+        $s->execute([':id' => (int) $rid]);
+        return $s->fetch() ?: null;
+    };
+
+    $out = [
+        'resolvedAt' => $report['resolved_at'],
+        'how' => 'owner',
+        'returnedTo' => null,
+        'foundBy' => null,
+        'counterpart' => null,
+        'confidence' => null,
+        'proof' => null,
+        'reason' => null,
+        'approvedBy' => null,
+        'approvedAt' => null,
+        'disputes' => [],
+    ];
+
+    // A claim decided it: on this found report, or -- for a lost report --
+    // this owner's claim on the found report their report matched.
+    $claimStmt = $pdo->prepare("
+        SELECT c.* FROM lost_found_claims c
+        WHERE c.status IN ('approved', 'resolved')
+          AND (c.report_id = :id
+               OR (c.claimant_user_id = :owner AND EXISTS (
+                     SELECT 1 FROM lost_found_matches m
+                     WHERE m.lost_report_id = :id2 AND m.found_report_id = c.report_id)))
+        ORDER BY c.reviewed_at DESC LIMIT 1
+    ");
+    $claimStmt->execute([':id' => $id, ':owner' => (int) $report['owner_id'], ':id2' => $id]);
+    $claim = $claimStmt->fetch();
+
+    $matchStmt = $pdo->prepare("
+        SELECT * FROM lost_found_matches
+        WHERE status = 'approved' AND (lost_report_id = :id OR found_report_id = :id2)
+        ORDER BY reviewed_at DESC LIMIT 1
+    ");
+    $matchStmt->execute([':id' => $id, ':id2' => $id]);
+    $match = $matchStmt->fetch();
+
+    $caseNumbers = [$report['case_number']];
+
+    if ($claim) {
+        $found = (int) $claim['report_id'] === $id ? $report : $fetchReport($claim['report_id']);
+        $out['how'] = 'claim';
+        $out['returnedTo'] = $person($claim['claimant_name'], $claim['claimant_phone'], $claim['claimant_email']);
+        $out['foundBy'] = $reportContact($found);
+        $out['proof'] = $claim['proof_file_path'] ?: null;
+        $out['reason'] = $claim['review_notes'] ?: null;
+        $out['approvedBy'] = $userName($claim['reviewed_by_user_id']);
+        $out['approvedAt'] = $claim['reviewed_at'];
+        $score = $pdo->prepare('
+            SELECT MAX(m.confidence) FROM lost_found_matches m
+            INNER JOIN lost_found_reports lr ON lr.id = m.lost_report_id
+            WHERE m.found_report_id = :found AND lr.owner_id = :claimant
+        ');
+        $score->execute([':found' => (int) $claim['report_id'], ':claimant' => (int) $claim['claimant_user_id']]);
+        $value = $score->fetchColumn();
+        $out['confidence'] = $value !== null && $value !== false ? (int) $value : null;
+        if ($found && $found['case_number'] !== $report['case_number']) $caseNumbers[] = $found['case_number'];
+    } elseif ($match) {
+        $lost = (int) $match['lost_report_id'] === $id ? $report : $fetchReport($match['lost_report_id']);
+        $out['confidence'] = (int) $match['confidence'];
+        $out['reason'] = ($match['review_notes'] ?? null) ?: null;
+        $out['approvedBy'] = $userName($match['reviewed_by_user_id']);
+        $out['approvedAt'] = $match['reviewed_at'];
+        $out['returnedTo'] = $reportContact($lost);
+        if ($match['sighting_id']) {
+            $out['how'] = 'sighting';
+            $s = $pdo->prepare('SELECT case_number, contact_name, contact_phone, contact_email FROM lost_found_sightings WHERE id = :id');
+            $s->execute([':id' => (int) $match['sighting_id']]);
+            if ($sighting = $s->fetch()) {
+                $out['foundBy'] = $person($sighting['contact_name'], $sighting['contact_phone'], $sighting['contact_email']);
+                $out['counterpart'] = $sighting['case_number'];
+            }
+        } else {
+            $out['how'] = 'match';
+            $found = (int) $match['found_report_id'] === $id ? $report : $fetchReport($match['found_report_id']);
+            $out['foundBy'] = $reportContact($found);
+            $other = (int) $match['lost_report_id'] === $id ? $found : $lost;
+            if ($other) {
+                $out['counterpart'] = $other['case_number'];
+                $caseNumbers[] = $other['case_number'];
+            }
+        }
+    } elseif ($report['reviewed_by_user_id'] && $report['reviewed_at'] && $report['resolved_at']
+        && abs(strtotime($report['reviewed_at']) - strtotime($report['resolved_at'])) <= 5) {
+        // Staff's Resolve stamps reviewed_at and resolved_at together.
+        $out['how'] = 'staff';
+        $out['approvedBy'] = $userName($report['reviewed_by_user_id']);
+        $out['approvedAt'] = $report['resolved_at'];
+    }
+
+    if ($pdo->query("SHOW TABLES LIKE 'support_tickets'")->fetch()) {
+        $ticket = $pdo->prepare("
+            SELECT ticket_number, status, created_at FROM support_tickets
+            WHERE subject = :subject ORDER BY created_at DESC
+        ");
+        foreach (array_unique(array_filter($caseNumbers)) as $caseNumber) {
+            $ticket->execute([':subject' => 'Claim dispute: ' . $caseNumber]);
+            foreach ($ticket->fetchAll() as $row) {
+                $out['disputes'][] = ['ticket' => $row['ticket_number'], 'status' => $row['status'], 'createdAt' => $row['created_at']];
+            }
+        }
+    }
+
+    respond(200, ['success' => true, 'data' => $out]);
 }
 
 function updateMatchStatus($pdo, $data, $status)
@@ -1127,6 +1646,9 @@ function updateMatchStatus($pdo, $data, $status)
     $match = $stmt->fetch();
     if (!$match) respond(404, ['success' => false, 'message' => 'Match not found.']);
 
+    $reason = clean($data['review_notes'] ?? '');
+    $comparison = $status === 'approved' ? assertReasonForLowerPick($pdo, 'match', $id, $reason) : null;
+
     $pdo->beginTransaction();
     $update = $pdo->prepare('UPDATE lost_found_matches SET status = :status, reviewed_by_user_id = :user_id, reviewed_at = NOW() WHERE id = :id');
     $update->execute([
@@ -1134,6 +1656,15 @@ function updateMatchStatus($pdo, $data, $status)
         ':user_id' => (int) ($data['reviewed_by_user_id'] ?? $data['vet_id'] ?? 0) ?: null,
         ':id' => $id,
     ]);
+    if ($reason !== '' && ensureMatchReviewNotes($pdo)) {
+        $pdo->prepare('UPDATE lost_found_matches SET review_notes = :notes WHERE id = :id')
+            ->execute([':notes' => $reason, ':id' => $id]);
+    }
+
+    $closedClaims = [];
+    if ($status === 'approved' && $comparison) {
+        $closedClaims = closeOtherCandidates($pdo, $comparison['foundId'], 'match', $id, (int) $comparison['subject']['ownerId']);
+    }
 
     if ($status === 'approved') {
         $resolve = $pdo->prepare("UPDATE lost_found_reports SET status = 'resolved', resolved_at = NOW() WHERE id IN (:lost_id, :found_id)");
@@ -1152,7 +1683,42 @@ function updateMatchStatus($pdo, $data, $status)
     }
 
     $pdo->commit();
+    foreach ($closedClaims as $claimId) notifyClaimReturnedToOther($pdo, $claimId);
     respond(200, ['success' => true, 'message' => 'Match updated.']);
+}
+
+// Lets an owner or finder mark their own report resolved directly — a Lost
+// report closes when the pet comes home on its own (no sighting or
+// found-report match involved), and a Found report closes when the finder
+// reunites the pet with its owner outside the app (direct contact, no claim
+// ever filed) — without either case requiring the Claim/proof-of-ownership flow.
+function resolveOwnReport($pdo, $data)
+{
+    $reportId = (int) ($data['report_id'] ?? $data['id'] ?? 0);
+    $ownerId = (int) ($data['owner_id'] ?? $data['user_id'] ?? 0);
+    if ($reportId <= 0 || $ownerId <= 0) {
+        respond(422, ['success' => false, 'message' => 'Invalid request.']);
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM lost_found_reports WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $reportId]);
+    $report = $stmt->fetch();
+    if (!$report) respond(404, ['success' => false, 'message' => 'Report not found.']);
+
+    if ((int) $report['owner_id'] !== $ownerId) {
+        respond(403, ['success' => false, 'message' => 'You can only resolve your own reports.']);
+    }
+    if ($report['status'] !== 'active') {
+        respond(422, ['success' => false, 'message' => 'Only an active report can be marked resolved.']);
+    }
+
+    $pdo->prepare("UPDATE lost_found_reports SET status = 'resolved', resolved_at = NOW() WHERE id = :id")
+        ->execute([':id' => $reportId]);
+
+    $message = $report['report_type'] === 'found'
+        ? 'Marked as resolved. Thanks for helping reunite this pet!'
+        : 'Marked as resolved. Glad you got your pet back!';
+    respond(200, ['success' => true, 'message' => $message]);
 }
 
 function createSighting($pdo, $data)
@@ -1209,6 +1775,16 @@ function createSighting($pdo, $data)
     $lostReports = $pdo->query("SELECT id FROM lost_found_reports WHERE report_type = 'lost' AND status = 'active'")->fetchAll();
     foreach ($lostReports as $row) rebuildSightingMatches($pdo, (int) $row['id']);
 
+    notifyStaff(
+        $pdo,
+        'both',
+        'lost_found_new',
+        'New Sighting Reported',
+        'A new pet sighting is awaiting review.',
+        $sightingId,
+        true
+    );
+
     respond(201, ['success' => true, 'message' => 'Sighting submitted for review.', 'sighting_id' => $sightingId]);
 }
 
@@ -1256,9 +1832,24 @@ function updateSightingStatus($pdo, $data, $status)
     if ($sightingInfo && in_array($status, ['active', 'rejected'], true)) {
         $submitterId = (int) ($sightingInfo['submitted_by_user_id'] ?? 0);
         $submitterEmail = nullableClean($sightingInfo['contact_email'] ?? '');
+
+        // Anonymous sightings carry no user id and so have no in-app feed to
+        // write to — they stay email-only.
+        if ($submitterId > 0) {
+            notifyUser(
+                $pdo,
+                $submitterId,
+                'lost_found_sighting_status',
+                'Sighting ' . ($status === 'active' ? 'Approved' : 'Rejected'),
+                "Your sighting report (case #{$sightingInfo['case_number']}) was "
+                    . ($status === 'active' ? 'approved.' : 'rejected.'),
+                $id
+            );
+        }
+
         if ($submitterEmail && userWantsNotification($pdo, $submitterId, 'lost_found_alerts')) {
             $verb = $status === 'active' ? 'approved' : 'rejected';
-            $subject = 'VBetter – Your sighting report has been ' . $verb;
+            $subject = 'BVetter – Your sighting report has been ' . $verb;
             $body = notificationEmailWrapper(
                 'Sighting Update',
                 "<p>Your sighting report (case #{$sightingInfo['case_number']}) has been <strong>{$verb}</strong>.</p>",
@@ -1302,7 +1893,41 @@ function createClaim($pdo, $data)
         ':proof_file_path' => $proofPath,
     ]);
 
-    respond(201, ['success' => true, 'message' => 'Claim submitted for vet review.', 'claim_id' => (int) $pdo->lastInsertId()]);
+    $claimId = (int) $pdo->lastInsertId();
+
+    notifyStaff(
+        $pdo,
+        'both',
+        'lost_found_new',
+        'New Ownership Claim',
+        'A new ownership claim is awaiting review.',
+        $claimId,
+        true
+    );
+
+    // The person who posted the found report also needs to know somebody has
+    // claimed their pet — previously only staff heard about it, and the owner
+    // saw it only because the browser re-derived it from the claims list.
+    $reportOwner = $pdo->prepare('
+        SELECT owner_id, case_number, pet_name FROM lost_found_reports WHERE id = :id LIMIT 1
+    ');
+    $reportOwner->execute([':id' => $reportId]);
+    $reportRow = $reportOwner->fetch();
+
+    if ($reportRow && (int) $reportRow['owner_id'] > 0 && (int) $reportRow['owner_id'] !== $claimantId) {
+        notifyUser(
+            $pdo,
+            (int) $reportRow['owner_id'],
+            'lost_found_claim_new',
+            'New Claim on Your Report',
+            'Someone submitted an ownership claim on your report'
+                . ($reportRow['pet_name'] ? " for {$reportRow['pet_name']}" : '')
+                . " (case #{$reportRow['case_number']}). It is awaiting vet review.",
+            $claimId
+        );
+    }
+
+    respond(201, ['success' => true, 'message' => 'Claim submitted for vet review.', 'claim_id' => $claimId]);
 }
 
 function listClaims($pdo, $data, $management = false)
@@ -1337,7 +1962,9 @@ function listClaims($pdo, $data, $management = false)
         SELECT lost_found_claims.*, lost_found_reports.case_number AS report_case, lost_found_reports.pet_name,
                lost_found_reports.photo_path, lost_found_reports.barangay_name, lost_found_reports.owner_id AS report_owner_id,
                lost_found_reports.contact_name AS finder_name, lost_found_reports.contact_phone AS finder_phone,
-               lost_found_reports.contact_email AS finder_email
+               lost_found_reports.contact_email AS finder_email, lost_found_reports.species AS report_species,
+               lost_found_reports.breed AS report_breed, lost_found_reports.sex AS report_sex,
+               lost_found_reports.size AS report_size, lost_found_reports.color_markings AS report_markings
         FROM lost_found_claims
         INNER JOIN lost_found_reports ON lost_found_reports.id = lost_found_claims.report_id
     ";
@@ -1364,6 +1991,10 @@ function updateClaimStatus($pdo, $data, $status)
     ");
     $claimInfoStmt->execute([':id' => $id]);
     $claimInfo = $claimInfoStmt->fetch();
+
+    $comparison = $status === 'approved'
+        ? assertReasonForLowerPick($pdo, 'claim', $id, clean($data['review_notes'] ?? ''))
+        : null;
 
     $pdo->beginTransaction();
     $stmt = $pdo->prepare('UPDATE lost_found_claims SET status = :status, reviewed_by_user_id = :user_id, reviewed_at = NOW(), review_notes = :notes WHERE id = :id');
@@ -1416,14 +2047,36 @@ function updateClaimStatus($pdo, $data, $status)
         }
     }
 
+    $closedClaims = [];
+    if ($status === 'approved' && $comparison) {
+        $closedClaims = closeOtherCandidates($pdo, $comparison['foundId'], 'claim', $id, (int) $comparison['subject']['ownerId']);
+    }
+
     $pdo->commit();
+    foreach ($closedClaims as $claimId) notifyClaimReturnedToOther($pdo, $claimId);
 
     if ($claimInfo && in_array($status, ['approved', 'rejected'], true)) {
         $claimantId = (int) ($claimInfo['claimant_user_id'] ?? 0);
         $claimantEmail = nullableClean($claimInfo['claimant_email'] ?? '');
+
+        // In-app row is unconditional; only the email honours the preference.
+        // A claimant with no account (claimant_user_id 0) has nowhere to
+        // receive an in-app notification, so they still get email only.
+        if ($claimantId > 0) {
+            notifyUser(
+                $pdo,
+                $claimantId,
+                'lost_found_claim_status',
+                'Claim ' . ucfirst($status),
+                'Your claim' . ($claimInfo['pet_name'] ? " for {$claimInfo['pet_name']}" : '')
+                    . " (case #{$claimInfo['case_number']}) was {$status}.",
+                $id
+            );
+        }
+
         if ($claimantEmail && userWantsNotification($pdo, $claimantId, 'lost_found_alerts')) {
             $verb = $status === 'approved' ? 'approved' : 'rejected';
-            $subject = 'VBetter – Your claim has been ' . $verb;
+            $subject = 'BVetter – Your claim has been ' . $verb;
             $petLabel = $claimInfo['pet_name'] ? " for <strong>" . htmlspecialchars($claimInfo['pet_name']) . "</strong>" : '';
             $body = notificationEmailWrapper(
                 'Claim Update',
@@ -1491,22 +2144,115 @@ function getActiveReportCount($pdo)
 $input = inputData();
 $action = clean($input['action'] ?? 'list');
 
+// Management/moderation actions are staff-only. list_sightings belongs here too:
+// it returns every sighting in every state -- pending and rejected included --
+// with the reporter's name, phone, email and map pin, and only the vet portal's
+// review queue calls it. It used to answer anyone, logged in or not.
+$staffActions = [
+    'management_list', 'management_claims', 'rebuild_image_features',
+    'approve', 'approve_report', 'reject', 'reject_report', 'resolve', 'resolve_report',
+    'approve_match', 'dismiss_match',
+    'list_sightings', 'approve_sighting', 'reject_sighting', 'resolve_sighting',
+    'approve_claim', 'reject_claim', 'resolve_claim',
+    'mark_reviewed', 'approval_check', 'resolution',
+];
+$staffSession = null;
+if (in_array($action, $staffActions, true)) {
+    require_once __DIR__ . '/../config/auth_guard.php';
+    $staffSession = requireRole($pdo, ['veterinarian', 'admin']);
+    // "Approved by" must be the signed-in staff member, not whatever id the
+    // request body carries.
+    $input['reviewed_by_user_id'] = (int) $staffSession['user_id'];
+    $input['vet_id'] = (int) $staffSession['user_id'];
+}
+
+// Matches pair two people's reports and carry both sides' contact details, so
+// they need a login. listMatches() then narrows a pet owner to their own report.
+$viewer = null;
+if ($action === 'matches' || $action === 'list_matches') {
+    require_once __DIR__ . '/../config/auth_guard.php';
+    $viewer = requireRole($pdo, ['pet_owner', 'veterinarian', 'admin']);
+}
+
+// Browsing the board (list, get) stays open for the logged-out landing page, but
+// what comes back depends on who is asking: logged-out visitors get no poster
+// details, and only staff see reports that aren't active. A missing, unknown or
+// expired token simply means "logged out" here rather than a 401.
+if ($action === 'list' || $action === 'get') {
+    require_once __DIR__ . '/../config/session.php';
+    $token = bearerToken();
+    $session = $token !== null ? findSessionByToken($pdo, $token) : null;
+    $viewer = ($session !== null && $session['revoked_at'] === null) ? $session : null;
+}
+
+// Owner-side actions: anything that reads or writes one specific person's data.
+//
+// These previously took the identity straight from the request body and only
+// checked it was a positive integer -- the "You must be logged in" responses in
+// listMyReports()/createClaim()/createSighting() verified nothing at all. So an
+// unauthenticated POST carrying someone else's owner_id could read their reports
+// (full name, phone number, email address and map coordinates), file claims and
+// sightings in their name, and close their reports. resolveOwnReport() compared
+// the report's owner against that same body value, so its ownership check passed
+// for an attacker who simply sent the victim's id.
+//
+// The bearer token is now the only source of identity here, matching
+// api/users/profile.php and api/pets/my_pets.php.
+$ownerActions = [
+    'my_reports',
+    'create', 'create_report',
+    'create_claim', 'submit_claim', 'list_claims',
+    'create_sighting', 'submit_sighting',
+    'resolve_own_report',
+];
+if (in_array($action, $ownerActions, true)) {
+    require_once __DIR__ . '/../config/auth_guard.php';
+    $ownerSession = requireRole($pdo, ['pet_owner', 'veterinarian', 'admin']);
+    $authId = (int) $ownerSession['user_id'];
+
+    $input['user_id']  = $authId;
+    $input['owner_id'] = $authId;
+
+    // createReport() derives the new report's STATUS from this role: 'vet' or
+    // 'admin' publishes immediately as 'active', anything else waits at
+    // 'pending' for moderation. Taken from the body, that let any caller send
+    // role=admin and push an unreviewed post straight onto the public feed.
+    // The session decides the role now, so moderation cannot be self-granted.
+    $input['role']        = $ownerSession['role_name'];
+    $input['source_role'] = $ownerSession['role_name'];
+
+    // report_owner_id means "claims filed against MY reports". listClaims()
+    // branches on whether it was sent at all, so overwrite the value when it is
+    // present rather than always adding it -- force-adding would change which
+    // claims a caller sees instead of merely stopping them seeing someone else's.
+    if ((int) ($input['report_owner_id'] ?? 0) > 0) {
+        $input['report_owner_id'] = $authId;
+    }
+}
+
 try {
     ensureLostFoundSchema($pdo);
+    ensureMatchReviewNotes($pdo);
+    autoPublishDueReports($pdo);
+    runTimedRules($pdo);
 
     if ($action === 'schema') respond(200, ['success' => true, 'message' => 'Lost and found schema is ready.']);
+    if ($action === 'mark_reviewed') markReportReviewed($pdo, $input, $staffSession);
+    if ($action === 'approval_check') approvalCheck($pdo, $input);
+    if ($action === 'resolution') reportResolution($pdo, $input);
     if ($action === 'rebuild_image_features') rebuildImageFeatures($pdo);
-    if ($action === 'list') listReports($pdo, $input, false);
+    if ($action === 'list') listReports($pdo, $input, false, $viewer);
     if ($action === 'management_list') listReports($pdo, $input, true);
-    if ($action === 'get') getReport($pdo, $input);
+    if ($action === 'get') getReport($pdo, $input, $viewer);
     if ($action === 'my_reports') listMyReports($pdo, $input);
     if ($action === 'create' || $action === 'create_report') createReport($pdo, $input);
     if ($action === 'approve' || $action === 'approve_report') updateReportStatus($pdo, $input, 'active');
     if ($action === 'reject' || $action === 'reject_report') updateReportStatus($pdo, $input, 'rejected');
     if ($action === 'resolve' || $action === 'resolve_report') updateReportStatus($pdo, $input, 'resolved');
-    if ($action === 'matches' || $action === 'list_matches') listMatches($pdo, $input);
+    if ($action === 'matches' || $action === 'list_matches') listMatches($pdo, $input, $viewer);
     if ($action === 'approve_match') updateMatchStatus($pdo, $input, 'approved');
     if ($action === 'dismiss_match') updateMatchStatus($pdo, $input, 'dismissed');
+    if ($action === 'resolve_own_report') resolveOwnReport($pdo, $input);
     if ($action === 'create_sighting' || $action === 'submit_sighting') createSighting($pdo, $input);
     if ($action === 'list_sightings') listSightings($pdo, $input);
     if ($action === 'approve_sighting') updateSightingStatus($pdo, $input, 'active');
@@ -1533,10 +2279,10 @@ try {
 
     respond(400, ['success' => false, 'message' => 'Unknown lost and found action.']);
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
     if ($pdo->inTransaction()) $pdo->rollBack();
     respond(500, [
         'success' => false,
-        'message' => 'Lost and found request failed.',
-        'error' => $e->getMessage()
+        'message' => 'Lost and found request failed.'
     ]);
 }

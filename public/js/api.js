@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — Centralized API Layer
+   BVetter — Centralized API Layer
    File: js/api.js
    Depends: nothing (load before all page JS)
 
@@ -8,12 +8,6 @@
 
    HOW TO USE in any page JS:
      const data = await api.getReports({ status: 'lost' });
-
-   HOW TO SWAP TO REAL BACKEND:
-     1. Change API_BASE to your production URL
-     2. On login success, save token:
-        sessionStorage.setItem('bvetter_token', response.token)
-     3. All other calls auto-attach the token via authHeaders()
 
    Functions:
    - authHeaders()          — builds Authorization header from token
@@ -42,19 +36,22 @@
 /* ── Base URL ─────────────────────────────────
    TODO: Change to production URL before deploy   */
 const API_BASE = 'http://localhost:8000/api';
-const API_BASE_REG = 'http://localhost/bvetter/api';
+const API_BASE_REG = '/api';
 const LOST_FOUND_ENDPOINT = `${API_BASE_REG}/lost-found/lost_and_found.php`;
 const PROFILE_ENDPOINT = `${API_BASE_REG}/users/profile.php`;
 const DASHBOARD_ENDPOINT = `${API_BASE_REG}/dashboard/dashboard.php`;
 const MASS_VACCINATION_ENDPOINT = `${API_BASE_REG}/mass-vaccination/events.php`;
 const CHATBOT_ENDPOINT = `${API_BASE_REG}/chatbot/chatbot.php`;
 const ANNOUNCEMENTS_ENDPOINT = `${API_BASE_REG}/announcements/announcements.php`;
+const SITE_SETTINGS_ENDPOINT = `${API_BASE_REG}/site-settings/site-settings.php`;
+const NOTIFICATIONS_ENDPOINT = `${API_BASE_REG}/notifications/notifications.php`;
+const MY_PETS_ENDPOINT = `${API_BASE_REG}/pets/my_pets.php`;
 
 /* ── Auth Header Builder ──────────────────────
    Reads JWT token saved on login.
    Backend must return { token: '...' } on login. */
 function authHeaders() {
-  const token = sessionStorage.getItem('bvetter_token');
+  const token = localStorage.getItem('bvetter_token');
   return token
     ? { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
@@ -64,13 +61,13 @@ function authHeaders() {
    Do NOT set Content-Type — browser sets it
    automatically with the correct boundary.       */
 function authHeadersFormData() {
-  const token = sessionStorage.getItem('bvetter_token');
+  const token = localStorage.getItem('bvetter_token');
   return token ? { 'Authorization': 'Bearer ' + token } : {};
 }
 
 function currentSession() {
   try {
-    return JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
+    return JSON.parse(localStorage.getItem('vbetter_session') || 'null');
   } catch {
     return null;
   }
@@ -80,10 +77,23 @@ function profileRequest(action, data = {}) {
   const session = currentSession();
   return fetch(PROFILE_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({
       action,
       user_id: data.user_id || data.userId || session?.userId || session?.id || 0,
+      ...data
+    })
+  }).then(r => r.json());
+}
+
+function myPetsRequest(action, data = {}) {
+  const session = currentSession();
+  return fetch(MY_PETS_ENDPOINT, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      action,
+      owner_id: data.owner_id || data.ownerId || session?.userId || session?.id || 0,
       ...data
     })
   }).then(r => r.json());
@@ -111,6 +121,10 @@ function lostFoundForm(action, data = {}) {
 function lostFoundRequest(action, data = {}) {
   return fetch(LOST_FOUND_ENDPOINT, {
     method: 'POST',
+    // FormData variant: must NOT set Content-Type, the browser adds the
+    // multipart boundary itself. Owner actions on this endpoint authenticate
+    // with the bearer token now, so it has to be sent or they 401.
+    headers: authHeadersFormData(),
     body: lostFoundForm(action, data)
   }).then(r => r.json());
 }
@@ -172,23 +186,65 @@ const api = {
       body: JSON.stringify({ action: 'delete', id })
     }).then(r => r.json()),
 
+  /**
+   * Get public site branding/profile settings (logo, color, contact info, etc.)
+   */
+  getSiteSettings: () =>
+    fetch(SITE_SETTINGS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'get' })
+    }).then(r => r.json()),
+
+  /**
+   * Save site branding/profile settings
+   * @param {FormData} formData — text fields + optional image files
+   */
+  saveSiteSettings: (formData) => {
+    formData.append('action', 'save');
+    return fetch(SITE_SETTINGS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body: formData
+    }).then(r => r.json());
+  },
+
   /* ══════════════════════════════════════════
      AUTH
      ══════════════════════════════════════════ */
 
   /**
-   * Login user
-   * TODO: On success → save response.token to sessionStorage
+   * Login user. For vet/admin accounts with 2FA on, the first call returns
+   * { requires_2fa: true } after emailing a code; call again with otpCode
+   * to complete the login.
    * @param {string} email
    * @param {string} password
+   * @param {string} [otpCode] 6-digit emailed code (second step)
    */
-  login: (email, password) =>
+  login: (email, password, otpCode) =>
     fetch(`${API_BASE_REG}/auth/login.php`, {
       method: 'POST',
       body: (() => {
         const formData = new FormData();
         formData.append('email', email);
         formData.append('password', password);
+        if (otpCode) formData.append('otp_code', otpCode);
+        return formData;
+      })()
+    }).then(r => r.json()),
+
+  /**
+   * Admin-only login — hits admin-login.php instead of login.php.
+   * Same request/response shape as api.login().
+   */
+  adminLogin: (email, password, otpCode) =>
+    fetch(`${API_BASE_REG}/auth/admin-login.php`, {
+      method: 'POST',
+      body: (() => {
+        const formData = new FormData();
+        formData.append('email', email);
+        formData.append('password', password);
+        if (otpCode) formData.append('otp_code', otpCode);
         return formData;
       })()
     }).then(r => r.json()),
@@ -196,11 +252,15 @@ const api = {
   /**
    * Logout — invalidates token on server
    */
-  logout: () =>
-    fetch(`${API_BASE}/auth/logout`, {
+  logout: () => {
+    const body = new FormData();
+    body.append('action', 'logout');
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
       method: 'POST',
-      headers: authHeaders()
-    }).then(r => r.json()),
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
 
   /* ══════════════════════════════════════════
      SESSIONS — Manage Security page
@@ -274,6 +334,160 @@ const api = {
     }).then(r => r.json());
   },
 
+  /* ══════════════════════════════════════════
+     SESSIONS — Manage Security page
+     ══════════════════════════════════════════ */
+
+  /** List the current user's own active sessions/devices */
+  listSessions: () => {
+    const body = new FormData();
+    body.append('action', 'list');
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** End one of the current user's other sessions */
+  endSession: (sessionId) => {
+    const body = new FormData();
+    body.append('action', 'end');
+    body.append('session_id', sessionId);
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** End every session except the one making this request */
+  endOtherSessions: () => {
+    const body = new FormData();
+    body.append('action', 'end_others');
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) list every active session, across every user account */
+  adminListSessions: () => {
+    const body = new FormData();
+    body.append('action', 'admin_list');
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) end any session by id, belonging to any user */
+  adminEndSession: (sessionId) => {
+    const body = new FormData();
+    body.append('action', 'admin_end');
+    body.append('session_id', sessionId);
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) end every session system-wide except the caller's own */
+  adminEndOtherSessions: () => {
+    const body = new FormData();
+    body.append('action', 'admin_end_others');
+    return fetch(`${API_BASE_REG}/auth/session.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /* ══════════════════════════════════════════
+     SECURITY SETTINGS — Manage Security page
+     ══════════════════════════════════════════ */
+
+  /** (Admin only) get 2FA + password policy settings */
+  getSecuritySettings: () => {
+    const body = new FormData();
+    body.append('action', 'get');
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) turn clinic-wide email-OTP 2FA on/off */
+  updateTwoFactor: (enabled) => {
+    const body = new FormData();
+    body.append('action', 'update_2fa');
+    body.append('enabled', enabled ? '1' : '0');
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) update the password policy */
+  updatePasswordPolicy: (policy) => {
+    const body = new FormData();
+    body.append('action', 'update_policy');
+    body.append('min_length', policy.minLength);
+    body.append('require_special', policy.requireSpecial ? '1' : '0');
+    body.append('require_number', policy.requireNumber ? '1' : '0');
+    body.append('require_uppercase', policy.requireUppercase ? '1' : '0');
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) enable/disable auto-blocking accounts idle past N days, and set N */
+  updateInactivityLockout: ({ enabled, days }) => {
+    const body = new FormData();
+    body.append('action', 'update_inactivity_lockout');
+    body.append('enabled', enabled ? '1' : '0');
+    body.append('days', days);
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) set the minutes of inactivity before a session is ended */
+  updateSessionTimeout: (minutes) => {
+    const body = new FormData();
+    body.append('action', 'update_session_timeout');
+    body.append('minutes', minutes);
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** (Admin only) email the caller a sample login code (delivery test) */
+  sendTestTwoFactorCode: () => {
+    const body = new FormData();
+    body.append('action', 'send_test_code');
+    return fetch(`${API_BASE_REG}/admin/security-settings.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body
+    }).then(r => r.json());
+  },
+
+  /** Active password policy (public — used for form hints) */
+  getPasswordPolicy: () =>
+    fetch(`${API_BASE_REG}/auth/password-policy.php`).then(r => r.json()),
+
   /**
    * Register new account
    * @param {Object} data — { full_name, email, password, barangay, phone_number }
@@ -332,6 +546,15 @@ forgotPassword: (email) => {
    */
   getMatchesByReportId: (reportId) =>
     lostFoundRequest('matches', { report_id: reportId, include_resolved: 1 }),
+
+  /**
+   * Self-resolve one of your own Lost or Found reports directly (pet came
+   * home on its own, or was reunited with its owner outside the app — no
+   * sighting, match, or claim required).
+   * @param {string} reportId
+   */
+  resolveOwnReport: (reportId) =>
+    lostFoundRequest('resolve_own_report', { report_id: reportId }),
 
   /**
    * Submit lost or found report (includes photo upload)
@@ -442,6 +665,7 @@ forgotPassword: (email) => {
     });
     return fetch(`${API_BASE_REG}/appointments/appointment.php`, {
       method: 'POST',
+      headers: authHeadersFormData(),
       body: formData
     }).then(r => r.json());
   },
@@ -453,6 +677,7 @@ forgotPassword: (email) => {
   bookAppointment: (data) =>
     fetch(`${API_BASE_REG}/appointments/appointment.php`, {
       method: 'POST',
+      headers: authHeaders(),
       body: JSON.stringify(data)
     }).then(r => r.json()),
 
@@ -465,6 +690,104 @@ forgotPassword: (email) => {
     }).then(r => r.json());
   },
 
+  /**
+   * Get the vet/admin-managed list of visit types for the
+   * "Type of Visit" dropdown on the booking form.
+   */
+  getVisitTypes: () => {
+    const formData = new FormData();
+    formData.append('action', 'visit_types');
+    return fetch(`${API_BASE_REG}/appointments/appointment.php`, {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json());
+  },
+
+  /* ══════════════════════════════════════════
+     CASTRATION & SPAY PROGRAM
+     ══════════════════════════════════════════ */
+
+  /**
+   * Open/scheduled Castration & Spay programs, for the public landing page.
+   * No auth required — same pattern as getMassVaccinationEvents().
+   */
+  getCspPrograms: () =>
+    fetch(`${API_BASE_REG}/castration-spay/program.php`, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'list_open_programs' })
+    }).then(r => r.json()),
+
+  /**
+   * Register a pet on the Castration & Spay Program waiting list.
+   * @param {Object} data — same owner/pet fields as bookAppointment(), no date/time.
+   */
+  registerCspProgram: (data) =>
+    fetch(`${API_BASE_REG}/castration-spay/program.php`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ ...data, action: 'register' })
+    }).then(r => r.json()),
+
+  /**
+   * Get the current owner's registration status + waiting list count,
+   * for the step-5 success screen and the dashboard card.
+   */
+  getCspStatus: (ownerId) => {
+    const formData = new FormData();
+    formData.append('action', 'my_status');
+    formData.append('owner_id', ownerId || '');
+    return fetch(`${API_BASE_REG}/castration-spay/program.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body: formData
+    }).then(r => r.json());
+  },
+
+  cancelCspRegistration: (registrationId) => {
+    const formData = new FormData();
+    formData.append('action', 'cancel');
+    formData.append('registration_id', registrationId);
+    return fetch(`${API_BASE_REG}/castration-spay/program.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body: formData
+    }).then(r => r.json());
+  },
+
+  /* ══════════════════════════════════════════
+     SUPPORT TICKETS
+     ══════════════════════════════════════════ */
+
+  /**
+   * @param {Object} data — subject, description, reporter_* fields, plus an
+   *   optional `attachment` File (screenshot or short screen recording).
+   */
+  submitTicket: (data) => {
+    const formData = new FormData();
+    formData.append('action', 'create');
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') formData.append(key, value);
+    });
+    return fetch(`${API_BASE_REG}/tickets/tickets.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body: formData
+    }).then(r => r.json());
+  },
+
+  getMyTickets: (ownerId) => {
+    const formData = new FormData();
+    formData.append('action', 'list');
+    formData.append('role', 'owner');
+    formData.append('reporter_id', ownerId || '');
+    // role and reporter_id above are ignored by the server now -- it takes both
+    // from the session. Sending them keeps the request shape unchanged.
+    return fetch(`${API_BASE_REG}/tickets/tickets.php`, {
+      method: 'POST',
+      headers: authHeadersFormData(),
+      body: formData
+    }).then(r => r.json());
+  },
 
   /* ══════════════════════════════════════════
      USER / ACCOUNT
@@ -490,6 +813,39 @@ forgotPassword: (email) => {
    */
   changePassword: (data) =>
     profileRequest('password', data),
+
+  /**
+   * Enable/disable email-OTP two-factor authentication on your own account —
+   * once on, login requires a 6-digit code emailed at sign-in time.
+   * @param {boolean} enabled
+   */
+  setTwoFactor: (enabled) =>
+    profileRequest('two_factor', { enabled: enabled ? 1 : 0 }),
+
+  /* Closes the caller's own account: account_status becomes 'blocked' with
+     blocked_reason 'user_request', and every session is revoked server-side.
+     Reversible by the vet office, exactly like an inactivity or lockout block.
+     This is NOT deletion -- see api/users/profile.php for why. */
+  deactivateAccount: () =>
+    profileRequest('deactivate'),
+
+
+  /* ══════════════════════════════════════════
+     MY PETS
+     ══════════════════════════════════════════ */
+
+  /**
+   * Get all pets registered under the current owner's account.
+   */
+  getMyPets: () =>
+    myPetsRequest('list'),
+
+  /**
+   * Get a single pet's full profile + visit/vaccination history.
+   * @param {number|string} petId
+   */
+  getMyPet: (petId) =>
+    myPetsRequest('detail', { pet_id: petId }),
 
 
   /* ══════════════════════════════════════════
@@ -543,19 +899,27 @@ forgotPassword: (email) => {
     }).then(r => r.json());
   },
 
-  deleteUser: (userId) => {
+  // linkUserId folds this pending registration into an existing clinic
+  // walk-in record instead of leaving the person with two accounts. Optional:
+  // omitted, this behaves exactly as it always has.
+  approveUser: (userId, linkUserId = 0, reviewNotes = '') => {
     const formData = new FormData();
-    formData.append('action', 'delete');
+    formData.append('action', 'approve');
     formData.append('user_id', userId);
+    if (linkUserId) formData.append('link_user_id', linkUserId);
+    if (reviewNotes) formData.append('review_notes', reviewNotes);
     return fetch(`${API_BASE_REG}/admin/account-management.php`, {
       method: 'POST',
       body: formData
     }).then(r => r.json());
   },
 
-  approveUser: (userId) => {
+  // Walk-in records that might be the same person as this registrant.
+  // Suggestions for an admin to judge against the uploaded ID — never a
+  // decision on their own.
+  walkInCandidates: (userId) => {
     const formData = new FormData();
-    formData.append('action', 'approve');
+    formData.append('action', 'walkin_candidates');
     formData.append('user_id', userId);
     return fetch(`${API_BASE_REG}/admin/account-management.php`, {
       method: 'POST',
@@ -584,6 +948,72 @@ forgotPassword: (email) => {
       body: formData
     }).then(r => r.json());
   },
+
+  deleteUser: (userId) => {
+    const formData = new FormData();
+    formData.append('action', 'delete');
+    formData.append('user_id', userId);
+    return fetch(`${API_BASE_REG}/admin/account-management.php`, {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json());
+  },
+
+  /**
+   * Notification feed (api/notifications/notifications.php).
+   *
+   * One feed for every role — the endpoint returns the caller's own rows,
+   * identified from their session. Nothing here says who you are: the
+   * `role` field these wrappers used to post decided which feed you got,
+   * which meant any caller could ask for the admin one.
+   */
+  getNotifications: (limit) =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'list', limit })
+    }).then(r => r.json()),
+
+  /* Just the number, for the bell dot — refreshed far more often than the
+     list is opened, and the owner-side dot used to cost six API calls to
+     work this out. */
+  getUnreadNotificationCount: () =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'unread_count' })
+    }).then(r => r.json()),
+
+  markNotificationRead: (id) =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'mark_read', id })
+    }).then(r => r.json()),
+
+  markAllNotificationsRead: () =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'mark_all_read' })
+    }).then(r => r.json()),
+
+  dismissNotification: (id) =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'dismiss', id })
+    }).then(r => r.json()),
+
+  // Clears the caller's whole feed in one call. The per-id dismiss above is
+  // still what the bell's × uses; this is for "Clear All", which must not
+  // depend on how many rows the page happened to fetch.
+  dismissAllNotifications: () =>
+    fetch(NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'dismiss_all' })
+    }).then(r => r.json()),
 
 };
 

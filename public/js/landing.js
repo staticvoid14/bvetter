@@ -50,7 +50,6 @@ async function loadLandingData() {
     renderLandingLostFound(),
     renderLandingSpecialists()
   ]);
-  hydratePublicNav();
   window.addEventListener('resize', updateCarousel);
 }
 
@@ -59,22 +58,29 @@ async function renderLandingEvents() {
   const dots = document.querySelector('.events-dots');
   if (!track) return;
 
-  const [announcementResult, vaccinationResult] = await Promise.all([
+  const [announcementResult, vaccinationResult, castrationResult] = await Promise.all([
     api.getAnnouncements({ status: 'published', limit: 8 }).catch(() => ({ success: false, data: [] })),
-    api.getMassVaccinationEvents().catch(() => ({ success: false, data: [] }))
+    api.getMassVaccinationEvents().catch(() => ({ success: false, data: [] })),
+    api.getCspPrograms().catch(() => ({ success: false, data: [] }))
   ]);
 
   const announcements = announcementResult.success ? announcementResult.data : [];
-  const vaccinationEvents = vaccinationResult.success ? vaccinationResult.data : [];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const vaccinationEvents = (vaccinationResult.success ? vaccinationResult.data : [])
+    .filter((item) => item.status !== 'Completed' && (!item.date || item.date >= todayStr));
+  const castrationPrograms = castrationResult.success ? castrationResult.data : [];
+  // Real, actionable programs (vaccination + castration) go first so they
+  // can't get pushed out of the 8-card cap by a backlog of manual announcements.
   const cards = [
-    ...announcements.map((item) => ({
-      tag: 'Upcoming Event',
-      type: item.category || 'Community Advisory',
-      title: item.title,
-      description: item.description,
-      date: item.dateLabel || formatDate(item.date),
-      location: item.location || 'Baliwag City Veterinary Services',
-      image: imageUrl(item.image, '../images/img/event-1.png')
+    ...castrationPrograms.map((item) => ({
+      tag: item.status === 'open' ? 'Open for Registration' : 'Scheduled',
+      type: 'Castration & Spay Program',
+      title: item.title || 'Municipal Castration & Spay Program',
+      description: 'Register your pet for our community Castration & Spay Program.',
+      date: formatDate(item.program_date),
+      location: item.venue || 'Venue TBA',
+      image: '../images/img/event-1.png',
+      link: 'book-appointment.html'
     })),
     ...vaccinationEvents.map((item) => ({
       tag: item.status || 'Vaccination Event',
@@ -83,7 +89,18 @@ async function renderLandingEvents() {
       description: 'Community vaccination event managed by the veterinary clinic.',
       date: item.dateLabel || formatDate(item.date),
       location: item.barangay || 'Barangay TBA',
-      image: '../images/img/event-2.png'
+      image: '../images/img/event-2.png',
+      link: 'book-appointment.html'
+    })),
+    ...announcements.map((item) => ({
+      tag: 'Upcoming Event',
+      type: item.category || 'Community Advisory',
+      title: item.title,
+      description: item.description,
+      date: item.dateLabel || formatDate(item.date),
+      location: item.location || 'Baliwag City Veterinary Services',
+      image: imageUrl(item.image, '../images/img/event-1.png'),
+      link: null
     }))
   ].slice(0, 8);
 
@@ -97,7 +114,7 @@ async function renderLandingEvents() {
   totalEvents = cards.length;
   currentEvent = 0;
   track.innerHTML = cards.map((item, index) => `
-    <div class="event-card">
+    <div class="event-card${item.link ? ' event-card-clickable' : ''}"${item.link ? ` onclick="window.location.href='${escapeHtml(item.link)}'"` : ''}>
       <div class="event-card-img-side">
         <span class="event-tag ${index % 2 ? 'seminar' : 'upcoming'}">${escapeHtml(item.tag)}</span>
         <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}" class="event-img"/>
@@ -159,10 +176,10 @@ async function renderLandingLostFound() {
 async function renderLandingSpecialists() {
   const grid = document.querySelector('.specialists-grid');
   if (!grid) return;
-  const result = await api.allUsers().catch(() => ({ success: false, data: [] }));
-  const vets = result.success && Array.isArray(result.data)
-    ? result.data.filter((user) => user.role === 'vet' && user.status === 'active').slice(0, 4)
-    : [];
+  // api.getVets() hits the public appointments "vets" action — unlike
+  // api.allUsers() (admin-only), it works for guests and pet owners too.
+  const result = await api.getVets().catch(() => ({ success: false, data: [] }));
+  const vets = result.success && Array.isArray(result.data) ? result.data.slice(0, 4) : [];
 
   if (!vets.length) {
     grid.innerHTML = '<div class="specialist-card"><div class="specialist-info"><span class="specialist-name">No active specialists listed</span><p>Veterinarian profiles will appear here once active accounts are available.</p></div></div>';
@@ -172,32 +189,15 @@ async function renderLandingSpecialists() {
   grid.innerHTML = vets.map((vet, index) => `
     <div class="specialist-card">
       <div class="specialist-icon ${index % 2 ? 'green' : 'blue'}">
-        ${vet.avatar ? `<img src="${escapeHtml(vet.avatar)}" alt="${escapeHtml(vet.name)}" class="specialist-avatar"/>` : '<img src="../images/icons/icon-doctor.svg" alt="" class="doc-icon"/>'}
+        ${vet.profile_photo ? `<img src="${escapeHtml(imageUrl(vet.profile_photo))}" alt="${escapeHtml(vet.full_name)}" class="specialist-avatar"/>` : '<img src="../images/icons/icon-doctor.svg" alt="" class="doc-icon"/>'}
       </div>
       <div class="specialist-info">
-        <span class="specialist-name">${escapeHtml(vet.name)}</span>
-        <span class="specialist-role">${escapeHtml(vet.roleLabel || 'Veterinarian')}</span>
-        <p>${escapeHtml(vet.email || 'Baliwag Veterinary Services specialist')}</p>
+        <span class="specialist-name">${escapeHtml(vet.full_name)}</span>
+        <span class="specialist-role">${escapeHtml(vet.position_title || 'Veterinarian')}</span>
+        <p>${escapeHtml(vet.bio || vet.specialization || 'Baliwag Veterinary Services specialist')}</p>
       </div>
     </div>
   `).join('');
-}
-
-function hydratePublicNav() {
-  const user = getCurrentUser();
-  const navGuest = document.getElementById('navGuest');
-  const navAuth = document.getElementById('navAuth');
-
-  if (navGuest) navGuest.style.display = user ? 'none' : 'flex';
-  if (navAuth) navAuth.style.display = user ? 'flex' : 'none';
-
-  if (!user) return;
-  const nameEl = document.querySelector('.nav-user-name');
-  const roleEl = document.querySelector('.nav-user-role');
-  const avatarEl = document.querySelector('.nav-user-avatar');
-  if (nameEl) nameEl.textContent = user.name || 'Pet Owner';
-  if (roleEl) roleEl.textContent = user.role === 'admin' ? 'Administrator' : (user.role === 'vet' ? 'Veterinarian' : 'Pet Owner');
-  if (avatarEl && user.avatarUrl) avatarEl.src = user.avatarUrl;
 }
 
 document.addEventListener('DOMContentLoaded', loadLandingData);
