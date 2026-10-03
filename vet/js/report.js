@@ -42,42 +42,56 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ── KPI config ──────────────────────────────────────────────────────
+    // {period} is filled from metrics.periodLabel — the newest month present in
+    // the FILTERED data, which is not the current calendar month. With a frozen
+    // 2023-2025 dataset sitting beside live records, "This Month" was reliably
+    // wrong: it labelled whichever month happened to be newest, so three tiles
+    // could describe a handful of recent records on top of a 900-row table.
     var KPI_CONFIG = {
         all_patient: {
-            left:   'Total Patients This Month',
+            left:   'Total Patients — {period}',
             center: 'Most Common Disease',
             right:  'Most Active Barangay'
         },
         consultation_summary: {
-            left:   'Total Consultations This Month',
+            left:   'Total Consultations — {period}',
             center: 'Most Common Diagnosis',
             right:  'Most Active Barangay'
         },
         disease_incidence: {
-            left:   'Total Cases This Month',
+            // The same diagnosis-level case count Disease Analytics shows: the
+            // report reads the uploaded consultations now, not the separate
+            // Barangay_Disease_Monthly tally it used to (see disease_rows in
+            // api/reports/reports.php).
+            left:   'Total Cases — {period}',
             center: 'Dominant Disease Group',
-            right:  'Highest Risk Barangay'
+            // Not "Highest Risk": the ranking is by case count. Whether a
+            // barangay needs action is the Action Level column's job.
+            right:  'Highest Case Volume Barangay'
         },
         mass_vaccination: {
-            left:   'Total Vaccinated This Month',
+            left:   'Total Vaccinated — {period}',
             center: 'Dogs vs Cats Ratio',
-            right:  'Clients Served This Month'
+            right:  'Clients Served — {period}'
         },
         lost_found: {
-            left:   'Total Reports This Month',
+            left:   'Total Reports — {period}',
             center: 'Most Reported Species',
             right:  'Resolution Rate'
         }
     };
 
-    function changeKPI(category) {
+    function applyPeriod(text, periodLabel) {
+        return String(text || '').replace(/\{period\}/g, periodLabel || 'This Month');
+    }
+
+    function changeKPI(category, periodLabel) {
         var config = KPI_CONFIG[category] || KPI_CONFIG['all_patient'];
-        var leftTitle   = document.getElementById('title-left');
-        var centerTitle = document.getElementById('title-center');
-        var rightTitle  = document.getElementById('title-right');
-        if (leftTitle)   leftTitle.textContent   = config.left;
-        if (centerTitle) centerTitle.textContent = config.center;
-        if (rightTitle)  rightTitle.textContent  = config.right;
+        var titles = { left: 'title-left', center: 'title-center', right: 'title-right' };
+        Object.keys(titles).forEach(function (slot) {
+            var el = document.getElementById(titles[slot]);
+            if (el) el.textContent = applyPeriod(config[slot], periodLabel);
+        });
     }
 
     function setSubset(elementId, kpi) {
@@ -185,6 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         var totalPages = Math.max(1, pagination.totalPages || 1);
         var page = Math.min(state.page, totalPages);
         var items = [];
+        items.push('<button type="button" class="page-btn" data-page="1" ' + (page <= 1 ? 'disabled' : '') + ' aria-label="First page">&laquo;</button>');
         items.push('<button type="button" class="page-btn" data-page="' + Math.max(1, page - 1) + '" ' + (page <= 1 ? 'disabled' : '') + ' aria-label="Previous page">&lsaquo;</button>');
         var start = Math.max(1, page - 1);
         var end   = Math.min(totalPages, start + 2);
@@ -193,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (end < totalPages) items.push('<span class="page-ellipsis">...</span>');
         items.push('<button type="button" class="page-btn" data-page="' + Math.min(totalPages, page + 1) + '" ' + (page >= totalPages ? 'disabled' : '') + ' aria-label="Next page">&rsaquo;</button>');
+        items.push('<button type="button" class="page-btn" data-page="' + totalPages + '" ' + (page >= totalPages ? 'disabled' : '') + ' aria-label="Last page">&raquo;</button>');
         ui.pagination.innerHTML = items.join('');
     }
 
@@ -214,7 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.columns = columns;
 
-        changeKPI(category);
+        changeKPI(category, metrics.periodLabel);
         renderHeaders(columns);
         renderRows(columns, rows);
         renderMetrics(metrics);
@@ -265,12 +281,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function handleExport() {
-    var session = JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
-    var userName = (session && session.fullName) ? session.fullName : 'Baliuag City Veterinary Office';
+    async function handleExport() {
+    var session = JSON.parse(localStorage.getItem('vbetter_session') || 'null');
+    var userName = (session && session.name) ? session.name : 'Baliuag City Veterinary Office';
     var params = requestParams({ page: 1, page_size: 10000, generated_by: userName });
     var url = window.VetAPI.getReportExportUrl(params, state.exportFormat);
-    window.location.href = url;
+
+    // Fetched (not navigated) so the Authorization header reaches the
+    // guarded endpoint; the blob is then saved via a temporary link.
+    try {
+        var res = await fetch(url);
+        if (!res.ok) throw new Error('Export request failed: ' + res.status);
+        var blob = await res.blob();
+        var disposition = res.headers.get('Content-Disposition') || '';
+        var match = disposition.match(/filename="?([^";]+)"?/);
+        var fallbackExt = state.exportFormat === 'excel' ? 'xlsx' : state.exportFormat;
+        var filename = match ? match[1] : ('bvetter-report.' + fallbackExt);
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+    } catch (err) {
+        await vbAlert('Could not export the report. Please try again.');
+    }
     closeExportModal();
 }
 

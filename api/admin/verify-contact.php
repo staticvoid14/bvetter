@@ -1,8 +1,9 @@
 <?php
 /**
- * VBetter – Contact Verification & Forgot Password
+ * BVetter – Contact Verification & Forgot Password
  *
  * Actions:
+ *   check_email        – can a new registration use this email? (sign-up form)
  *   send_email_otp     – generate & email a 6-digit OTP
  *   send_phone_otp     – generate & "SMS" a 6-digit OTP (stub – swap for real SMS gateway)
  *   verify_otp         – confirm the code the user entered
@@ -11,8 +12,14 @@
  */
 
 header('Content-Type: application/json');
-define('APP_URL', getenv('APP_BASE_URL') ?: 'http://localhost/bvetter');
-header('Content-Type: application/json');
+// APP_URL is NOT defined here. It comes from config/mailer.php (required
+// below), which is the single source of truth for every emailed URL.
+//
+// This file used to define it itself, unguarded, ABOVE that require -- so
+// its copy always won on the forgot-password path and mailer.php's guarded
+// define was dead code. Two copies of one constant, and the one that looked
+// redundant was the one that mattered: the reset email kept pointing at the
+// plaintext IP long after bvetter.me had a certificate.
 ini_set('display_errors', 0);  // ADD THIS
 error_reporting(E_ALL);   
 
@@ -22,15 +29,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/connection.php';
-
-// PHPMailer
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
-use PHPMailer\PHPMailer\Exception as MailException;
-require_once __DIR__ . '/../phpMailer/PHPMailer-master/src/Exception.php';
-require_once __DIR__ . '/../phpMailer/PHPMailer-master/src/PHPMailer.php';
-require_once __DIR__ . '/../phpMailer/PHPMailer-master/src/SMTP.php';
+require_once __DIR__ . '/../config/connection.php';
+require_once __DIR__ . '/../config/mailer.php';
+require_once __DIR__ . '/../config/security_settings.php';
+require_once __DIR__ . '/../config/email_availability.php';
+require_once __DIR__ . '/../config/rate_limit.php';
+require_once __DIR__ . '/../config/session.php';
 
 /* ── helpers ────────────────────────────────────────────── */
 
@@ -79,6 +83,45 @@ function ensureResetTable(PDO $pdo): void
 }
 
 /* ── send OTP via email ─────────────────────────────────── */
+/**
+ * Both public ways to learn whether an address is registered share this
+ * per-IP allowance: plenty for a person filling the form in, useless for a
+ * script working through a list.
+ */
+function assertEmailLookupAllowed(PDO $pdo): void
+{
+    if (!rateLimitAllow($pdo, 'email_lookup:' . clientIp(), 20, 600)) {
+        respond(429, [
+            'success' => false,
+            'message' => 'Too many attempts. Please wait a few minutes and try again.',
+        ]);
+    }
+}
+
+/**
+ * The sign-up form's live check, run when the applicant leaves the Email
+ * field -- so a taken address is caught on the first screen, not after the
+ * code and the ID upload. The same rule gates sendEmailOtp() below and the
+ * final submit, so skipping this call changes nothing.
+ */
+function checkEmail(PDO $pdo): never
+{
+    $email = trim($_POST['email'] ?? '');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        respond(422, ['success' => false, 'message' => 'Invalid email address.']);
+    }
+
+    assertEmailLookupAllowed($pdo);
+    $result = registrationEmailState($pdo, $email);
+
+    respond(200, [
+        'success' => true,
+        'state'   => $result['state'],
+        'allowed' => $result['allowed'],
+        'message' => $result['message'],
+    ]);
+}
+
 function sendEmailOtp(PDO $pdo): never
 {
     ensureOtpTable($pdo);
@@ -88,6 +131,19 @@ function sendEmailOtp(PDO $pdo): never
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         respond(422, ['success' => false, 'message' => 'Invalid email address.']);
+    }
+
+    // Registration is this action's only caller. No code goes to an address
+    // the form could never finish with -- it would only be turned away at
+    // the final submit, after the ID upload.
+    assertEmailLookupAllowed($pdo);
+    $availability = registrationEmailState($pdo, $email);
+    if (!$availability['allowed']) {
+        respond(409, [
+            'success' => false,
+            'state'   => $availability['state'],
+            'message' => $availability['message'],
+        ]);
     }
 
     $otp       = generateOtp();
@@ -108,49 +164,15 @@ function sendEmailOtp(PDO $pdo): never
         ':expires_at' => $expiresAt,
     ]);
 
-    // Use PHPMailer instead of mail()
-    try {
-        $mail = new PHPMailer(true);
-        $mail->CharSet    = PHPMailer::CHARSET_UTF8;
-        $mail->isSMTP();
-        $mail->Host       = getenv('SMTP_HOST') ?: 'smtp.gmail.com';
-        $mail->SMTPAuth   = true;
-        $mail->Username   = getenv('SMTP_USER') ?: '';
-        $mail->Password   = getenv('SMTP_PASS') ?: '';
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = (int) (getenv('SMTP_PORT') ?: 587);
+    $body = notificationEmailWrapper(
+        'Email Verification',
+        "<p>Use the code below to verify your email address.
+            It expires in <strong>10 minutes</strong>.</p>"
+        . emailCodeBox($otp)
+        . "<p style='color:#999;font-size:12px;'>If you did not request this, please ignore this email.</p>"
+    );
 
-        $mail->setFrom(getenv('SMTP_FROM') ?: $mail->Username, 'VBetter');
-        $mail->addAddress($email);
-        $mail->isHTML(true);
-        $mail->Subject = 'VBetter – Your Email Verification Code';
-
-        $logoPath = __DIR__ . '/../../public/images/logos/logo-color.png';
-        if (is_file($logoPath)) {
-            $mail->addEmbeddedImage($logoPath, 'logo', 'logo.png');
-        }
-
-        $mail->Body    = "
-            <div style='font-family:sans-serif;max-width:480px;margin:auto;padding:32px;
-                        border:1px solid #eee;border-radius:12px;text-align:center;'>
-                <img src='cid:logo' alt='Baliwag City Vet' style='height:56px;margin-bottom:20px;'>
-                <h2 style='color:#00B928;margin-bottom:8px;'>Email Verification</h2>
-                <p style='color:#555;'>Use the code below to verify your email address.
-                   It expires in <strong>10 minutes</strong>.</p>
-                <div style='font-size:36px;font-weight:800;letter-spacing:10px;text-align:center;
-                            background:#f4f4f4;padding:20px;border-radius:8px;margin:24px 0;'>
-                    {$otp}
-                </div>
-                <p style='color:#999;font-size:12px;'>
-                    If you did not request this, please ignore this email.
-                </p>
-            </div>
-        ";
-
-        $mail->send();
-
-    } catch (MailException $e) {
-        error_log("[VBetter OTP] Mailer error: " . $e->getMessage());
+    if (!sendAppMail($email, $email, 'BVetter – Your Email Verification Code', $body)) {
         respond(500, ['success' => false, 'message' => 'Failed to send verification email. Please try again.']);
     }
 
@@ -202,12 +224,12 @@ function sendPhoneOtp(PDO $pdo): never
 
     // ── Semaphore SMS ────────────────────────────────────────
     $apiKey     = getenv('SEMAPHORE_API_KEY') ?: '';
-    $senderName = getenv('SEMAPHORE_SENDER_NAME') ?: 'VBETTER';
+    $senderName = getenv('SEMAPHORE_SENDER_NAME') ?: 'BVetter';
 
     $payload = http_build_query([
         'apikey'      => $apiKey,
         'number'      => $normalised,
-        'message'     => "Your VBetter verification code is: {$otp}. Valid for 10 minutes. Do not share this with anyone.",
+        'message'     => "Your BVetter verification code is: {$otp}. Valid for 10 minutes. Do not share this with anyone.",
         'sendername'  => $senderName,
     ]);
 
@@ -225,7 +247,7 @@ function sendPhoneOtp(PDO $pdo): never
     curl_close($ch);
 
     if ($curlErr) {
-        error_log("[VBetter SMS] cURL error: {$curlErr}");
+        error_log("[BVetter SMS] cURL error: {$curlErr}");
         respond(500, ['success' => false, 'message' => 'Failed to send SMS. Please try again.']);
     }
 
@@ -233,11 +255,11 @@ function sendPhoneOtp(PDO $pdo): never
 
     // Semaphore returns an array of message objects on success
     if (empty($result) || isset($result['status']) && $result['status'] === 'error') {
-        error_log("[VBetter SMS] Semaphore error: {$response}");
+        error_log("[BVetter SMS] Semaphore error: {$response}");
         respond(500, ['success' => false, 'message' => 'Failed to send SMS. Please try again.']);
     }
 
-    error_log("[VBetter SMS] Sent to {$normalised}");
+    error_log("[BVetter SMS] Sent to {$normalised}");
 
     respond(200, [
         'success' => true,
@@ -317,11 +339,12 @@ function forgotPassword(PDO $pdo): never
     $stmt->execute([':email' => $email]);
     $user = $stmt->fetch();
 
-    // Always respond success so we don't leak registered emails
+    // Explicitly reject unknown emails. Email-enumeration secrecy is moot here:
+    // the public registration form already reveals which emails are registered.
     if (!$user) {
-        respond(200, [
-            'success' => true,
-            'message' => 'If that email is registered, a reset link has been sent.',
+        respond(404, [
+            'success' => false,
+            'message' => 'No account found with that email address.',
         ]);
     }
 
@@ -345,61 +368,47 @@ function forgotPassword(PDO $pdo): never
     // Build reset URL – adjust base URL to match your deployment
 $resetUrl = APP_URL . '/public/pages/reset-password.html?token='
           . urlencode($token);
-    $subject = 'VBetter – Password Reset Request';
+    $subject = 'BVetter – Password Reset Request';
     $name    = htmlspecialchars($user['full_name'], ENT_QUOTES);
-    $body    = "
-        <div style='font-family:sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #eee;border-radius:12px;text-align:center;'>
-            <img src='cid:logo' alt='Baliwag City Vet' style='height:56px;margin-bottom:20px;'>
-            <h2 style='color:#00B928;margin-bottom:8px;'>Password Reset</h2>
-            <p>Hi <strong>{$name}</strong>,</p>
-            <p style='color:#555;'>We received a request to reset your VBetter password.
-               Click the button below — the link expires in <strong>1 hour</strong>.</p>
-            <div style='text-align:center;margin:32px 0;'>
-                <a href='{$resetUrl}'
-                   style='background:#00B928;color:#fff;padding:14px 32px;border-radius:8px;
-                          text-decoration:none;font-weight:700;font-size:15px;'>
-                    Reset My Password
-                </a>
-            </div>
-            <p style='color:#999;font-size:12px;'>
-                If you did not request a password reset, you can safely ignore this email.
-            </p>
-        </div>
-    ";
+    $body    = notificationEmailWrapper(
+        'Password Reset',
+        "<p>Hi <strong>{$name}</strong>,</p>
+         <p>We received a request to reset your BVetter password.
+            Click the button below &mdash; the link expires in <strong>1 hour</strong>.</p>
+         <p style='color:#999;font-size:12px;'>If you did not request a password reset,
+            you can safely ignore this email.</p>",
+        null,
+        ['label' => 'Reset My Password', 'url' => $resetUrl]
+    );
 
-    try {
-        $mail = new PHPMailer(true);
-        $mail->CharSet    = PHPMailer::CHARSET_UTF8;
-        $mail->isSMTP();
-        $mail->Host       = getenv('SMTP_HOST') ?: 'smtp.gmail.com';
-        $mail->SMTPAuth   = true;
-        $mail->Username   = getenv('SMTP_USER') ?: '';
-        $mail->Password   = getenv('SMTP_PASS') ?: '';
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = (int) (getenv('SMTP_PORT') ?: 587);
+    $mailSent = sendAppMail($email, $user['full_name'], $subject, $body);
 
-        $mail->setFrom(getenv('SMTP_FROM') ?: $mail->Username, 'VBetter');
-        $mail->addAddress($email, $user['full_name']);
-        $mail->isHTML(true);
-        $mail->Subject = $subject;
-        $mail->Body    = $body;
-
-        $logoPath = __DIR__ . '/../../public/images/logos/logo-color.png';
-        if (is_file($logoPath)) {
-            $mail->addEmbeddedImage($logoPath, 'logo', 'logo.png');
-        }
-
-        $mail->send();
-
-        error_log("[VBetter Reset] email sent to {$email}");
-    } catch (MailException $e) {
-        error_log("[VBetter Reset] Mailer error: " . $e->getMessage());
+    if ($mailSent) {
+        error_log("[BVetter Reset] email sent to {$email}");
+    } else {
+        error_log("[BVetter Reset] Mailer error: sendAppMail() returned false");
     }
 
-    respond(200, [
+    $response = [
         'success' => true,
-        'message' => 'If that email is registered, a reset link has been sent.',
-    ]);
+        'message' => 'A password reset link has been sent to your email.',
+    ];
+
+    // Hand the reset link back in the response so the flow stays testable
+    // without real email — but ONLY to a caller on this machine.
+    //
+    // This used to key off "SMTP looks unconfigured" (send failed + empty
+    // SMTP_USER), which is exactly the state a broken production deploy is in.
+    // There, any stranger who typed an email address into the form would have
+    // been handed a working reset link for that account, administrators
+    // included. The condition has to be about WHO is asking, not about how
+    // healthy the mailer happens to be.
+    $isLocalCaller = in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true);
+    if (!$mailSent && $isLocalCaller) {
+        $response['dev_link'] = $resetUrl;
+    }
+
+    respond(200, $response);
 }
 
 /* ── reset password ─────────────────────────────────────── */
@@ -414,10 +423,6 @@ function resetPassword(PDO $pdo): never
 
     if ($token === '' || $password === '') {
         respond(422, ['success' => false, 'message' => 'Token and new password are required.']);
-    }
-
-    if (strlen($password) < 8) {
-        respond(422, ['success' => false, 'message' => 'Password must be at least 8 characters.']);
     }
 
     if ($password !== $confirm) {
@@ -445,9 +450,34 @@ function resetPassword(PDO $pdo): never
         respond(422, ['success' => false, 'message' => 'Reset link has expired. Please request a new one.']);
     }
 
+    // Checked after the token resolves, so the account's own name and email
+    // are known and can be rejected as password material.
+    $owner = $pdo->prepare('SELECT full_name, email FROM users WHERE id = :id LIMIT 1');
+    $owner->execute([':id' => $row['user_id']]);
+    $ownerRow = $owner->fetch() ?: [];
+
+    $policyError = passwordPolicyError($pdo, $password, [
+        'name'  => $ownerRow['full_name'] ?? '',
+        'email' => $ownerRow['email'] ?? '',
+    ]);
+    if ($policyError !== null) {
+        respond(422, ['success' => false, 'message' => $policyError]);
+    }
+
     $pdo->beginTransaction();
 
-    $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id')
+    // password_changed_at backs the profile Security card's "Last changed"
+    // line. A reset is a password change, so it has to stamp the column too --
+    // otherwise resetting via Forgot Password leaves the card under-reporting.
+    // Probed rather than assumed: this endpoint never runs setupProfileTables(),
+    // so on an install where the PHP is newer than
+    // database/migrations/2026-08-22-admin-profile-columns.sql the column may
+    // not exist yet, and an unknown column here would break password reset.
+    $stampsChangedAt = (bool) $pdo->query("SHOW COLUMNS FROM users LIKE 'password_changed_at'")->fetch();
+
+    $pdo->prepare('UPDATE users SET password_hash = :hash'
+            . ($stampsChangedAt ? ', password_changed_at = NOW()' : '')
+            . ' WHERE id = :id')
         ->execute([
             ':hash' => password_hash($password, PASSWORD_DEFAULT),
             ':id'   => $row['user_id'],
@@ -455,6 +485,32 @@ function resetPassword(PDO $pdo): never
 
     $pdo->prepare('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = :id')
         ->execute([':id' => $row['id']]);
+
+    // Lift a failed-login block. Three wrong passwords blocks the account
+    // (MAX_FAILED_LOGIN_ATTEMPTS in login_security.php), and being locked out
+    // is the single most common reason to use this form -- so without this the
+    // user resets successfully, is told "You can now log in", and is then
+    // refused at login by a message telling them to phone the office.
+    //
+    // Scoped to blocked_reason = 'failed_login' on purpose. An 'inactivity'
+    // block is a deliberate administrative decision about a dormant account,
+    // and control of the mailbox must not silently reverse it.
+    $pdo->prepare("
+        UPDATE users
+        SET account_status = 'active', blocked_reason = NULL, failed_login_attempts = 0
+        WHERE id = :id AND account_status = 'blocked' AND blocked_reason = 'failed_login'
+    ")->execute([':id' => $row['user_id']]);
+
+    // Revoke every live session for this account. Resetting a password is what
+    // someone does when they believe another person has it, so leaving that
+    // person's user_sessions row valid defeats the point -- and the idle
+    // timeout does not save you, since they renew it just by clicking.
+    // The owner's own devices are signed out too; they are about to log in
+    // with the new password anyway, and that is the honest trade.
+    $pdo->prepare('
+        UPDATE user_sessions SET revoked_at = NOW()
+        WHERE user_id = :id AND revoked_at IS NULL
+    ')->execute([':id' => $row['user_id']]);
 
     $pdo->commit();
 
@@ -467,6 +523,7 @@ $action = $_POST['action'] ?? '';
 
 try {
     match ($action) {
+        'check_email'    => checkEmail($pdo),
         'send_email_otp' => sendEmailOtp($pdo),
         'send_phone_otp' => sendPhoneOtp($pdo),
         'verify_otp'     => verifyOtp($pdo),
@@ -475,12 +532,12 @@ try {
         default           => respond(400, ['success' => false, 'message' => 'Unknown action.']),
     };
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
     if (isset($pdo) && $pdo->inTransaction()) {
         $pdo->rollBack();
     }
     respond(500, [
         'success' => false,
         'message' => 'Server error. Please try again.',
-        'error'   => $e->getMessage(),
     ]);
-}
+}

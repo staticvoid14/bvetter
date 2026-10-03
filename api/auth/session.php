@@ -1,6 +1,6 @@
 <?php
 /**
- * VBetter – Session check / list / end (Manage Security page)
+ * BVetter – Session check / list / end (Manage Security page)
  *
  * Actions (all require an "Authorization: Bearer <token>" header):
  *   check         – is my current session still valid? (polled by shared/js/auth.js)
@@ -15,7 +15,7 @@
 
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/../config/session.php';
 
 function respond(int $code, array $payload): never
@@ -44,16 +44,31 @@ $currentHash  = hash('sha256', $token);
 try {
     switch ($action) {
         case 'check':
-            $pdo->prepare('UPDATE user_sessions SET last_seen_at = NOW() WHERE id = :id')
-                ->execute([':id' => $session['id']]);
-            respond(200, ['success' => true, 'valid' => true]);
+            // 'active' is set by the client only when the user actually
+            // interacted since the previous poll. A bare timer tick must not
+            // renew the session, or an open-but-untouched tab stays alive
+            // forever and the idle timeout never fires.
+            if (($_POST['active'] ?? '') === '1') {
+                touchSessionActivity($pdo, (int) $session['id']);
+            }
+
+            respond(200, [
+                'success'          => true,
+                'valid'            => true,
+                // Lets the client run its own countdown and expire on the
+                // dot, instead of only finding out on the next poll.
+                'secondsRemaining' => sessionSecondsRemaining($pdo, (int) $session['id']),
+                'idleMinutes'      => sessionIdleTimeoutMinutes($pdo),
+            ]);
 
         case 'list':
-            $pdo->prepare('UPDATE user_sessions SET last_seen_at = NOW() WHERE id = :id')
-                ->execute([':id' => $session['id']]);
+            sweepIdleSessions($pdo);
+
+            touchSessionActivity($pdo, (int) $session['id']);
 
             $stmt = $pdo->prepare('
-                SELECT id, ip_address, city, country, device_label, last_seen_at, created_at, token_hash
+                SELECT id, ip_address, city, country, device_label, last_seen_at, created_at, token_hash,
+                       UNIX_TIMESTAMP(last_seen_at) AS last_seen_epoch
                 FROM user_sessions
                 WHERE user_id = :user_id AND revoked_at IS NULL
                 ORDER BY last_seen_at DESC
@@ -68,6 +83,9 @@ try {
                     'location'     => $location !== '' ? $location : 'Unknown location',
                     'ip'           => $row['ip_address'],
                     'lastActivity' => $row['last_seen_at'],
+                    // Epoch seconds — timezone-proof, unlike the raw DATETIME
+                    // string which the browser would misread as local time.
+                    'lastActivityEpoch' => (int) $row['last_seen_epoch'],
                     'isCurrent'    => hash_equals($row['token_hash'], $currentHash),
                 ];
             }, $stmt->fetchAll());
@@ -116,10 +134,13 @@ try {
                 respond(403, ['success' => false, 'message' => 'Admin access required.']);
             }
 
+            sweepIdleSessions($pdo);
+
             $stmt = $pdo->query('
                 SELECT
                     user_sessions.id, user_sessions.ip_address, user_sessions.city, user_sessions.country,
                     user_sessions.device_label, user_sessions.last_seen_at, user_sessions.token_hash,
+                    UNIX_TIMESTAMP(user_sessions.last_seen_at) AS last_seen_epoch,
                     users.full_name, users.email, roles.name AS role_name
                 FROM user_sessions
                 INNER JOIN users ON users.id = user_sessions.user_id
@@ -139,6 +160,7 @@ try {
                     'location'     => $location !== '' ? $location : 'Unknown location',
                     'ip'           => $row['ip_address'],
                     'lastActivity' => $row['last_seen_at'],
+                    'lastActivityEpoch' => (int) $row['last_seen_epoch'],
                     'isCurrent'    => hash_equals($row['token_hash'], $currentHash),
                 ];
             }, $stmt->fetchAll());
@@ -183,9 +205,9 @@ try {
             respond(400, ['success' => false, 'message' => 'Unknown action.']);
     }
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
     respond(500, [
         'success' => false,
         'message' => 'Session request failed.',
-        'error'   => $e->getMessage(),
     ]);
 }

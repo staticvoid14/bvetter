@@ -1,11 +1,11 @@
 <?php
 /**
- * VBetter – Email Verification Link Consumer
+ * BVetter – Email Verification Link Consumer
  * GET /api/auth/verify-email.php?token=...
  * Redirects to public/pages/email-verified.html?status=success|invalid|used|expired
  */
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/../config/email_verification.php';
 
 ensureEmailVerificationSchema($pdo);

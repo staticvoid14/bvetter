@@ -3,20 +3,27 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>VBetter – Website Management</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+  <title>BVetter – Website Management</title>
+  <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="../../shared/css/sidebar.css"/>
-  <link rel="stylesheet" href="../css/website-management.css"/>
+  <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile"/>
+  <link rel="stylesheet" href="../../shared/css/form-validation.css"/>
+  <link rel="stylesheet" href="../css/website-management.css?v=20260925-closed"/>
 </head>
 <body>
 
-  <!-- ── SIDEBAR — exact same markup as account-management.html ── -->
   <aside class="sidebar" role="navigation" aria-label="Main navigation">
     <div class="sidebar-header">
       <div class="logo">
-        <img src="../../shared/images/logo.png" alt="VBetter" onerror="this.parentElement.textContent='V'">
+        <img src="../../shared/images/logo.png" alt="BVetter" onerror="this.parentElement.textContent='V'">
       </div>
     </div>
     <nav class="sidebar-nav">
@@ -52,6 +59,10 @@
         <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
         <span class="nav-label">Mass Vaccination</span>
       </a>
+      <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+        <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+        <span class="nav-label">Support Tickets</span>
+      </a>
       <div class="nav-section-label" data-roles="admin">Administration</div>
       <a href="account-management.html" class="nav-item" title="Account Management" data-roles="admin">
         <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
@@ -65,10 +76,8 @@
     <div class="sidebar-footer"></div>
   </aside>
 
-  <!-- ── MAIN ── -->
   <main class="wm-main">
 
-    <!-- HERO -->
     <section class="wm-hero">
       <div class="wm-hero-copy">
         <h1 class="wm-hero-title">Website Management</h1>
@@ -85,13 +94,10 @@
       </div>
     </section>
 
-    <!-- All content sections go directly inside wm-main (no wm-layout wrapper) -->
     <div class="wm-content">
 
-      <!-- ══ BRAND IDENTITY — two separate cards ══ -->
       <div class="wm-brand-row" id="section-brand-logo">
 
-        <!-- Card 1: Company Logo -->
         <div class="wm-card">
           <div class="wm-card-header">
             <div class="wm-card-title">
@@ -127,7 +133,6 @@
           </div>
         </div>
 
-        <!-- Card 2: Brand Colors -->
         <div class="wm-card">
           <div class="wm-card-header">
             <div class="wm-card-title">
@@ -156,7 +161,6 @@
         </div>
       </div>
 
-      <!-- ══ VISUAL ASSETS ══ -->
       <section class="wm-card" id="section-assets">
         <div class="wm-card-header">
           <div class="wm-card-title">
@@ -169,7 +173,6 @@
         <div class="wm-card-body">
           <div class="wm-assets-grid">
 
-            <!-- Hero Banner -->
             <div class="wm-asset-card" onclick="triggerAssetUpload('hero-banner-input')">
               <div class="wm-asset-thumb-placeholder" id="hero-banner-placeholder">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -190,7 +193,6 @@
               <input type="file" id="hero-banner-input" accept="image/*"/>
             </div>
 
-            <!-- Team Workspace -->
             <div class="wm-asset-card" onclick="triggerAssetUpload('team-workspace-input')">
               <div class="wm-asset-thumb-placeholder" id="team-workspace-placeholder">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -214,10 +216,8 @@
         </div>
       </section>
 
-      <!-- ══ ANNOUNCEMENTS + COMPANY PROFILE ══ -->
       <div class="wm-two-col">
 
-        <!-- ANNOUNCEMENTS -->
         <section class="wm-card" id="section-announcements">
           <div class="wm-card-header">
             <div class="wm-card-title">
@@ -238,7 +238,6 @@
           </div>
         </section>
 
-        <!-- COMPANY PROFILE -->
         <section class="wm-card" id="section-profile">
           <div class="wm-card-header">
             <div class="wm-card-title">
@@ -275,12 +274,14 @@
             </div>
             <div class="wm-two-col">
               <div class="wm-form-group">
-                <label class="wm-label" for="cp-clinic-capacity">Clinic Capacity (homepage stat)</label>
-                <input class="wm-input" type="text" id="cp-clinic-capacity" placeholder="24/7"/>
+                <label class="wm-label" for="cp-visits-count">Number of Visits (homepage stat)</label>
+                <input class="wm-input" type="text" id="cp-visits-count" placeholder="Auto-calculated"/>
+                <span id="cp-visits-computed-hint" style="font-size:12px;color:var(--text-tertiary);"></span>
               </div>
               <div class="wm-form-group">
-                <label class="wm-label" for="cp-surgery-recovery">Surgery Recovery Rate (homepage stat)</label>
-                <input class="wm-input" type="text" id="cp-surgery-recovery" placeholder="98.4%"/>
+                <label class="wm-label" for="cp-avg-rating">Average Rating per Vet (homepage stat)</label>
+                <input class="wm-input" type="text" id="cp-avg-rating" placeholder="Auto-calculated"/>
+                <span id="cp-rating-computed-hint" style="font-size:12px;color:var(--text-tertiary);"></span>
               </div>
             </div>
             <div class="wm-form-group" style="margin-top:14px;">
@@ -291,9 +292,35 @@
           </div>
         </section>
 
+        <!--
+          Weekdays the clinic is closed. Philippine regular holidays, Holy Week,
+          National Heroes Day and the fixed special days are built in
+          (api/includes/clinic_calendar.php); this is for the rest. These days
+          gray out on the booking calendars, and the review time limits don't
+          count them as working days.
+        -->
+        <section class="wm-card" id="section-closed-dates">
+          <div class="wm-card-header">
+            <div class="wm-card-title">
+              <div class="wm-card-title-icon">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="15" x2="15" y2="19"/><line x1="15" y1="15" x2="9" y2="19"/></svg>
+              </div>
+              Clinic Closed Dates
+            </div>
+          </div>
+          <div class="wm-card-body">
+            <div class="wm-form-group" style="margin-bottom:10px;">
+              <label class="wm-label" for="cp-closed-dates">Extra closed days (one per line)</label>
+              <textarea class="wm-textarea" id="cp-closed-dates" placeholder="2026-03-20 Eid'l Fitr&#10;2026-05-15 Baliwag Town Fiesta"></textarea>
+              <span style="font-size:12px;color:var(--text-tertiary);">One per line, e.g. 2026-03-20 Eid'l Fitr. Regular holidays are already included.</span>
+            </div>
+            <p class="wm-label" style="margin:12px 0 6px;">Closed in the next 4 months</p>
+            <ul class="wm-closed-list" id="cp-closed-upcoming"></ul>
+          </div>
+        </section>
+
       </div>
 
-      <!-- ══ QUICK PREVIEW ══ -->
       <section class="wm-preview-card" id="section-preview">
         <div class="wm-preview-topbar">
           <div class="wm-preview-title">
@@ -319,7 +346,6 @@
           </div>
         </div>
 
-        <!-- macOS-style browser chrome -->
         <div class="wm-browser-shell" id="browser-shell">
           <div class="wm-browser-chrome-bar">
             <div class="wm-traffic-lights">
@@ -334,7 +360,6 @@
               <span class="wm-fake-url-text" id="wm-fake-url-text">adminpanel.com/preview-live</span>
             </div>
           </div>
-          <!-- Live preview: real Pet Owner landing page, rendered in an iframe -->
           <div class="wm-browser-content">
             <div class="wm-preview-frame-wrap" id="wm-preview-frame-wrap">
               <iframe
@@ -348,11 +373,10 @@
         </div>
       </section>
 
-    </div><!-- /wm-content -->
+    </div>
 
   </main>
 
-  <!-- ══ ANNOUNCEMENT MODAL ══ -->
   <div class="wm-modal-overlay" id="modal-ann" hidden>
     <div class="wm-modal" role="dialog" aria-modal="true" aria-labelledby="ann-modal-title">
       <div class="wm-modal-header">
@@ -394,17 +418,18 @@
     </div>
   </div>
 
-  <!-- ══ TOAST ══ -->
   <div class="wm-toast" id="wm-toast">
     <div class="wm-toast-dot"></div>
     <span id="wm-toast-msg">Changes saved successfully</span>
   </div>
 
-  <script src="../../shared/js/auth.js"></script>
+  <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
   <script>VBetterAuth.requireAuth(['admin']);</script>
-  <script src="../../shared/js/sidebar.js"></script>
-  <script src="../../public/js/api.js"></script>
-  <script src="../js/website-management.js"></script>
+  <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+  <script src="../../public/js/api.js?v=20260818-notif"></script>
+  <!-- Must load before website-management.js, which calls VBForm at save time. -->
+  <script src="../../shared/js/form-validation.js"></script>
+  <script src="../js/website-management.js?v=20260928-wording"></script>
 
 </body>
-</html>
+</html>

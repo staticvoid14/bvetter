@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — book-appointment.css
+   BVetter — book-appointment.css
    Page: Book appointment — vet selection + 4-step form + history.
    Depends: variables.css (must load first in HTML)
 
@@ -191,6 +191,25 @@ body {
   flex-shrink: 0;
 }
 
+.avatar-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.vet-thumb.avatar-initials {
+  background: #002A58;
+  font-size: 13px;
+}
+
+.vet-profile-img.avatar-initials {
+  background: #002A58;
+  font-size: 28px;
+}
+
 .vet-profile-name {
   font-size: 20px;
   font-weight: 900;
@@ -243,7 +262,7 @@ body {
 
 .vet-stats-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -577,6 +596,10 @@ body {
   background: var(--color-green);
 }
 
+.legend-dot.rq {
+  background: #f59e0b;
+}
+
 .time-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -687,6 +710,37 @@ body {
   border: 1px solid #D0E8FF;
   justify-content: space-between; /* ← add this */
 
+}
+
+.csp-status-card {
+  background: var(--color-yellow-light, #FFF8E1);
+  border: 1px solid var(--color-yellow, #F2B807);
+  border-radius: 12px;
+  padding: 18px 22px;
+  margin-bottom: 16px;
+}
+
+.csp-status-card.is-hidden {
+  display: none;
+}
+
+.csp-status-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.csp-status-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 2px 0;
+  color: var(--text-muted);
+}
+
+.csp-status-row .csp-status-val {
+  font-weight: 600;
+  color: var(--text-dark, #1a1a1a);
 }
 
 .history-icon {
@@ -938,23 +992,54 @@ body {
   color: var(--text-muted);
 }
 
-.field-error-msg {
-  font-size: 10px;
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row .form-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.field-row select.form-input {
+  flex: 0 0 108px;
+  cursor: pointer;
+}
+
+.field-warning.is-hidden {
+  display: none;
+}
+
+.form-group.is-hidden,
+.form-row-2.is-hidden,
+.success-card.is-hidden {
+  display: none;
+}
+
+.csp-success-block {
+  text-align: left;
+  margin-top: 16px;
+}
+
+.csp-success-footnote {
+  margin-top: 16px;
+}
+
+.field-warning {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
   font-weight: 600;
-  color: #d92d20;
+  color: var(--color-yellow);
+  background: var(--color-yellow-light);
+  border-radius: 6px;
 }
 
-.form-group.has-error .form-input,
-.form-group.has-error .form-select,
-.form-group.has-error .form-textarea {
-  border-color: #d92d20;
-}
-
-.form-group.has-error .slot-grid {
-  outline: 1.5px solid #d92d20;
-  outline-offset: 4px;
-  border-radius: 8px;
-}
+/* .field-error-msg and .form-group.has-error now live in
+   shared/css/form-validation.css so every form can use them, not just this
+   page. Loaded from book-appointment.html alongside this file. */
 
 .select-wrap {
   position: relative;
@@ -1259,10 +1344,10 @@ body {
   border-radius: 18px;
   overflow: hidden;
   align-items: stretch;
+  background: var(--gradient-hero);
 }
 
 .hist-hero .hero-left {
-  background: var(--color-navy);
   padding: 32px 40px;
   display: flex;
   flex-direction: column;
@@ -1270,18 +1355,10 @@ body {
 }
 
 .hist-hero-art {
-  background: var(--color-navy);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   padding-right: 20px;
-}
-
-.hist-hero-img {
-  width: 110px;
-  height: 110px;
-  object-fit: contain;
-  opacity: 0.2;
 }
 
 /* Body layout: main list LEFT, green stat card RIGHT */
@@ -1361,6 +1438,8 @@ body {
 .appt-pending   { border-left-color: #FBBF24; }
 .appt-completed { border-left-color: #10B981; }
 .appt-cancelled { border-left-color: #F87171; }
+/* Waiting on the owner to accept or decline a time the clinic proposed. */
+.appt-reschedule { border-left-color: #6366F1; }
 
 .appt-col-label {
   font-size: 9px;
@@ -1422,6 +1501,68 @@ body {
   color: #991B1B;
   border: 1px solid #FECACA;
 }
+
+.s-reschedule_pending {
+  background: #EEF2FF;
+  color: #3730A3;
+  border: 1px solid #C7D2FE;
+}
+
+/* ── Proposed reschedule ──
+   The original date is struck through rather than replaced, so the owner can
+   see exactly what they'd be giving up before they accept. */
+.appt-date-superseded {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.appt-proposed {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #C7D2FE;
+}
+
+.appt-proposed .appt-col-label { color: #4338CA; }
+
+.appt-proposed-reason {
+  margin-top: 4px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.reschedule-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-reschedule-accept,
+.btn-reschedule-decline {
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Manrope', sans-serif;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-reschedule-accept {
+  background: #059669;
+  border: none;
+  color: #fff;
+}
+
+.btn-reschedule-accept:hover { background: #047857; }
+
+.btn-reschedule-decline {
+  background: #fff;
+  border: 1px solid #D1D5DB;
+  color: #374151;
+}
+
+.btn-reschedule-decline:hover { background: #F3F4F6; }
 
 /* ── Rate & Review button — navy, matches Figma ── */
 .btn-rate-review {
@@ -1731,6 +1872,13 @@ body {
   opacity: 0.6;
 }
 
+/* Holiday / office closed: grayed like a weekend. pointer-events stays on
+   so the title tooltip with the holiday's name still shows; the click
+   handler is never bound. */
+.cal-day.disabled.closed {
+  pointer-events: auto;
+}
+
 .hstep-col {
   gap: 6px;
 }
@@ -2014,14 +2162,6 @@ body {
   width: 34px;
   height: 34px;
   object-fit: contain;
-  opacity: 0.25;
-  filter: grayscale(1);
-  transition: opacity 0.15s ease, filter 0.15s ease;
-}
-
-.rating-star.active img {
-  opacity: 1;
-  filter: none;
 }
 
 .rating-hint {
@@ -2097,4 +2237,92 @@ body {
   .modal-footer { flex-direction: column-reverse; }
   .modal-footer .btn-cancel,
   .modal-footer .btn-submit { width: 100%; justify-content: center; }
-}
+}
+/* Statuses that had no colour of their own and fell back to the bare badge. */
+.s-confirmed {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
+}
+
+.s-rejected {
+  background: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+}
+
+.s-expired {
+  background: #F3F4F6;
+  color: #4B5563;
+  border: 1px solid #D1D5DB;
+}
+
+/* "Use my account details" switch (step 1) -- the same toggle as the
+   Lost & Found form's "Use Account Information". */
+.account-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  cursor: pointer;
+}
+
+.account-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.account-switch-track {
+  width: 36px;
+  height: 20px;
+  background: var(--border-default);
+  border-radius: 20px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.account-switch-knob {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.account-switch input:checked + .account-switch-track { background: var(--color-green); }
+.account-switch input:checked + .account-switch-track .account-switch-knob { left: 19px; }
+.account-switch input:focus-visible + .account-switch-track { outline: 2px solid var(--color-navy); outline-offset: 2px; }
+
+.account-switch-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-green-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Fields filled from the account read as fixed. */
+#step1 .form-input[readonly],
+#step1 .form-select:disabled {
+  background: var(--bg-page);
+  cursor: default;
+}
+
+/* A time another owner has requested but the vet hasn't confirmed: still
+   bookable, in the pending-badge colours. */
+.legend-dot.rq {
+  background: var(--color-yellow);
+}
+
+.time-slot.requested:not(.selected),
+.slot-btn.requested:not(.selected) {
+  border-color: var(--color-yellow);
+  background: var(--color-yellow-light);
+  color: var(--color-yellow);
+}

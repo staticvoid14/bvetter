@@ -1,4 +1,222 @@
-const STORAGE_KEY = 'vbetter.patient-records';
+﻿const STORAGE_KEY = 'vbetter.patient-records';
+
+// Seeded from the `diseases` table at load (see loadDiagnosisOptions below).
+// The literal list stays as an offline fallback so the form still works if the
+// catalog request fails -- it matches the seed source exactly, so a vet picking
+// from either copy produces a diagnosis the forecasting pipeline recognises.
+let DIAGNOSIS_OPTIONS = [
+	'Avian Influenza', 'Canine Distemper', 'Coccidiosis', 'Dental Disease', 'Ear Infection',
+	'Ear Mites', 'Ehrlichiosis', 'Enterotoxemia', 'Feline Immunodeficiency Virus (FIV)',
+	'Feline Leukemia Virus (FeLV)', 'Feline Lower Urinary Tract Disease', 'Feline Panleukopenia',
+	'Feline Respiratory Complex (Cat Flu)', 'Flea Allergy Dermatitis', 'Flea Infestation',
+	'Foot Rot', 'Foot-and-Mouth Disease', 'Fowl Pox', 'Gastroenteritis', 'Gastrointestinal Stasis',
+	'Heartworm', 'Heat Stroke', 'Hemorrhagic Septicemia', 'Infectious Bronchitis',
+	'Infectious Bursal Disease', 'Intestinal Parasites', 'Kennel Cough', 'Leptospirosis', 'Mange',
+	"Marek's Disease", 'Mastitis', 'Newcastle Disease', 'Parasite Infection', 'Parasitic Infection',
+	'Pneumonia', 'Pyometra', 'Rabies (Suspected)', 'Respiratory Infection', 'Ringworm',
+	'Skin Infection', 'Upper Respiratory Infection', 'Urinary Tract Infection'
+];
+const DIAGNOSIS_OTHER = 'Other / Not Listed';
+
+// Replaces the fallback list with the live catalog so a disease added to the
+// `diseases` table shows up here without a code change. Failures are non-fatal:
+// the literal list above already covers every seeded disease.
+async function loadDiagnosisOptions() {
+	try {
+		const res = await fetch('/api/patient-records/patient_records.php?action=diseases', { cache: 'no-store' });
+		const result = await res.json();
+		const names = (result?.data || []).map((row) => row.name).filter(Boolean);
+		if (names.length) DIAGNOSIS_OPTIONS = names;
+	} catch (err) {
+		console.warn('Disease catalog unavailable, using built-in list.', err);
+	}
+}
+
+/* ── Differential diagnosis (RandomForestClassifier) ────────────────────
+   The forest's one legitimate job in this system. It is CROSS-SECTIONAL —
+   given these symptoms and this species, which diagnosis? — so none of the
+   timing problems that got a forest removed from the barangay action tier
+   apply (lag-1 autocorrelation 0.018 there; nothing time-dependent here).
+
+   Its input vocabulary is CLOSED: 10 symptom clusters x 6 animal groups, all
+   observed dozens of times in training. Both are therefore CHOSEN from lists,
+   never typed. An unrecognised string encodes to -1, lands in an arbitrary
+   leaf and comes back confident — measured, a made-up rabies-shaped phrase
+   returned 94% Pyometra. The service refuses that input; this form makes it
+   unreachable in the first place.
+
+   Non-fatal by design: if the analytics service is down the visit form behaves
+   exactly as it did before, minus the suggestion block. */
+let DIAGNOSIS_MODEL = { available: false, symptomClusters: [], animalGroups: [] };
+
+async function loadDiagnosisModel() {
+	try {
+		const res = await fetch('/api/dashboard/dashboard.php?scope=diagnosis_options', { cache: 'no-store' });
+		const result = await res.json();
+		if (!result?.success || !result.data) return;
+		DIAGNOSIS_MODEL = {
+			available:       true,
+			symptomClusters: result.data.symptom_clusters || [],
+			animalGroups:    result.data.animal_groups || [],
+			top1:            result.data.top1_accuracy,
+			top3:            result.data.top3_accuracy,
+			baseline:        result.data.lookup_baseline,
+		};
+	} catch (err) {
+		console.warn('Diagnosis model unavailable; suggestions are hidden.', err);
+	}
+}
+
+/* The pet form offers 4 species; the model knows 6 animal groups. Only three
+   map without inventing something — "Exotic" covers rabbits, goats and more,
+   so it prefills nothing and the vet chooses. */
+const SPECIES_TO_ANIMAL_GROUP = { Canine: 'Dogs', Feline: 'Cats', Avian: 'Chickens' };
+
+/* Renders nothing at all when the model is unavailable, rather than an empty
+   control the vet would wonder about. */
+function diagnosisSuggestBlock(data) {
+	if (!DIAGNOSIS_MODEL.available || !DIAGNOSIS_MODEL.symptomClusters.length) return '';
+	const prefill = SPECIES_TO_ANIMAL_GROUP[data.species] || '';
+	return `
+		<div class="field span-3 dx-block">
+			<label class="field-label" for="dx-cluster">
+				SUGGEST A DIAGNOSIS <span class="dx-optional">optional</span>
+			</label>
+			<p class="dx-lede">
+				Pick the closest symptom pattern and the animal group. The suggestion is a
+				shortlist to consider — the diagnosis recorded is the one you choose below.
+			</p>
+			<div class="dx-controls">
+				<select class="form-input" id="dx-cluster" name="symptomCluster">
+					<option value="" selected>Symptom pattern…</option>
+					${DIAGNOSIS_MODEL.symptomClusters
+						.map((cluster) => `<option>${escapeHtml(cluster)}</option>`).join('')}
+				</select>
+				<select class="form-input" id="dx-animal">
+					<option value="">Animal group…</option>
+					${DIAGNOSIS_MODEL.animalGroups.map((group) =>
+						`<option ${group === prefill ? 'selected' : ''}>${escapeHtml(group)}</option>`).join('')}
+				</select>
+			</div>
+			<div class="dx-result" id="dx-result" hidden></div>
+		</div>`;
+}
+
+async function runDiagnosisSuggestion() {
+	const cluster = document.getElementById('dx-cluster')?.value || '';
+	const group   = document.getElementById('dx-animal')?.value || '';
+	const host    = document.getElementById('dx-result');
+	if (!host) return;
+
+	if (!cluster) { host.hidden = true; host.innerHTML = ''; return; }
+	host.hidden = false;
+	host.innerHTML = '<p class="dx-muted">Checking…</p>';
+
+	try {
+		const res = await fetch('/api/dashboard/dashboard.php?scope=diagnosis_predict', {
+			method:  'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body:    JSON.stringify({ symptom_cluster: cluster, animal_group: group }),
+		});
+		const result = await res.json();
+		const payload = result?.data || {};
+
+		if (!result?.success || payload.unknown_symptom_cluster || !(payload.predictions || []).length) {
+			host.innerHTML = `<p class="dx-muted">${escapeHtml(
+				payload.message || 'No suggestion for that combination.')}</p>`;
+			return;
+		}
+
+		host.innerHTML = `
+			<ol class="dx-list">
+				${payload.predictions.map((p) => `
+					<li>
+						<button type="button" class="dx-pick" data-dx="${escapeHtml(p.diagnosis)}">
+							${escapeHtml(p.diagnosis)}
+						</button>
+						<span class="dx-prob">${Math.round((p.probability || 0) * 100)}%</span>
+					</li>`).join('')}
+			</ol>
+			<p class="dx-note">
+				Right first choice ${payload.top1_accuracy}% of the time, in the top three
+				${payload.top3_accuracy}% of the time, across ${DIAGNOSIS_MODEL.symptomClusters.length}
+				symptom patterns and 42 diagnoses. Treat it as a differential, not an answer.
+			</p>`;
+
+		host.querySelectorAll('.dx-pick').forEach((button) => {
+			button.addEventListener('click', () => applySuggestedDiagnosis(button.dataset.dx));
+		});
+	} catch (err) {
+		host.innerHTML = '<p class="dx-muted">Suggestion service unavailable.</p>';
+	}
+}
+
+/* Fills the DIAGNOSIS select the vet already uses. Never auto-submits, and the
+   choice stays visible as chosen so it is clear what was applied. */
+function applySuggestedDiagnosis(name) {
+	const select = document.getElementById('diagnosis');
+	if (!select) return;
+	const match = [...select.options].find(
+		(option) => option.value === name || option.textContent.trim() === name);
+	if (!match) return;
+	select.value = match.value || match.textContent.trim();
+	select.dispatchEvent(new Event('change', { bubbles: true }));
+	document.querySelectorAll('.dx-pick').forEach((button) => {
+		button.classList.toggle('is-chosen', button.dataset.dx === name);
+	});
+}
+
+// The barangay catalog, loaded once. The clinic serves Baliwag, so this table
+// holds only Baliwag barangays.
+let BARANGAY_OPTIONS = [];
+const BARANGAY_OUTSIDE = 'outside';
+
+async function loadBarangayOptions() {
+	try {
+		const res = await fetch(`${appBasePath()}/api/barangays/list.php`, { cache: 'no-store' });
+		const result = await res.json();
+		BARANGAY_OPTIONS = (result?.data || []).filter((row) => row && row.id && row.name);
+	} catch (err) {
+		console.warn('Barangay catalog unavailable.', err);
+	}
+}
+
+// The first option is deliberately blank and disabled. A select whose first
+// option is a real barangay auto-selects it, which is how the old
+// defaultBarangayId() bug would come straight back wearing a dropdown: the
+// encoder submits without touching the field and a plausible-looking barangay
+// is recorded anyway. Blank + required forces a deliberate choice.
+function barangaySelectHtml({ id, name, className, selectedId, isOutside }) {
+	const options = BARANGAY_OPTIONS.map((row) => {
+		const chosen = !isOutside && Number(selectedId) === Number(row.id);
+		return `<option value="${row.id}" ${chosen ? 'selected' : ''}>${escapeHtml(row.name)}</option>`;
+	}).join('');
+	const placeholder = BARANGAY_OPTIONS.length ? 'Select barangay' : 'Barangay list unavailable';
+	return `
+		<select class="${className}" id="${id}" name="${name}" required>
+			<option value="" disabled ${!selectedId && !isOutside ? 'selected' : ''}>${placeholder}</option>
+			${options}
+			<option value="${BARANGAY_OUTSIDE}" ${isOutside ? 'selected' : ''}>Outside Baliwag</option>
+		</select>`;
+}
+
+function vaccineTypeOptionsHtml(selected) {
+	const types = window.VaccineTypes?.getAll ? window.VaccineTypes.getAll() : ['Anti-Rabies'];
+	if (selected && !types.includes(selected)) types.push(selected);
+	return types.map((t) => `<option ${selected === t ? 'selected' : ''}>${t}</option>`).join('');
+}
+
+function parseAge(ageStr) {
+	const match = String(ageStr || '').match(/(\d+(?:\.\d+)?)\s*(year|month)/i);
+	if (!match) return { value: '', unit: 'Years' };
+	return { value: match[1], unit: /month/i.test(match[2]) ? 'Months' : 'Years' };
+}
+
+function formatAge(value, unit) {
+	const num = String(value || '').trim();
+	if (!num) return '';
+	return `${num} ${unit === 'Months' ? 'Months' : 'Years'}`;
+}
 
 function appBasePath() {
 	const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/vet/js/patient-records.js'));
@@ -7,7 +225,7 @@ function appBasePath() {
 	if (path.includes(jsMarker)) return path.slice(0, path.indexOf(jsMarker));
 	const pageMarker = '/vet/html/';
 	if (path.includes(pageMarker)) return path.slice(0, path.indexOf(pageMarker));
-	return '/bvetter';
+	return '';
 }
 
 const PATIENT_API = `${appBasePath()}/api/patient-records/patient_records.php`;
@@ -78,7 +296,7 @@ const defaultRecords = [
 		category: 'Routine Checkup',
 		attendingVet: 'Dr. Kizea Bien Igaya',
 		vaccinationStatus: 'Up to date',
-		vaccineBrand: 'DHPPi-L 5-in-1',
+		vaccineBrand: 'Anti-Rabies',
 		history: [
 			{ date: '2023-10-24', title: 'Annual Checkup', note: 'Stable vitals and clean incision site.' },
 			{ date: '2023-08-18', title: 'Post-surgery follow-up', note: 'Healing progressed as expected.' }
@@ -114,7 +332,7 @@ const defaultRecords = [
 		category: 'Dermatology',
 		attendingVet: 'Dr. Aris Rodriguez',
 		vaccinationStatus: 'Pending booster',
-		vaccineBrand: 'Canigen DHPPi',
+		vaccineBrand: 'Anti-Rabies',
 		history: [
 			{ date: '2023-10-15', title: 'Dermatitis Review', note: 'Topical care prescribed.' },
 			{ date: '2023-09-04', title: 'Skin scraping', note: 'Observed response to allergy management.' }
@@ -150,7 +368,7 @@ const defaultRecords = [
 		category: 'Respiratory',
 		attendingVet: 'Dr. Kizea Bien Igaya',
 		vaccinationStatus: 'Up to date',
-		vaccineBrand: 'FVRCP',
+		vaccineBrand: 'Anti-Rabies',
 		history: [
 			{ date: '2023-10-10', title: 'Respiratory Observation', note: 'Supportive therapy started.' }
 		]
@@ -173,7 +391,20 @@ const state = {
 	filterStatus: 'all',
 	page: 1,
 	modal: null,
-	pendingDeleteId: null
+	pendingDeleteId: null,
+	selectedIds: [],
+	// The month the encoder has declared visit entry complete through. Until
+	// one is declared the forecasting pipeline cannot tell a barangay-month
+	// with genuinely no cases apart from one nobody has encoded yet, so it
+	// distrusts every live month -- and none of them can join the risk
+	// model's training set. See _label_live_rows() and load_coverage_cutoff()
+	// in api/analytics/arima_service.py.
+	coverage: null,
+	// Date range covered by the active uploaded dataset, or null when nothing
+	// has been uploaded. See bv_active_upload_coverage() in
+	// api/includes/dataset_versions.php -- that is the source of truth; this is
+	// only a copy for the form.
+	uploadCoverage: null
 };
 
 // Desktop can comfortably show more rows per page than a phone screen.
@@ -200,9 +431,81 @@ async function patientRequest(action, payload = {}) {
 	});
 	const result = await response.json();
 	if (!response.ok || !result.success) {
-		throw new Error(result.message || 'Patient records request failed.');
+		const error = new Error(result.message || 'Patient records request failed.');
+		error.duplicateId = Number(result.duplicateId || 0);
+		throw error;
 	}
 	return result;
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+	'July', 'August', 'September', 'October', 'November', 'December'];
+
+async function loadCoverage() {
+	try {
+		const result = await patientRequest('coverage_get');
+		state.coverage = result.data || null;
+		// Separate from state.coverage on purpose: that one is the encoder's
+		// "entry finished through" declaration, this is the range an uploaded
+		// file owns and which therefore cannot be typed in by hand.
+		state.uploadCoverage = result.uploadCoverage || null;
+	} catch (error) {
+		console.warn('Coverage declaration unavailable:', error);
+		state.coverage = null;
+	}
+}
+
+/**
+ * Options run from the earliest month with a visit record up to the current
+ * month. Future months are excluded because a month that has not finished
+ * cannot have been fully encoded -- setCoverage() rejects them server-side
+ * too, and offering one here would only produce an error.
+ */
+function coverageMonthOptions(selectedYear, selectedMonth) {
+	const now = new Date();
+	const lastIdx = now.getFullYear() * 12 + now.getMonth();
+	const years = state.records
+		.flatMap((record) => (record.visits || []).map((visit) => visit.visitDate))
+		.concat(state.records.map((record) => record.lastVisit))
+		.map((date) => Number(String(date || '').slice(0, 4)))
+		.filter((year) => year >= 2000);
+	const firstIdx = years.length ? Math.min(...years) * 12 : lastIdx - 23;
+
+	const options = [];
+	for (let idx = lastIdx; idx >= firstIdx; idx -= 1) {
+		const year = Math.floor(idx / 12);
+		const month = (idx % 12) + 1;
+		const isSelected = year === selectedYear && month === selectedMonth;
+		options.push(`<option value="${year}-${month}" ${isSelected ? 'selected' : ''}>${MONTH_NAMES[month - 1]} ${year}</option>`);
+	}
+	return options.join('');
+}
+
+function renderCoverageBar() {
+	const coverage = state.coverage;
+	const year = coverage && coverage.year ? Number(coverage.year) : null;
+	const month = coverage && coverage.month ? Number(coverage.month) : null;
+	const declared = Boolean(year && month);
+
+	const statusText = declared
+		? `Declared complete through ${MONTH_NAMES[month - 1]} ${year}${coverage.updatedBy ? ` by ${escapeHtml(coverage.updatedBy)}` : ''}`
+		: 'Not declared yet — live months are excluded from the risk model until this is set.';
+
+	return `
+		<section class="coverage-bar ${declared ? 'is-declared' : 'is-undeclared'}">
+			<div class="coverage-copy">
+				<div class="coverage-title">Record entry complete through</div>
+				<p class="coverage-status">${statusText}</p>
+			</div>
+			<div class="coverage-controls">
+				<select class="form-input" id="coverage-month" aria-label="Month records are complete through">
+					${coverageMonthOptions(year, month)}
+				</select>
+				<button type="button" class="btn btn-accent" data-coverage="set">Declare</button>
+				${declared ? '<button type="button" class="btn btn-secondary" data-coverage="clear">Clear</button>' : ''}
+			</div>
+		</section>
+	`;
 }
 
 async function loadRecords() {
@@ -243,6 +546,38 @@ function formatDate(value) {
 	return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function todayIso() {
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Oldest date of birth a patient record accepts. Well past the lifespan of the
+// dogs and cats this clinic sees, so it only catches typos (a mistyped year)
+// rather than rejecting a genuinely old animal.
+const MAX_PET_AGE_YEARS = 30;
+
+// Nothing is scheduled more than a year out, so anything past this is a
+// mistyped year rather than a real plan.
+function oneYearAheadIso() {
+	const d = new Date();
+	d.setFullYear(d.getFullYear() + 1);
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function earliestPetDobIso() {
+	const d = new Date();
+	d.setFullYear(d.getFullYear() - MAX_PET_AGE_YEARS);
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function setFieldError(input, errorEl, message) {
+	if (input) input.classList.toggle('invalid', Boolean(message));
+	if (errorEl) {
+		errorEl.textContent = message || '';
+		errorEl.classList.toggle('visible', Boolean(message));
+	}
+}
+
 function routeFromUrl() {
 	const params = new URLSearchParams(window.location.search);
 	state.mode = params.get('mode') || 'list';
@@ -263,12 +598,47 @@ function navigate(mode, options = {}, replace = false) {
 	if (options.status && options.status !== 'all') params.set('status', options.status);
 	const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
 	if (replace) history.replaceState({}, '', nextUrl); else history.pushState({}, '', nextUrl);
+	// A selection made before a search or filter change would otherwise stay
+	// live while the rows behind it are hidden, so "Delete Selected (3)" could
+	// archive records the vet can no longer see. Paging does not route, so
+	// selecting across pages still works.
+	state.selectedIds = [];
 	routeFromUrl();
 	render();
 }
 
+/**
+ * A printable summary for the owner to take to another clinic -- walk-in
+ * owners have no login, so the counter is their only way to get one. The
+ * same layout as the owner's own Print on My Pets (shared/js/pet-record-print.js).
+ */
+function printRecord(id) {
+	const record = getRecordById(id);
+	if (!record || typeof window.printPetRecord !== 'function') return;
+	window.printPetRecord({
+		recordId: record.id,
+		petName: record.petName,
+		species: record.species,
+		breed: record.breed,
+		sex: record.sex,
+		age: record.age,
+		weight: record.weight,
+		colorMarkings: record.colorMarkings,
+		healthStatus: record.healthStatus,
+		ownerName: record.ownerName,
+		ownerPhone: record.phone,
+		visits: record.visitHistory || [],
+		vaccinations: record.vaccinationHistory || []
+	});
+}
+
 function getRecordById(id) {
 	return state.records.find((record) => record.id === id) || null;
+}
+
+function otherPetsForOwner(record) {
+	if (!record.ownerId) return [];
+	return state.records.filter((candidate) => candidate.ownerId === record.ownerId && candidate.id !== record.id);
 }
 
 function getVisitHistory(record) {
@@ -311,6 +681,18 @@ function getStatusClass(statusType) {
 	return 'neutral';
 }
 
+// The Health Status tile shows the same words the owner sees on My Pets
+// (api/includes/pet_standing.php), so the clinic and the owner never read
+// two different verdicts for one pet.
+function healthStatusFromRecord(record) {
+	const cls = {
+		warning: 'kpi-status-warn',
+		danger: 'kpi-status-danger',
+		neutral: 'kpi-status-neutral'
+	}[record.standingType] || 'kpi-status-ok';
+	return { label: record.healthStatus || 'Awaiting Consultation', cls };
+}
+
 function filteredRecords() {
 	const query = state.query.trim().toLowerCase();
 	return state.records.filter((record) => {
@@ -334,14 +716,22 @@ function detailTabButton(label, tabKey, activeTab) {
 	return `<button type="button" class="detail-tab ${isActive ? 'active' : ''}" data-detail-tab="${tabKey}">${escapeHtml(label)}</button>`;
 }
 
+// Barangay and street render as two separate rows, from two separate sources:
+// the barangay comes from the catalog, the street is free text. They used to be
+// one free-text field that the table then contradicted, which is the mismatch
+// that started all this.
+//
+// NOTE: keep explanations like this one OUT of the template literals below. An
+// HTML comment inside a template string that contains a backtick silently
+// terminates the string and mangles the markup, and `node --check` still passes.
 function renderPatientInfoTab(record) {
 	const medications = Array.isArray(record.medications) ? record.medications : [];
 	const isEmergency = String(record.category || '').toLowerCase().includes('emergency');
+	const otherPets = otherPetsForOwner(record);
 
 	return `
 		<div class="detail-panel-grid">
 
-			<!-- KPI tiles -->
 			<div class="kpi-row">
 				<div class="kpi-tile kpi-tile-navy">
 					<div class="kpi-tile-head">
@@ -372,8 +762,8 @@ function renderPatientInfoTab(record) {
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
 						</div>
 					</div>
-					<p class="kpi-tile-value kpi-tile-value-status kpi-status-ok">
-						<span class="status-dot"></span>${escapeHtml(record.healthStatus)}
+					<p class="kpi-tile-value kpi-tile-value-status ${healthStatusFromRecord(record).cls}">
+						<span class="status-dot"></span>${escapeHtml(healthStatusFromRecord(record).label)}
 					</p>
 					<p class="kpi-tile-sub">Current health standing</p>
 				</div>
@@ -390,7 +780,6 @@ function renderPatientInfoTab(record) {
 				</div>
 			</div>
 
-			<!-- Physical + Ownership -->
 			<div class="detail-two-column">
 				<article class="detail-info-card pi-card">
 					<div class="pi-card-head">
@@ -402,12 +791,12 @@ function renderPatientInfoTab(record) {
 					<div class="pi-fields">
 						<div class="pi-row">
 							<div class="pi-field">
-								<span class="pi-label">DATE OF BIRTH</span>
-								<span class="pi-value">${escapeHtml(record.dateOfBirth || record.visitDate || '—')}</span>
-							</div>
-							<div class="pi-field">
 								<span class="pi-label">AGE</span>
 								<span class="pi-value">${escapeHtml(record.age) || '—'}</span>
+							</div>
+							<div class="pi-field">
+								<span class="pi-label">WEIGHT</span>
+								<span class="pi-value">${escapeHtml(record.weight) || '—'}</span>
 							</div>
 						</div>
 						<div class="pi-row">
@@ -418,12 +807,6 @@ function renderPatientInfoTab(record) {
 							<div class="pi-field">
 								<span class="pi-label">SEX</span>
 								<span class="pi-value">${escapeHtml(record.sex || '—')}</span>
-							</div>
-						</div>
-						<div class="pi-row">
-							<div class="pi-field">
-								<span class="pi-label">WEIGHT</span>
-								<span class="pi-value">${escapeHtml(record.weight) || '—'}</span>
 							</div>
 						</div>
 					</div>
@@ -440,7 +823,7 @@ function renderPatientInfoTab(record) {
 						<div class="owner-avatar">${escapeHtml(record.ownerName.slice(0, 1).toUpperCase())}</div>
 						<div>
 							<strong>${escapeHtml(record.ownerName)}</strong>
-							<p>Primary Owner &middot; Member since 2019</p>
+							<span class ="pi-label"> Owner Name </span>
 						</div>
 					</div>
 					<div class="pi-fields pi-fields-stack">
@@ -453,14 +836,34 @@ function renderPatientInfoTab(record) {
 							<span class="pi-value">${escapeHtml(record.email)}</span>
 						</div>
 						<div class="pi-field pi-field-full">
-							<span class="pi-label">RESIDENTIAL ADDRESS</span>
-							<span class="pi-value">${escapeHtml(record.address)}</span>
+							<span class="pi-label">BARANGAY</span>
+							<span class="pi-value">${escapeHtml(record.location)}</span>
 						</div>
+						<div class="pi-field pi-field-full">
+							<span class="pi-label">HOUSE NO. / STREET</span>
+							<span class="pi-value">${escapeHtml(record.address || '—')}</span>
+						</div>
+					</div>
+					<div class="pi-owner-pets">
+						<span class="pi-label">OTHER PETS OF THIS OWNER</span>
+						${otherPets.length ? `
+						<div class="pi-owner-pets-list">
+							${otherPets.map((pet) => `
+								<button type="button" class="pi-owner-pet-chip" data-action="view" data-id="${pet.id}">
+									<span class="pi-owner-pet-avatar">${escapeHtml((pet.petName || '?').slice(0, 1).toUpperCase())}</span>
+									<span class="pi-owner-pet-text">
+										<strong>${escapeHtml(pet.petName)}</strong>
+										<span>${escapeHtml(pet.species || '')}</span>
+									</span>
+								</button>
+							`).join('')}
+						</div>
+						` : `<p class="pi-owner-pets-empty">No other pets on file for this owner yet.</p>`}
+						<button type="button" class="pi-owner-pet-add" data-action="add-pet" data-id="${record.id}">${ICONS.plus} Add Pet for This Owner</button>
 					</div>
 				</article>
 			</div>
 
-			<!-- Latest Clinical Visit -->
 			<article class="detail-info-card lv-card">
 				<div class="lv-card-head">
 					<div class="lv-head-left">
@@ -496,6 +899,10 @@ function renderPatientInfoTab(record) {
 							<div class="lv-data-row">
 								<span class="lv-data-key">Case Category</span>
 								<span class="lv-data-val">${escapeHtml(record.category) || '—'}</span>
+							</div>
+							<div class="lv-data-row">
+								<span class="lv-data-key">Disease Category</span>
+								<span class="lv-data-val">${escapeHtml(record.diseaseCategory) || '—'}</span>
 							</div>
 							<div class="lv-data-row">
 								<span class="lv-data-key">Diagnosis</span>
@@ -540,6 +947,12 @@ function renderPatientInfoTab(record) {
 	`;
 }
 
+// The "Reported barangay" box shows what the Disease Incidence Report counts
+// this case under. It is a snapshot taken when the visit was saved, so it does
+// NOT follow later edits to the owner's profile: deliberately, so an owner
+// moving house cannot retroactively relocate old cases. When the snapshot
+// itself was the mistake, Re-sync copies the owner's current barangay onto this
+// one visit only.
 function renderVisitHistoryTab(record) {
 	const visitHistory = getVisitHistory(record);
 	return `
@@ -590,6 +1003,12 @@ function renderVisitHistoryTab(record) {
 								<div class="medication-list stacked">
 									${(Array.isArray(visit.medications) ? visit.medications : []).map((medication) => `<span class="med-pill">${escapeHtml(medication)}</span>`).join('') || '<span class="muted">Not applicable</span>'}
 								</div>
+							</div>
+							<div class="muted-box">
+								<p class="history-label">Reported barangay</p>
+								<p class="detail-paragraph">${escapeHtml(visit.barangayAtVisit || 'Unspecified')}</p>
+								<button type="button" class="btn-ghost btn-small" data-resync-visit="${visit.id}"
+									title="Copy the owner's current barangay onto this visit">Re-sync from owner profile</button>
 							</div>
 						</div>
 					</div>
@@ -671,6 +1090,11 @@ function actionButton(label, action, className, id, variant = 'icon') {
 	return `<button type="button" class="table-action table-action-icon ${className}" data-action="${action}" data-id="${id}" aria-label="${escapeHtml(label)}">${icon}</button>`;
 }
 
+// The Location column reads record.location with no fallback to record.address.
+// That fallback is what let this column disagree with the record's own owner
+// panel: location came from owner_profiles.barangay_id (silently defaulted to
+// Tiaong) while the panel showed the typed address. The server now sends
+// 'Unspecified' when there is no barangay, so a gap reads as a gap.
 function renderList() {
 	const filtered = filteredRecords();
 	const total = state.records.length;
@@ -683,6 +1107,8 @@ function renderList() {
 	state.page = Math.min(Math.max(1, state.page), totalPages);
 	const pageStart  = (state.page - 1) * pageSize;
 	const records    = filtered.slice(pageStart, pageStart + pageSize);
+	const pageIds = records.map((record) => record.id);
+	const allSelectedOnPage = pageIds.length > 0 && pageIds.every((id) => state.selectedIds.includes(id));
 
 	return `
 		<section class="records-shell">
@@ -694,7 +1120,7 @@ function renderList() {
 						<p>Manage patient profiles, clinical notes, follow-ups, and record actions from one place.</p>
 					</div>
 					<div class="hero-actions">
-						<button type="button" class="btn btn-accent" data-nav="add"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add New Patient</button>
+						<button type="button" class="btn btn-accent" data-nav="add"><img src="../../vet/images/add.svg" alt="icon"> Add New Patient</button>
 					</div>
 				</div>
 			</header>
@@ -707,6 +1133,8 @@ function renderList() {
 					<article class="metric-card"><div class="metric-label">Infectious Cases<span class="metric-badge red">Live</span></div><div class="metric-value">${Number(state.metrics.infectiousCases || 0).toLocaleString()}</div></article>
 					<article class="metric-card"><div class="metric-label">Follow-ups Due <span class="metric-badge green">Due Now</span></div><div class="metric-value">${Number(state.metrics.followUpsDue || alerts).toLocaleString()}</div></article>
 				</div>
+
+				${renderCoverageBar()}
 
 			<section class="records-card">
 				<div class="table-toolbar">
@@ -725,10 +1153,21 @@ function renderList() {
 					<button type="button" class="filter-pill ${state.filterType === 'active' ? 'active' : ''}" data-filter-type="active">Active Only</button>
 				</div>
 
+				${state.selectedIds.length ? `
+				<div class="bulk-action-bar">
+					<span class="bulk-action-count">${state.selectedIds.length} selected</span>
+					<div class="bulk-action-buttons">
+						<button type="button" class="btn btn-soft" data-action="clear-selection">Clear</button>
+						<button type="button" class="btn btn-danger" data-action="bulk-delete">${ICONS.trash} Delete Selected (${state.selectedIds.length})</button>
+					</div>
+				</div>
+				` : ''}
+
 				<div class="table-wrap">
-					<table class="records-table">
+					<table class="records-table" data-cards>
 						<thead>
 							<tr>
+								<th class="th-select" data-card="select"><input type="checkbox" id="select-all-checkbox" class="row-select-checkbox" data-page-ids="${pageIds.join(',')}" ${allSelectedOnPage ? 'checked' : ''} aria-label="Select all patients on this page"></th>
 								<th>Patient</th>
 								<th>Owner</th>
 								<th>Last Visit</th>
@@ -741,6 +1180,7 @@ function renderList() {
 						<tbody>
 							${records.length ? records.map((record) => `
 								<tr>
+									<td class="td-select"><input type="checkbox" class="row-select-checkbox" data-select-id="${record.id}" ${state.selectedIds.includes(record.id) ? 'checked' : ''} aria-label="Select ${escapeHtml(record.petName)}"></td>
 									<td>
 										<div class="patient-mini">
 											<div class="patient-avatar">${escapeHtml((record.petName || '?')[0].toUpperCase())}</div>
@@ -761,7 +1201,7 @@ function renderList() {
 											<span>${escapeHtml(record.lastVisit)}</span>
 										</div>
 									</td>
-									<td><span class="location-text">${escapeHtml(record.location || record.address)}</span></td>
+									<td><span class="location-text">${escapeHtml(record.location)}</span></td>
 									<td>${statusTag(record)}</td>
 									<td><span class="pet-pill pet-pill-${escapeHtml((record.species || 'other').toLowerCase())}">${escapeHtml(record.species)}</span></td>
 									<td>
@@ -774,7 +1214,7 @@ function renderList() {
 								</tr>
 							`).join('') : `
 								<tr>
-									<td colspan="7"><div class="empty-state">No patient records match the current filters.</div></td>
+									<td colspan="8"><div class="empty-state">No patient records match the current filters.</div></td>
 								</tr>
 							`}
 						</tbody>
@@ -809,7 +1249,7 @@ function renderListPagination(shown, total, page, totalPages) {
 
 function getCurrentVetName() {
 	try {
-		const session = JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
+		const session = JSON.parse(localStorage.getItem('vbetter_session') || 'null');
 		const name = (session?.fullName || session?.name || '').trim();
 		if (!name) return 'Dr. Kizea Bien Igaya';
 		return name.startsWith('Dr.') ? name : `Dr. ${name}`;
@@ -832,6 +1272,8 @@ function buildBlankRecord(prefill = {}) {
 		phone: prefill.phone || '',
 		email: prefill.email || '',
 		address: prefill.address || '',
+		barangayId: prefill.barangayId || '',
+		isOutsideBaliwag: prefill.isOutsideBaliwag || false,
 		status: prefill.status || 'Active Patient',
 		statusType: prefill.statusType || 'success',
 		recordCount: prefill.recordCount || 1,
@@ -846,6 +1288,7 @@ function buildBlankRecord(prefill = {}) {
 		treatment: prefill.treatment || '',
 		medications: prefill.medications || [],
 		category: prefill.category || 'Routine Checkup',
+		diseaseCategory: prefill.diseaseCategory || 'General/Other',
 		attendingVet: prefill.attendingVet || getCurrentVetName(),
 		vaccinationStatus: prefill.vaccinationStatus || 'Pending',
 		vaccineBrand: prefill.vaccineBrand || '',
@@ -865,11 +1308,67 @@ function buildNewVisitRecord(record) {
 		treatment: '',
 		medications: [],
 		category: 'Routine Checkup',
+		diseaseCategory: 'General/Other',
 		attendingVet: getCurrentVetName(),
 		vaccinationStatus: '',
 		vaccineBrand: '',
 		alert: '0'
 	};
+}
+
+function renderPetEntryFields(index, data = {}, removable = false) {
+	const age = parseAge(data.age);
+	return `
+		<div class="pet-entry" data-pet-entry>
+			<div class="pet-entry-head">
+				<span class="pet-entry-label">Pet ${index + 1}</span>
+				${removable ? `<button type="button" class="pet-entry-remove" data-action="remove-pet-entry" aria-label="Remove this pet">${ICONS.trash} Remove</button>` : ''}
+			</div>
+			<div class="form-grid">
+				<div class="field span-2">
+					<label class="field-label">PET NAME</label>
+					<input class="form-input" data-field="petName" required placeholder="e.g. Buddy" value="${escapeHtml(data.petName || '')}">
+				</div>
+				<div class="field">
+					<label class="field-label">SPECIES</label>
+					<select class="form-input" data-field="species">
+						<option ${(data.species || 'Canine') === 'Canine' ? 'selected' : ''}>Canine</option>
+						<option ${data.species === 'Feline' ? 'selected' : ''}>Feline</option>
+						<option ${data.species === 'Avian' ? 'selected' : ''}>Avian</option>
+						<option ${data.species === 'Exotic' ? 'selected' : ''}>Exotic</option>
+					</select>
+				</div>
+				<div class="field">
+					<label class="field-label">BREED</label>
+					<input class="form-input" data-field="breed" placeholder="e.g. Golden Retriever" value="${escapeHtml(data.breed || '')}">
+				</div>
+				<div class="field">
+					<label class="field-label">AGE</label>
+					<div class="field-row">
+						<input class="form-input" data-field="ageValue" type="number" min="0" step="1" placeholder="e.g. 2" value="${escapeHtml(age.value)}">
+						<select class="form-input" data-field="ageUnit">
+							${['Years', 'Months'].map((item) => `<option ${age.unit === item ? 'selected' : ''}>${item}</option>`).join('')}
+						</select>
+					</div>
+				</div>
+				<div class="field">
+					<label class="field-label">SEX</label>
+					<select class="form-input" data-field="sex">
+						<option ${data.sex === 'Male' ? 'selected' : ''}>Male</option>
+						<option ${(data.sex || 'Female') === 'Female' ? 'selected' : ''}>Female</option>
+					</select>
+				</div>
+				<div class="field">
+					<label class="field-label">WEIGHT</label>
+					<input class="form-input" data-field="weight" placeholder="e.g. 12.5 kg" value="${escapeHtml(data.weight || '')}">
+				</div>
+				<div class="field">
+					<label class="field-label">COLOR / MARKINGS</label>
+					<input class="form-input" data-field="colorMarkings" placeholder="e.g. Golden coat, white chest" value="${escapeHtml(data.colorMarkings || '')}">
+				</div>
+			</div>
+		</div>
+	`;
 }
 
 function renderAdd(record) {
@@ -899,7 +1398,6 @@ function renderAdd(record) {
 			</div>
 
 			<form id="record-form" class="form-layout">
-				<!-- Pet Information -->
 				<article class="form-card">
 					<div class="form-card-head">
 						<div class="form-card-icon fci-green">
@@ -907,9 +1405,10 @@ function renderAdd(record) {
 						</div>
 						<div>
 							<h3 class="form-card-title">Pet Information</h3>
-							<p class="form-card-sub">Physical and identification details</p>
+							<p class="form-card-sub">${hasContext ? 'Physical and identification details' : 'Registering pets for the same owner? Add them all here in one go.'}</p>
 						</div>
 					</div>
+					${hasContext ? `
 					<div class="form-grid">
 						<div class="field span-2">
 							<label class="field-label" for="pet-name">PET NAME</label>
@@ -929,8 +1428,13 @@ function renderAdd(record) {
 							<input class="form-input" id="breed" name="breed" placeholder="e.g. Golden Retriever" value="${escapeHtml(data.breed)}">
 						</div>
 						<div class="field">
-							<label class="field-label" for="age">AGE</label>
-							<input class="form-input" id="age" name="age" placeholder="e.g. 2 years old" value="${escapeHtml(data.age)}">
+							<label class="field-label" for="age-value">AGE</label>
+							<div class="field-row">
+								<input class="form-input" id="age-value" name="ageValue" type="number" min="0" step="1" placeholder="e.g. 2" value="${escapeHtml(parseAge(data.age).value)}">
+								<select class="form-input" id="age-unit" name="ageUnit">
+									${['Years', 'Months'].map((item) => `<option ${parseAge(data.age).unit === item ? 'selected' : ''}>${item}</option>`).join('')}
+								</select>
+							</div>
 						</div>
 						<div class="field">
 							<label class="field-label" for="sex">SEX</label>
@@ -948,9 +1452,14 @@ function renderAdd(record) {
 							<input class="form-input" id="color-markings" name="colorMarkings" placeholder="e.g. Golden coat, white chest" value="${escapeHtml(data.colorMarkings)}">
 						</div>
 					</div>
+					` : `
+					<div id="pet-entries-list">
+						${renderPetEntryFields(0, {}, false)}
+					</div>
+					<button type="button" id="add-pet-entry-btn" class="btn btn-soft btn-add-pet">+ Add Another Pet</button>
+					`}
 				</article>
 
-				<!-- Owner Information -->
 				<article class="form-card">
 					<div class="form-card-head">
 						<div class="form-card-icon fci-blue">
@@ -974,14 +1483,23 @@ function renderAdd(record) {
 							<label class="field-label" for="email">EMAIL ADDRESS</label>
 							<input class="form-input" id="email" name="email" type="email" placeholder="owner@email.com" value="${escapeHtml(data.email)}">
 						</div>
-						<div class="field span-2">
-							<label class="field-label" for="address">COMPLETE ADDRESS</label>
-							<input class="form-input" id="address" name="address" placeholder="Barangay, Municipality, Province" value="${escapeHtml(data.address)}">
+						<div class="field">
+							<label class="field-label" for="barangay">BARANGAY</label>
+							${barangaySelectHtml({
+								id: 'barangay',
+								name: 'barangayId',
+								className: 'form-input',
+								selectedId: data.barangayId,
+								isOutside: data.isOutsideBaliwag
+							})}
+						</div>
+						<div class="field">
+							<label class="field-label" for="address">HOUSE NO. / STREET</label>
+							<input class="form-input" id="address" name="address" placeholder="e.g. 123 Rizal St." value="${escapeHtml(data.address)}">
 						</div>
 					</div>
 				</article>
 
-				<!-- Visit Details — full width -->
 				<article class="form-card span-2">
 					<div class="form-card-head">
 						<div class="form-card-icon fci-navy">
@@ -999,11 +1517,14 @@ function renderAdd(record) {
 						</div>
 						<div class="field">
 							<label class="field-label" for="visit-date">VISIT DATE</label>
-							<input class="form-input" id="visit-date" name="visitDate" type="date" value="${escapeHtml(data.visitDate)}">
+							<input class="form-input" id="visit-date" name="visitDate" type="date" ${manualEntryAllowedFrom() ? `min="${manualEntryAllowedFrom()}"` : ''} max="${todayIso()}" value="${escapeHtml(data.visitDate)}">
+							<span class="field-error" id="visit-date-error"></span>
+							${visitDateHint()}
 						</div>
 						<div class="field">
 							<label class="field-label" for="follow-up-date">FOLLOW-UP DATE</label>
-							<input class="form-input" id="follow-up-date" name="followUpDate" type="date" value="${escapeHtml(data.followUpDate)}">
+							<input class="form-input" id="follow-up-date" name="followUpDate" type="date" min="${todayIso()}" max="${oneYearAheadIso()}" value="${escapeHtml(data.followUpDate)}">
+							<span class="field-error" id="follow-up-date-error"></span>
 						</div>
 						<div class="field">
 							<label class="field-label" for="attending-vet">ATTENDING VETERINARIAN</label>
@@ -1013,9 +1534,15 @@ function renderAdd(record) {
 							<label class="field-label" for="symptoms">SYMPTOMS / CHIEF COMPLAINT</label>
 							<textarea class="form-textarea" id="symptoms" name="symptoms" placeholder="Describe observed clinical signs and symptoms...">${escapeHtml(data.symptoms)}</textarea>
 						</div>
+						${diagnosisSuggestBlock(data)}
 						<div class="field span-3">
 							<label class="field-label" for="diagnosis">DIAGNOSIS</label>
-							<textarea class="form-textarea" id="diagnosis" name="diagnosis" placeholder="Final or differential diagnosis...">${escapeHtml(data.diagnosis)}</textarea>
+							<select class="form-input" id="diagnosis" name="diagnosis">
+								<option value="" ${!data.diagnosis ? 'selected' : ''} disabled>Select a diagnosis...</option>
+								${DIAGNOSIS_OPTIONS.map((item) => `<option ${data.diagnosis === item ? 'selected' : ''}>${item}</option>`).join('')}
+								<option value="${DIAGNOSIS_OTHER}" ${data.diagnosis && !DIAGNOSIS_OPTIONS.includes(data.diagnosis) ? 'selected' : ''}>${DIAGNOSIS_OTHER}</option>
+							</select>
+							<input class="form-input" id="diagnosis-other" name="diagnosisOther" placeholder="Specify diagnosis..." value="${data.diagnosis && !DIAGNOSIS_OPTIONS.includes(data.diagnosis) ? escapeHtml(data.diagnosis) : ''}" ${data.diagnosis && !DIAGNOSIS_OPTIONS.includes(data.diagnosis) ? '' : 'hidden'} style="margin-top:6px;">
 						</div>
 						<div class="field span-3">
 							<label class="field-label" for="treatment">TREATMENT PROVIDED</label>
@@ -1038,8 +1565,13 @@ function renderAdd(record) {
 							</select>
 						</div>
 						<div class="field">
-							<label class="field-label" for="vaccine-brand">VACCINE BRAND</label>
-							<input class="form-input" id="vaccine-brand" name="vaccineBrand" placeholder="e.g. Nobivac" value="${escapeHtml(data.vaccineBrand)}">
+							<label class="field-label" for="vaccine-brand">VACCINATION TYPE</label>
+							<div class="field-inline-row">
+								<select class="form-input" id="vaccine-brand" name="vaccineBrand">
+									${vaccineTypeOptionsHtml(data.vaccineBrand)}
+								</select>
+								<button type="button" id="add-vaccine-type-btn" class="btn btn-soft btn-add-type" title="Add a new vaccination type">+ Add</button>
+							</div>
 						</div>
 						<div class="field">
 							<label class="field-label" for="status">RECORD STATUS</label>
@@ -1052,10 +1584,7 @@ function renderAdd(record) {
 					</div>
 					<div class="form-footer">
 						<button type="button" class="btn btn-soft" data-nav="list">Cancel</button>
-						<button type="submit" class="btn btn-primary">
-							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-							${submitLabel}
-						</button>
+						<button type="submit" class="btn btn-primary">${submitLabel} <img src="../../vet/images/plus.svg" alt="add"></button>
 					</div>
 				</article>
 			</form>
@@ -1083,7 +1612,7 @@ function renderDetail(record) {
 	return `
 		<section class="records-shell">
 			<div class="profile-topbar">
-				<button type="button" class="back-link" data-nav="list"><img src="/bvetter/vet/images/back.svg" alt="Back"> Back to Patient Records</button>
+				<button type="button" class="back-link" data-nav="list"><img src="../../vet/images/back.svg" alt="Back"> Back to Patient Records</button>
 			</div>
 
 			<section class="detail-shell">
@@ -1104,12 +1633,13 @@ function renderDetail(record) {
 							</div>
 						</div>
 						<div class="detail-actions">
-							<button type="button" class="btn btn-primary" data-nav="add" data-id="${record.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add New Record</button>
+							<button type="button" class="btn btn-soft" data-action="print" data-id="${record.id}">Print Record</button>
+							<button type="button" class="btn btn-primary" data-nav="add" data-id="${record.id}"><img src="../../vet/images/addView.svg" alt="Add New Record"> Add New Record</button>
 						</div>
 					</div>
 
 					<nav class="detail-tabs" aria-label="Patient detail tabs">
-						${detailTabButton('Patient Info', 'patient-info', activeTab)}
+						${detailTabButton('Pet Info', 'patient-info', activeTab)}
 						${detailTabButton('Visit History', 'visit-history', activeTab)}
 						${detailTabButton('Vaccination History', 'vaccination-history', activeTab)}
 					</nav>
@@ -1123,12 +1653,15 @@ function renderDetail(record) {
 	`;
 }
 
-function renderSuccessModal(record) {
+function renderSuccessModal(record, extraCount = 0) {
+	const message = extraCount > 0
+		? `${escapeHtml(record.petName)} and ${extraCount} other pet${extraCount > 1 ? 's' : ''} have been added to the patient records list.`
+		: `${escapeHtml(record.petName)} has been added to the patient records list.`;
 	return `
 		<div class="success-banner">
 			<div class="success-mark">${ICONS.check}</div>
-			<h2 id="records-modal-title">Record Added Successfully</h2>
-			<p class="muted">${escapeHtml(record.petName)} has been added to the patient records list.</p>
+			<h2 id="records-modal-title">${extraCount > 0 ? 'Patients Added Successfully' : 'Record Added Successfully'}</h2>
+			<p class="muted">${message}</p>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-soft" data-modal-action="go-list">Back to Records</button>
 				<button type="button" class="btn btn-primary" data-modal-action="go-view" data-id="${record.id}">View Patient</button>
@@ -1153,7 +1686,6 @@ function renderEditModal(record) {
 			<div class="em-divider"></div>
 
 			<div class="em-body">
-				<!-- Pet Information -->
 				<div class="em-section">
 					<p class="em-section-label">Pet Information</p>
 					<div class="em-grid">
@@ -1173,11 +1705,16 @@ function renderEditModal(record) {
 						</div>
 						<div class="em-field">
 							<label class="em-label" for="edit-dob">DATE OF BIRTH</label>
-							<input class="em-input" id="edit-dob" name="dateOfBirth" type="date" value="${escapeHtml(record.dateOfBirth || '')}">
+							<input class="em-input" id="edit-dob" name="dateOfBirth" type="date" min="${earliestPetDobIso()}" max="${todayIso()}" value="${escapeHtml(record.dateOfBirth || '')}">
 						</div>
 						<div class="em-field">
-							<label class="em-label" for="edit-age">AGE</label>
-							<input class="em-input" id="edit-age" name="age" placeholder="e.g. 2 years old" value="${escapeHtml(record.age)}">
+							<label class="em-label" for="edit-age-value">AGE</label>
+							<div class="em-field-row">
+								<input class="em-input" id="edit-age-value" name="ageValue" type="number" min="0" step="1" placeholder="e.g. 2" value="${escapeHtml(parseAge(record.age).value)}">
+								<select class="em-input" id="edit-age-unit" name="ageUnit">
+									${['Years', 'Months'].map((item) => `<option ${parseAge(record.age).unit === item ? 'selected' : ''}>${item}</option>`).join('')}
+								</select>
+							</div>
 						</div>
 						<div class="em-field">
 							<label class="em-label" for="edit-sex">SEX</label>
@@ -1197,7 +1734,6 @@ function renderEditModal(record) {
 					</div>
 				</div>
 
-				<!-- Owner Information -->
 				<div class="em-section">
 					<p class="em-section-label">Owner Information</p>
 					<div class="em-grid">
@@ -1213,14 +1749,23 @@ function renderEditModal(record) {
 							<label class="em-label" for="edit-email">EMAIL ADDRESS <span class="em-optional">optional</span></label>
 							<input class="em-input" id="edit-email" name="email" type="email" placeholder="owner@email.com" value="${escapeHtml(record.email || '')}">
 						</div>
-						<div class="em-field em-span-2">
-							<label class="em-label" for="edit-address">RESIDENTIAL ADDRESS</label>
-							<input class="em-input" id="edit-address" name="address" placeholder="e.g. 123 Harbor St., Brgy. Poblacion, Balanga City" value="${escapeHtml(record.address || '')}">
+						<div class="em-field">
+							<label class="em-label" for="edit-barangay">BARANGAY</label>
+							${barangaySelectHtml({
+								id: 'edit-barangay',
+								name: 'barangayId',
+								className: 'em-input',
+								selectedId: record.barangayId,
+								isOutside: record.isOutsideBaliwag
+							})}
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="edit-address">HOUSE NO. / STREET</label>
+							<input class="em-input" id="edit-address" name="address" placeholder="e.g. 123 Rizal St." value="${escapeHtml(record.address || '')}">
 						</div>
 					</div>
 				</div>
 
-				<!-- Record Status -->
 				<div class="em-section">
 					<p class="em-section-label">Record Status</p>
 					<div class="em-grid">
@@ -1253,6 +1798,41 @@ function renderEditModal(record) {
 	`;
 }
 
+function renderDuplicateModal(record) {
+	return `
+		<div class="delete-modal-wrap">
+			<div class="delete-modal-icon">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+			</div>
+			<h2 id="records-modal-title" class="delete-modal-title">Patient Already Exists</h2>
+			<p class="delete-modal-sub">Use Add New Record on this patient instead.</p>
+			<div class="delete-warning">
+				<div class="delete-warning-inner">
+					<div class="delete-pet-avatar">${escapeHtml(record.petName.slice(0,1))}</div>
+					<div>
+						<strong>${escapeHtml(record.petName)}</strong>
+						<p>${escapeHtml(record.species)} · Owner: ${escapeHtml(record.ownerName)}</p>
+					</div>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
+				<button type="button" class="btn btn-primary" data-modal-action="go-view" data-id="${record.id}">View Patient</button>
+			</div>
+		</div>
+	`;
+}
+
+// True when the error was a duplicate and the existing record is now shown.
+async function showDuplicate(error) {
+	if (!error.duplicateId) return false;
+	if (!getRecordById(error.duplicateId)) await loadRecords();
+	const existing = getRecordById(error.duplicateId);
+	if (!existing) return false;
+	openModal(renderDuplicateModal(existing));
+	return true;
+}
+
 function renderDeleteModal(record) {
 	if (!record) return '<div class="empty-state">Record not found.</div>';
 	return `
@@ -1273,7 +1853,9 @@ function renderDeleteModal(record) {
 			</div>
 			<div class="field delete-confirm-field">
 				<label for="delete-confirm" class="delete-confirm-label">Type <strong>DELETE</strong> to confirm</label>
-				<input class="form-input delete-confirm-input" id="delete-confirm" type="text" placeholder="DELETE" autocomplete="off">
+				<input class="form-input delete-confirm-input" id="delete-confirm" type="text" placeholder="DELETE" autocomplete="off"
+					oninput="this.classList.remove('invalid'); document.getElementById('delete-confirm-error')?.classList.remove('visible');">
+				<span class="field-error" id="delete-confirm-error">Please type DELETE exactly (all capital letters) to confirm.</span>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
@@ -1311,6 +1893,11 @@ async function deleteRecord(id) {
 	await loadRecords();
 }
 
+async function bulkDeleteRecordsRequest(ids) {
+	await patientRequest('bulk_delete', { ids });
+	await loadRecords();
+}
+
 function getFormData(form) {
 	const formData = new FormData(form);
 	const medications = String(formData.get('medications') || '')
@@ -1318,12 +1905,17 @@ function getFormData(form) {
 		.map((item) => item.trim())
 		.filter(Boolean);
 
+	const diagnosisChoice = String(formData.get('diagnosis') || '').trim();
+	const diagnosis = diagnosisChoice === DIAGNOSIS_OTHER
+		? String(formData.get('diagnosisOther') || '').trim()
+		: diagnosisChoice;
+
 	return {
 		petName: String(formData.get('petName') || '').trim(),
 		species: String(formData.get('species') || '').trim(),
 		breed: String(formData.get('breed') || '').trim(),
 		dateOfBirth: String(formData.get('dateOfBirth') || '').trim(),
-		age: String(formData.get('age') || '').trim(),
+		age: formatAge(formData.get('ageValue'), String(formData.get('ageUnit') || '').trim()),
 		sex: String(formData.get('sex') || '').trim(),
 		weight: String(formData.get('weight') || '').trim(),
 		colorMarkings: String(formData.get('colorMarkings') || '').trim(),
@@ -1331,14 +1923,22 @@ function getFormData(form) {
 		phone: String(formData.get('phone') || '').trim(),
 		email: String(formData.get('email') || '').trim(),
 		address: String(formData.get('address') || '').trim(),
+		barangayId: String(formData.get('barangayId') || '').trim(),
 		visitTitle: String(formData.get('visitTitle') || '').trim(),
 		visitDate: String(formData.get('visitDate') || '').trim(),
 		followUpDate: String(formData.get('followUpDate') || '').trim(),
 		symptoms: String(formData.get('symptoms') || '').trim(),
-		diagnosis: String(formData.get('diagnosis') || '').trim(),
+		// Saved alongside the free-text symptoms so live visits can reach the
+		// differential-diagnosis classifier at all. Blank when the vet skipped
+		// the picker; the server stores NULL rather than an empty string.
+		symptomCluster: String(formData.get('symptomCluster') || '').trim(),
+		diagnosis,
 		treatment: String(formData.get('treatment') || '').trim(),
 		medications,
 		category: String(formData.get('category') || '').trim(),
+		// diseaseCategory is intentionally not sent: the server derives it from
+		// the diagnosis (deriveDiseaseCategory in api/patient-records/patient_records.php)
+		// so the two can never disagree.
 		attendingVet: String(formData.get('attendingVet') || '').trim(),
 		vaccinationStatus: String(formData.get('vaccinationStatus') || '').trim(),
 		vaccineBrand: String(formData.get('vaccineBrand') || '').trim(),
@@ -1346,24 +1946,139 @@ function getFormData(form) {
 	};
 }
 
+function getPetEntriesData(form) {
+	return Array.from(form.querySelectorAll('[data-pet-entry]')).map((entry) => {
+		const fieldValue = (field) => entry.querySelector(`[data-field="${field}"]`)?.value ?? '';
+		return {
+			petName: fieldValue('petName').trim(),
+			species: fieldValue('species').trim(),
+			breed: fieldValue('breed').trim(),
+			sex: fieldValue('sex').trim(),
+			weight: fieldValue('weight').trim(),
+			colorMarkings: fieldValue('colorMarkings').trim(),
+			age: formatAge(fieldValue('ageValue'), fieldValue('ageUnit'))
+		};
+	}).filter((pet) => pet.petName);
+}
+
+/* ── Uploaded-dataset date boundary ──────────────────────────────
+   Visits dated inside an uploaded file's range are managed through uploads,
+   not manual entry: the forecasting pipeline only uses live records for months
+   AFTER the uploaded data ends, so one typed here would save and then vanish
+   from every chart with nothing to explain it. Blocked at entry instead, with
+   the boundary shown before the vet fills the form.
+
+   Mirrors validateVisitDates() in api/patient-records/patient_records.php.
+   That check is the real one; this exists so the vet finds out before typing. */
+function manualEntryAllowedFrom() {
+	return state.uploadCoverage?.allowedFrom || null;
+}
+
+function formatLongDate(iso) {
+	if (!iso) return '';
+	const d = new Date(iso + 'T00:00:00');
+	if (isNaN(d)) return iso;
+	return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+/* Helper text under the date field, so the limit is visible up front. */
+function visitDateHint() {
+	const from = manualEntryAllowedFrom();
+	if (!from) return '';
+	if (from > todayIso()) {
+		// The upload covers up to today, so there is no date left to pick.
+		// Say so plainly rather than leaving an input that rejects everything.
+		return `<span class="field-hint">Records up to ${formatLongDate(state.uploadCoverage.through)} `
+			+ `come from an uploaded file. Manual entry resumes ${formatLongDate(from)}.</span>`;
+	}
+	return `<span class="field-hint">Manual entry available from ${formatLongDate(from)} onward &mdash; `
+		+ `earlier months are covered by an uploaded file.</span>`;
+}
+
+function validateVisitDates(form) {
+	const visitDateInput = form.querySelector('#visit-date');
+	const followUpDateInput = form.querySelector('#follow-up-date');
+	const visitDateError = form.querySelector('#visit-date-error');
+	const followUpDateError = form.querySelector('#follow-up-date-error');
+
+	setFieldError(visitDateInput, visitDateError, '');
+	setFieldError(followUpDateInput, followUpDateError, '');
+
+	let hasError = false;
+	let firstInvalid = null;
+
+	if (visitDateInput && visitDateInput.value && visitDateInput.value > todayIso()) {
+		setFieldError(visitDateInput, visitDateError, 'Visit date cannot be in the future.');
+		firstInvalid = firstInvalid || visitDateInput;
+		hasError = true;
+	}
+
+	const allowedFrom = manualEntryAllowedFrom();
+	if (visitDateInput && visitDateInput.value && allowedFrom && visitDateInput.value < allowedFrom) {
+		setFieldError(visitDateInput, visitDateError,
+			`That date is covered by an uploaded records file. Enter visits dated `
+			+ `${formatLongDate(allowedFrom)} onward.`);
+		firstInvalid = firstInvalid || visitDateInput;
+		hasError = true;
+	}
+
+	if (followUpDateInput && followUpDateInput.value && followUpDateInput.value < todayIso()) {
+		setFieldError(followUpDateInput, followUpDateError, 'Follow-up date cannot be in the past.');
+		firstInvalid = firstInvalid || followUpDateInput;
+		hasError = true;
+	}
+
+	if (hasError) firstInvalid?.focus();
+	return !hasError;
+}
+
 async function handleAddSubmit(event) {
 	event.preventDefault();
-	const data = getFormData(event.currentTarget);
+	const form = event.currentTarget;
 	const patientId = state.selectedId || 0;
 
+	if (!validateVisitDates(form)) return;
+
+	if (patientId) {
+		const data = getFormData(form);
+		try {
+			const result = await patientRequest('save', { id: patientId, ...data });
+			await loadRecords();
+			const record = getRecordById(Number(result.id || patientId));
+			openModal(renderSuccessModal(record || { ...buildBlankRecord(), ...data, id: result.id || patientId }));
+		} catch (error) {
+			await vbAlert(error.message || 'Failed to save patient record.');
+		}
+		return;
+	}
+
+	const petEntries = getPetEntriesData(form);
+	if (petEntries.length === 0) {
+		await vbAlert('Please enter at least one pet name.');
+		return;
+	}
+
+	const sharedData = getFormData(form);
 	try {
-		const result = await patientRequest('save', patientId ? { id: patientId, ...data } : data);
+		const result = await patientRequest('save_batch', { ...sharedData, pets: petEntries });
 		await loadRecords();
-		const record = getRecordById(Number(result.id || patientId));
-		openModal(renderSuccessModal(record || { ...buildBlankRecord(), ...data, id: result.id || patientId }));
+		const ids = Array.isArray(result.ids) && result.ids.length ? result.ids : [result.id];
+		const record = getRecordById(Number(ids[0]));
+		openModal(renderSuccessModal(record || { ...buildBlankRecord(), ...sharedData, ...petEntries[0], id: ids[0] }, ids.length - 1));
 	} catch (error) {
-		alert(error.message || 'Failed to save patient record.');
+		if (await showDuplicate(error)) return;
+		await vbAlert(error.message || 'Failed to save patient record.');
 	}
 }
 
 function render() {
 	const selected = getRecordById(state.selectedId);
 	if (!app) return;
+
+	const activeEl = document.activeElement;
+	const restoreSearchFocus = activeEl && activeEl.id === 'search-input';
+	const selectionStart = restoreSearchFocus ? activeEl.selectionStart : null;
+	const selectionEnd = restoreSearchFocus ? activeEl.selectionEnd : null;
 
 	if (state.mode === 'add') {
 		app.innerHTML = renderAdd(selected ? buildNewVisitRecord(clone(selected)) : null);
@@ -1374,6 +2089,14 @@ function render() {
 	}
 
 	bindModeSpecificHandlers();
+
+	if (restoreSearchFocus) {
+		const newSearchInput = document.getElementById('search-input');
+		if (newSearchInput) {
+			newSearchInput.focus();
+			newSearchInput.setSelectionRange(selectionStart, selectionEnd);
+		}
+	}
 }
 
 function bindModeSpecificHandlers() {
@@ -1401,6 +2124,45 @@ function bindModeSpecificHandlers() {
 	if (form) {
 		form.addEventListener('submit', handleAddSubmit);
 	}
+
+	const diagnosisSelect = document.getElementById('diagnosis');
+	const diagnosisOther = document.getElementById('diagnosis-other');
+	if (diagnosisSelect && diagnosisOther) {
+		diagnosisSelect.addEventListener('change', () => {
+			diagnosisOther.hidden = diagnosisSelect.value !== DIAGNOSIS_OTHER;
+			if (!diagnosisOther.hidden) diagnosisOther.focus();
+		});
+	}
+
+	['dx-cluster', 'dx-animal'].forEach((id) => {
+		document.getElementById(id)?.addEventListener('change', runDiagnosisSuggestion);
+	});
+
+	const addVaccineTypeBtn = document.getElementById('add-vaccine-type-btn');
+	if (addVaccineTypeBtn) {
+		addVaccineTypeBtn.addEventListener('click', openAddVaccineTypeModal);
+	}
+
+	const petEntriesList = document.getElementById('pet-entries-list');
+	const addPetEntryBtn = document.getElementById('add-pet-entry-btn');
+	if (petEntriesList && addPetEntryBtn) {
+		addPetEntryBtn.addEventListener('click', () => {
+			const index = petEntriesList.querySelectorAll('[data-pet-entry]').length;
+			petEntriesList.insertAdjacentHTML('beforeend', renderPetEntryFields(index, {}, true));
+			const newEntry = petEntriesList.lastElementChild;
+			newEntry?.querySelector('[data-field="petName"]')?.focus();
+		});
+
+		petEntriesList.addEventListener('click', (event) => {
+			const removeBtn = event.target.closest('[data-action="remove-pet-entry"]');
+			if (!removeBtn) return;
+			removeBtn.closest('[data-pet-entry]')?.remove();
+			petEntriesList.querySelectorAll('[data-pet-entry]').forEach((entry, idx) => {
+				const label = entry.querySelector('.pet-entry-label');
+				if (label) label.textContent = `Pet ${idx + 1}`;
+			});
+		});
+	}
 }
 
 function openEditModal(id) {
@@ -1417,7 +2179,7 @@ function openEditModal(id) {
 			try {
 				updated = await updateRecord(id, getFormData(editForm));
 			} catch (error) {
-				alert(error.message || 'Failed to update patient record.');
+				await vbAlert(error.message || 'Failed to update patient record.');
 				return;
 			}
 			if (!updated) return;
@@ -1438,6 +2200,130 @@ function openEditModal(id) {
 	}
 }
 
+// Owner fields are deliberately absent from this form -- the pet is linked
+// via record.ownerId (see openAddPetModal), not by re-typing/re-matching the
+// owner's name or email, so there is no way for this path to spin up a
+// duplicate owner account.
+function renderAddPetModal(record) {
+	if (!record) return '<div class="empty-state">Record not found.</div>';
+	return `
+		<form id="add-pet-form" class="em-form">
+			<div class="em-header">
+				<div class="em-header-icon">${ICONS.plus}</div>
+				<div>
+					<h2 id="records-modal-title" class="em-title">Add Pet</h2>
+					<p class="em-subtitle">Registers a new pet under this owner. Their contact details are reused automatically.</p>
+				</div>
+			</div>
+			<div class="em-divider"></div>
+
+			<div class="em-body">
+				<div class="pi-owner-strip">
+					<div class="owner-avatar">${escapeHtml((record.ownerName || '?').slice(0, 1).toUpperCase())}</div>
+					<div>
+						<strong>${escapeHtml(record.ownerName)}</strong>
+						<span class="pi-label">Owner on file</span>
+					</div>
+				</div>
+
+				<div class="em-section">
+					<p class="em-section-label">Pet Information</p>
+					<div class="em-grid">
+						<div class="em-field em-span-2">
+							<label class="em-label" for="add-pet-name">PET NAME</label>
+							<input class="em-input" id="add-pet-name" name="petName" required placeholder="e.g. Buddy">
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="add-pet-species">SPECIES</label>
+							<select class="em-input" id="add-pet-species" name="species">
+								<option>Canine</option>
+								<option>Feline</option>
+								<option>Avian</option>
+								<option>Exotic</option>
+							</select>
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="add-pet-breed">BREED</label>
+							<input class="em-input" id="add-pet-breed" name="breed" placeholder="e.g. Golden Retriever">
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="add-pet-age-value">AGE</label>
+							<div class="em-field-row">
+								<input class="em-input" id="add-pet-age-value" name="ageValue" type="number" min="0" step="1" placeholder="e.g. 2">
+								<select class="em-input" id="add-pet-age-unit" name="ageUnit">
+									<option>Years</option>
+									<option>Months</option>
+								</select>
+							</div>
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="add-pet-sex">SEX</label>
+							<select class="em-input" id="add-pet-sex" name="sex">
+								<option>Male</option>
+								<option>Female</option>
+							</select>
+						</div>
+						<div class="em-field">
+							<label class="em-label" for="add-pet-weight">WEIGHT</label>
+							<input class="em-input" id="add-pet-weight" name="weight" placeholder="e.g. 12.5 kg">
+						</div>
+						<div class="em-field em-span-2">
+							<label class="em-label" for="add-pet-color-markings">COLOR / MARKINGS</label>
+							<input class="em-input" id="add-pet-color-markings" name="colorMarkings" placeholder="e.g. Golden coat, white chest">
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="em-footer">
+				<div class="em-footer-right">
+					<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
+					<button type="submit" class="btn btn-primary">${ICONS.plus} Add Pet</button>
+				</div>
+			</div>
+		</form>
+	`;
+}
+
+function openAddPetModal(id) {
+	const record = getRecordById(id);
+	if (!record || !record.ownerId) return;
+	state.modal = 'add-pet';
+	openModal(renderAddPetModal(record));
+	const addPetForm = document.getElementById('add-pet-form');
+	if (addPetForm) {
+		addPetForm.addEventListener('submit', async (event) => {
+			event.preventDefault();
+			const data = getFormData(addPetForm);
+			if (!data.petName) {
+				document.getElementById('add-pet-name')?.focus();
+				return;
+			}
+			let result = null;
+			try {
+				result = await patientRequest('add_pet', { ownerId: record.ownerId, ...data });
+			} catch (error) {
+				if (await showDuplicate(error)) return;
+				await vbAlert(error.message || 'Failed to add pet.');
+				return;
+			}
+			await loadRecords();
+			closeModal();
+			navigate('view', { id: result.id }, true);
+			openModal(`
+				<div class="success-banner">
+					<div class="success-mark">${ICONS.check}</div>
+					<h2 id="records-modal-title">Pet Added</h2>
+					<p class="muted">${escapeHtml(data.petName)} has been added under ${escapeHtml(record.ownerName)}.</p>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-primary" data-modal-action="close-modal">Close</button>
+					</div>
+				</div>
+			`);
+		});
+	}
+}
+
 function openDeleteModal(id) {
 	const record = getRecordById(id);
 	if (!record) return;
@@ -1445,6 +2331,78 @@ function openDeleteModal(id) {
 	state.pendingDeleteId = id;
 	state.selectedId = id;
 	openModal(renderDeleteModal(record));
+}
+
+function renderBulkDeleteModal(records) {
+	const names = records.map((record) => record.petName).filter(Boolean);
+	const preview = names.length > 3
+		? `${names.slice(0, 3).join(', ')}, and ${names.length - 3} more`
+		: names.join(', ');
+	return `
+		<div class="delete-modal-wrap">
+			<div class="delete-modal-icon">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+			</div>
+			<h2 id="records-modal-title" class="delete-modal-title">Delete ${records.length} Patient Records?</h2>
+			<p class="delete-modal-sub">This action is permanent and cannot be undone.</p>
+			<div class="delete-warning">
+				<div class="delete-warning-inner">
+					<div class="delete-pet-avatar">${records.length}</div>
+					<div>
+						<strong>${records.length} records selected</strong>
+						<p>${escapeHtml(preview)}</p>
+					</div>
+				</div>
+			</div>
+			<div class="field delete-confirm-field">
+				<label for="bulk-delete-confirm" class="delete-confirm-label">Type <strong>DELETE</strong> to confirm</label>
+				<input class="form-input delete-confirm-input" id="bulk-delete-confirm" type="text" placeholder="DELETE" autocomplete="off"
+					oninput="this.classList.remove('invalid'); document.getElementById('bulk-delete-confirm-error')?.classList.remove('visible');">
+				<span class="field-error" id="bulk-delete-confirm-error">Please type DELETE exactly (all capital letters) to confirm.</span>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
+				<button type="button" class="btn btn-danger delete-submit-btn" data-modal-action="confirm-bulk-delete">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+					Delete ${records.length} Records
+				</button>
+			</div>
+		</div>
+	`;
+}
+
+function openBulkDeleteModal() {
+	const records = state.selectedIds.map((selectedId) => getRecordById(selectedId)).filter(Boolean);
+	if (records.length === 0) return;
+	state.modal = 'bulk-delete';
+	openModal(renderBulkDeleteModal(records));
+}
+
+function renderAddVaccineTypeModal() {
+	return `
+		<div class="delete-modal-wrap">
+			<div class="delete-modal-icon icon-add">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+			</div>
+			<h2 id="records-modal-title" class="delete-modal-title">Add Vaccination Type</h2>
+			<p class="delete-modal-sub">Register a new vaccine so it can be selected for future visits.</p>
+			<div class="field delete-confirm-field">
+				<label for="new-vaccine-type-input" class="delete-confirm-label">Vaccination type name</label>
+				<input class="form-input" id="new-vaccine-type-input" type="text" placeholder="e.g. Deworming, 5-in-1" autocomplete="off">
+				<span class="field-error" id="new-vaccine-type-error"></span>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
+				<button type="button" class="btn btn-primary" data-modal-action="confirm-add-vaccine-type">Add Type</button>
+			</div>
+		</div>
+	`;
+}
+
+function openAddVaccineTypeModal() {
+	state.modal = 'add-vaccine-type';
+	openModal(renderAddVaccineTypeModal());
+	document.getElementById('new-vaccine-type-input')?.focus();
 }
 
 function handleModalAction(action, target) {
@@ -1473,9 +2431,36 @@ function handleModalAction(action, target) {
 		return;
 	}
 
+	if (action === 'confirm-add-vaccine-type') {
+		const input = document.getElementById('new-vaccine-type-input');
+		const error = document.getElementById('new-vaccine-type-error');
+		const result = window.VaccineTypes?.add
+			? window.VaccineTypes.add(input?.value)
+			: { ok: false, error: 'Vaccine type registry unavailable.' };
+		if (!result.ok) {
+			if (error) { error.textContent = result.error || 'Could not add that vaccination type.'; error.classList.add('visible'); }
+			input?.classList.add('invalid');
+			return;
+		}
+		const vaccineBrandSelect = document.getElementById('vaccine-brand');
+		if (vaccineBrandSelect) {
+			const opt = document.createElement('option');
+			opt.textContent = result.value;
+			vaccineBrandSelect.appendChild(opt);
+			vaccineBrandSelect.value = result.value;
+		}
+		closeModal();
+		return;
+	}
+
 	if (action === 'confirm-delete') {
 		const input = document.getElementById('delete-confirm');
-		if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
+		if (!input) return;
+		if (input.value.trim() !== 'DELETE') {
+			input.classList.add('invalid');
+			document.getElementById('delete-confirm-error')?.classList.add('visible');
+			return;
+		}
 		deleteRecord(id)
 			.then(() => {
 				closeModal();
@@ -1491,15 +2476,99 @@ function handleModalAction(action, target) {
 					</div>
 				`);
 			})
-			.catch((error) => alert(error.message || 'Failed to delete patient record.'));
+			.catch((error) => vbAlert(error.message || 'Failed to delete patient record.'));
+	}
+
+	if (action === 'confirm-bulk-delete') {
+		const input = document.getElementById('bulk-delete-confirm');
+		if (!input) return;
+		if (input.value.trim() !== 'DELETE') {
+			input.classList.add('invalid');
+			document.getElementById('bulk-delete-confirm-error')?.classList.add('visible');
+			return;
+		}
+		const ids = [...state.selectedIds];
+		bulkDeleteRecordsRequest(ids)
+			.then(() => {
+				state.selectedIds = [];
+				closeModal();
+				navigate('list', {}, true);
+				openModal(`
+					<div class="success-banner">
+						<div class="success-mark">${ICONS.check}</div>
+						<h2 id="records-modal-title">${ids.length} Records Deleted</h2>
+						<p class="muted">The selected records were removed after DELETE confirmation.</p>
+						<div class="modal-footer">
+							<button type="button" class="btn btn-primary" data-modal-action="go-list">Return to Records</button>
+						</div>
+					</div>
+				`);
+			})
+			.catch((error) => vbAlert(error.message || 'Failed to delete selected records.'));
 	}
 }
 
 function bindGlobalEvents() {
-	app.addEventListener('click', (event) => {
+	app.addEventListener('click', async (event) => {
+		const resyncButton = event.target.closest('[data-resync-visit]');
+		if (resyncButton) {
+			const visitId = Number(resyncButton.dataset.resyncVisit);
+			if (!(await vbConfirm('Copy this owner’s current barangay onto this visit? Other visits are not affected.'))) return;
+
+			resyncButton.disabled = true;
+			try {
+				const result = await patientRequest('resync_visit_barangay', { visitId });
+				await reloadRecords();
+				render();
+				window.alert(result.message || 'Visit barangay updated.');
+			} catch (error) {
+				resyncButton.disabled = false;
+				window.alert(error.message || 'Could not re-sync this visit.');
+			}
+			return;
+		}
+
+		const coverageButton = event.target.closest('[data-coverage]');
+		if (coverageButton) {
+			const clearing = coverageButton.dataset.coverage === 'clear';
+			const select = document.getElementById('coverage-month');
+			const [year, month] = clearing ? [0, 0] : String(select.value || '').split('-').map(Number);
+
+			coverageButton.disabled = true;
+			try {
+				await patientRequest('coverage_set', { year, month });
+				await loadCoverage();
+				render();
+			} catch (error) {
+				coverageButton.disabled = false;
+				window.alert(error.message || 'Could not update the coverage declaration.');
+			}
+			return;
+		}
+
 		const tabButton = event.target.closest('[data-detail-tab]');
 		if (tabButton) {
 			navigate('view', { id: state.selectedId, tab: tabButton.dataset.detailTab }, false);
+			return;
+		}
+
+		const selectAllCheckbox = event.target.closest('#select-all-checkbox');
+		if (selectAllCheckbox) {
+			const pageIds = (selectAllCheckbox.dataset.pageIds || '').split(',').filter(Boolean).map(Number);
+			state.selectedIds = selectAllCheckbox.checked
+				? Array.from(new Set([...state.selectedIds, ...pageIds]))
+				: state.selectedIds.filter((selectedId) => !pageIds.includes(selectedId));
+			render();
+			return;
+		}
+
+		const rowCheckbox = event.target.closest('.row-select-checkbox[data-select-id]');
+		if (rowCheckbox) {
+			const rowId = Number(rowCheckbox.dataset.selectId);
+			state.selectedIds = rowCheckbox.checked
+				? Array.from(new Set([...state.selectedIds, rowId]))
+				: state.selectedIds.filter((selectedId) => selectedId !== rowId);
+			render();
 			return;
 		}
 
@@ -1520,8 +2589,12 @@ function bindGlobalEvents() {
 
 		if (action === 'view') navigate('view', { id }, false);
 		if (action === 'add-record') navigate('add', { id }, false);
+		if (action === 'add-pet') openAddPetModal(id);
 		if (action === 'edit') openEditModal(id);
+		if (action === 'print') printRecord(id);
 		if (action === 'delete') openDeleteModal(id);
+		if (action === 'clear-selection') { state.selectedIds = []; render(); }
+		if (action === 'bulk-delete') openBulkDeleteModal();
 		if (action === 'prev-page') { state.page -= 1; app.innerHTML = renderList(); }
 		if (action === 'next-page') { state.page += 1; app.innerHTML = renderList(); }
 	});
@@ -1551,7 +2624,8 @@ function bindGlobalEvents() {
 async function bootstrap() {
 	routeFromUrl();
 	app.innerHTML = '<section class="records-shell"><div class="empty-state">Loading patient records...</div></section>';
-	await loadRecords();
+	await Promise.all([loadRecords(), loadDiagnosisOptions(), loadBarangayOptions(),
+	                   loadCoverage(), loadDiagnosisModel()]);
 	render();
 	bindGlobalEvents();
 }

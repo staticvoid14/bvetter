@@ -245,12 +245,17 @@ body {
 }
 
 .chart-panel {
-    background: #072754;
-    border-radius: 20px;
-    padding: 16px;
-    border: 1px solid rgba(153, 190, 236, 0.16);
-    box-shadow: 0 12px 30px rgba(8, 24, 46, 0.18);
-    color: #dbeaff;
+    background: var(--chatbot-card);
+    border-radius: 18px;
+    padding: 18px 20px;
+    border: 1px solid #E8EEF6;
+    box-shadow: 0 2px 10px rgba(12, 30, 54, 0.05);
+    color: var(--chatbot-ink);
+    transition: box-shadow 0.18s;
+}
+
+.chart-panel:hover {
+    box-shadow: 0 6px 20px rgba(12, 30, 54, 0.10);
 }
 
 .chart-panel-wide {
@@ -266,9 +271,10 @@ body {
 }
 
 .panel-head h2 {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 800;
-    color: #d9e8fa;
+    color: var(--chatbot-ink);
+    letter-spacing: -0.1px;
 }
 
 .panel-link {
@@ -279,13 +285,14 @@ body {
 }
 
 .panel-select {
-    border: 1px solid rgba(168, 186, 211, 0.7);
-    background: rgba(255, 255, 255, 0.08);
-    color: #e6f0fc;
-    border-radius: 12px;
-    padding: 10px 12px;
+    border: 1px solid rgba(154, 170, 198, 0.55);
+    background: #ffffff;
+    color: var(--chatbot-ink);
+    border-radius: 10px;
+    padding: 8px 12px;
     font: inherit;
     font-size: 12px;
+    font-weight: 600;
     outline: none;
 }
 
@@ -342,7 +349,7 @@ body {
     gap: 8px;
     font-size: 12px;
     font-weight: 700;
-    color: #eaf3ff;
+    color: var(--chatbot-ink);
 }
 
 .legend-dot {
@@ -502,13 +509,13 @@ body {
     border-radius: 14px;
     display: inline-grid;
     place-items: center;
-    background: #002A58;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
+    background: #EFF6FF;
+    color: #002A58;
+    border: 1px solid #BFDBFE;
     flex-shrink: 0;
 }
+
+.rule-icon i { font-size: 16px; line-height: 1; }
 
 .rule-title {
     font-weight: 800;
@@ -877,20 +884,23 @@ body {
     border-radius: 999px;
     display: inline-grid;
     place-items: center;
-    font-size: 12px;
-    font-weight: 800;
-    color: #fff;
-    background: #002A58;
+    color: #ffffff;
+    background: #64748B;
+    flex-shrink: 0;
 }
 
-.consultation-icon.dog,
-.consultation-icon.cats {
+.consultation-icon i { font-size: 13px; line-height: 1; }
+
+.consultation-icon.dog {
     background: #0d7a3d;
 }
 
-.consultation-icon.cat,
-.consultation-icon.others {
-    background: #64748B;
+.consultation-icon.cat {
+    background: #0d3f7a;
+}
+
+.consultation-icon.other {
+    background: #44506b;
 }
 
 .duration-pill,
@@ -1423,12 +1433,11 @@ body {
    ═══════════════════════════════════════════ */
 
 /* 1 ── Fix dropdown option text visibility
-        Native <option> inherits the select color which is white on
-        dark panels → browser renders white text on its own light popup.
-        Force a readable background/color pair for both contexts.       */
+        Native <option> inherits the select color — force a readable
+        background/color pair so the popup list matches the light select. */
 .panel-select option {
-    background: #0e2d52;
-    color: #dbeafe;
+    background: #ffffff;
+    color: var(--chatbot-ink);
 }
 
 .light-select,
@@ -1693,33 +1702,38 @@ body {
                 box-shadow 0.22s, transform 0.22s;
 }
 
-/* Icon square via pseudo-element — uses existing chatbot-* PNG files    */
+/* Icon square via pseudo-element — Font Awesome glyph rendered directly
+   in CSS content (codepoints verified against the loaded FA stylesheet),
+   white on a solid species-colored tile so it reads the same whether
+   the card is active or not. */
 .choice-card[data-animal]::before {
     content: '';
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 44px;
     height: 44px;
     border-radius: 12px;
-    background-size: 26px;
-    background-position: center;
-    background-repeat: no-repeat;
     flex-shrink: 0;
-    transition: background-color 0.22s;
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 20px;
+    color: #ffffff;
 }
 
 .choice-card[data-animal="Dog"]::before {
-    background-color: #e8f9ee;
-    background-image: url('/bvetter/public/images/icons/chatbot-dogs.png');
+    content: "\f6d3";
+    background-color: #0d7a3d;
 }
 
 .choice-card[data-animal="Cat"]::before {
-    background-color: #eef3ff;
-    background-image: url('/bvetter/public/images/icons/chatbot-cats.png');
+    content: "\f6be";
+    background-color: #0d3f7a;
 }
 
 .choice-card[data-animal="Other"]::before {
-    background-color: #f4f4f8;
-    background-image: url('/bvetter/public/images/icons/chatbot-others.png');
+    content: "\f1b0";
+    background-color: #44506b;
 }
 
 .choice-card:hover {
@@ -1815,6 +1829,70 @@ body {
 .chip-action:hover {
     background: #f1fbf4;
     border-color: #0d7a3d;
+}
+
+/* ── Symptom chip edit/delete tools (shown on hover/focus) ── */
+.symptom-chip-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.symptom-chip-wrap .choice-chip {
+    flex: 1;
+    min-width: 0;
+}
+
+.symptom-urgent-badge {
+    margin-left: 6px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #B91C1C;
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 999px;
+    padding: 1px 6px;
+}
+
+.choice-chip.active .symptom-urgent-badge {
+    color: #0d7a3d;
+    background: rgba(255, 255, 255, 0.85);
+    border-color: transparent;
+}
+
+.symptom-chip-tools {
+    display: flex;
+    gap: 3px;
+    flex: 0 0 auto;
+}
+
+.symptom-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid rgba(174, 188, 208, 0.7);
+    background: #fff;
+    color: #0f2440;
+    cursor: pointer;
+    padding: 0;
+}
+
+.symptom-tool-btn:hover {
+    background: #0E4686;
+    border-color: #0E4686;
+    color: #fff;
+}
+
+.symptom-tool-btn.danger:hover {
+    background: #B91C1C;
+    border-color: #B91C1C;
+    color: #fff;
 }
 
 /* ── Duration option cards ───────────────── */
@@ -2048,3 +2126,20 @@ body {
     }
 }
 
+
+/* Inline mismatch message under the type-DELETE confirm inputs */
+.confirm-error {
+    display:     none;
+    font-size:   11.5px;
+    font-weight: 600;
+    color:       #EF4444;
+    margin-top:  5px;
+}
+
+.confirm-error.visible {
+    display: block;
+}
+
+.confirm-input.invalid {
+    border-color: #EF4444 !important;
+}

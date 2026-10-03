@@ -13,18 +13,27 @@
 'use strict';
 
 /* ── Default state ──────────────────────────────────────────── */
+// Analytics labels are server-computed but include barangay and disease
+// names that originate in editable data, so they are escaped like any
+// other user-sourced value before reaching innerHTML.
+const esc = (v) => window.vbEscapeHtml(v);
+
 let diseaseAnalyticsData = {
     filters: ['All Diseases'],
     selectedDisease: 'All Diseases',
     period: 'year',
-    periodLabel: 'Full Year 2025',
+    periodLabel: 'Full Year',
     isAllDiseases: true,
+    baselineLabel: '',
     kpis: [
-        { label: 'Total Patients This Year', value: '0',   trend: 'Loading…' },
-        { label: 'Most Common Disease',      value: 'N/A', trend: '' },
-        { label: 'Most Active Barangay',     value: 'N/A', trend: '' },
-        { label: 'Auto Alerts',              value: '00',  trend: '' },
+        { label: 'Total Cases',         value: '0',   trend: 'Loading…' },
+        { label: 'Most Common Disease', value: 'N/A', trend: '' },
+        { label: 'Most Active Barangay',value: 'N/A', trend: '' },
+        { label: 'Auto Alerts',         value: '00',  trend: '' },
     ],
+    // Stays null until the API answers, so the strip is hidden rather than
+    // flashing a zero the clinic has not actually recorded.
+    liveLayer: null,
     predictionSummary: { total: 0, label: 'Barangays monitored' },
     sources: [],
     actualCases: [],
@@ -35,6 +44,8 @@ let diseaseAnalyticsData = {
 
 const state = {
     selectedInsightId: null,
+    // Which column drives the order BOTH bar charts are drawn in.
+    chartSort: 'actual',
     mapActionMode: false,
     loadRequestId: 0,
     map: null,
@@ -65,8 +76,14 @@ function friendlyModelLabel(modelType) {
     // would otherwise match the "arima" check below and get labeled "Smart
     // Forecast", which is exactly backwards from what it should signal.
     if (s.includes('fallback') || s.includes('movingaverage') || s.includes('wma')) return 'Basic Estimate';
-    if (s.includes('arima') && (s.includes('rf') || s.includes('alldisease'))) return 'Advanced Forecast';
-    if (s.includes('sarima') || s.includes('arima')) return 'Smart Forecast';
+    // 'alldisease' alone (not just 'arima' && 'alldisease') so the RF-based
+    // monthly forecast for the all-disease pipeline ("AllDiseaseRFMonthlyRegressor...")
+    // still reads as the same "combined pipeline" tier as its ARIMA counterpart.
+    if (s.includes('alldisease')) return 'Advanced Forecast';
+    if (s.includes('arima') && s.includes('rf')) return 'Advanced Forecast';
+    // Disease-specific RF monthly forecast ("DiseaseRFMonthlyRegressor") sits at
+    // the same tier as plain SARIMA/ARIMA -- a real per-series model, not a fallback.
+    if (s.includes('sarima') || s.includes('arima') || s.includes('rfmonthly')) return 'Smart Forecast';
     return 'Forecast';
 }
 
@@ -102,22 +119,53 @@ function countUp(el, duration) {
     requestAnimationFrame(tick);
 }
 
-function getRiskLevel(insight) {
-    var cls = (insight.rf_risk_class || '').toLowerCase();
-    if (cls.includes('high') || cls === 'critical') return 'high';
-    if (cls.includes('medium') || cls.includes('med') || cls === 'monitor') return 'medium';
-    return 'low';
+/* ── One status vocabulary ───────────────────────────────────────
+   The API speaks three dialects for a single idea. The all-disease
+   pipeline returns ESCALATE/MONITOR/ROUTINE, the map layer returns
+   critical/monitor/stable, and the disease-specific pipeline returns
+   High/Medium/Low. All three were reaching the screen: mapped in some
+   places, raw in others, so one barangay read "ESCALATE" on its card,
+   "Immediate Response" in the panel and "Needs Action" on the map.
+
+   The colour was worse. The CSS class came from string-matching those
+   raw values, and "escalate" contains neither "high" nor "medium", so
+   the MOST urgent state fell through to risk-low and rendered green.
+
+   One translation, used at every surface. `level` drives colour,
+   `label` is the only wording a vet ever sees. */
+const ACTION_STATUS = {
+    escalate: 'high',   critical: 'high',   high:   'high',
+    monitor:  'medium', medium:   'medium', med:    'medium',
+    routine:  'low',    stable:   'low',    low:    'low', normal: 'low',
+};
+const ACTION_LABEL = { high: 'Needs Action', medium: 'Watch', low: 'Normal' };
+
+function actionStatus(value) {
+    const key = String(value ?? '').trim().toLowerCase();
+    let level = ACTION_STATUS[key];
+    if (!level) {
+        // Unknown wire value: bias toward the LOUDER reading. A spurious
+        // alarm costs the clinic a phone call; a missed one costs more.
+        // Deliberately not matching a bare "med" -- it is a substring of
+        // "immediate", which would file "Immediate Response" as a Watch.
+        level = /escalat|critical|urgent|high/.test(key) ? 'high'
+              : /monitor|watch|medium/.test(key)         ? 'medium'
+              :                                            'low';
+    }
+    return { level, label: ACTION_LABEL[level] };
 }
 
 /* ── API calls ──────────────────────────────────────────────── */
-async function diseaseAnalyticsRequest(disease, period) {
+async function diseaseAnalyticsRequest(disease, period, dataView, currentMonth) {
     const params = new URLSearchParams({
-        scope:   'disease_analytics',
-        disease: disease || 'All Diseases',
-        period:  period  || 'year',
+        scope:         'disease_analytics',
+        disease:       disease  || 'All Diseases',
+        period:        period   || 'year',
+        data_view:     dataView || 'historical',
+        current_month: currentMonth || '',
     });
     try {
-        const res    = await fetch(`/bvetter/api/dashboard/dashboard.php?${params}`, { cache: 'no-store' });
+        const res    = await fetch(`/api/dashboard/dashboard.php?${params}`, { cache: 'no-store' });
         const result = await res.json();
         return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
     } catch (e) {
@@ -125,41 +173,27 @@ async function diseaseAnalyticsRequest(disease, period) {
     }
 }
 
-async function diseaseRiskRequest(barangays, currentCasesByBarangay, disease, period) {
-    try {
-        const res = await fetch(
-            '/bvetter/api/dashboard/dashboard.php?scope=disease_risk_prediction',
-            {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                cache:   'no-store',
-                body: JSON.stringify({
-                    barangays:                 barangays || [],
-                    current_cases_by_barangay: currentCasesByBarangay || {},
-                    disease:                   disease  || '',
-                    period:                    period   || 'year',
-                    steps:                     3,
-                }),
-            }
-        );
-        const result = await res.json();
-        return { ok: result.success, data: result.data || [], error: result.success ? null : result.error };
-    } catch (e) {
-        return { ok: false, data: [], error: e.message };
-    }
-}
+/* diseaseRiskRequest() used to live here as a local copy of VetAPI's
+   getDiseaseRiskPrediction, because the shared one dropped `disease` and
+   `period`. The shared one forwards them now, so the copy and the monkey-patch
+   that installed it over window.VetAPI are both gone. */
 
 // "Create Event" doesn't have its own storage -- it routes into whichever
 // existing module actually owns that kind of event, so it shows up where
 // vets already look for it instead of a third, disconnected list:
 //   - Vaccination Drive -> Mass Vaccination's events (api/mass-vaccination/events.php)
 //   - Community Announcement -> the Announcements feature (api/announcements/announcements.php)
-const createEventContext = { barangay: '', disease: '', riskClassification: '' };
+// forecastCases replaces the risk label that used to go into the public
+// advisory. "Risk level: Grade 2 — Low Risk" reads to a pet owner as an
+// official severity grade, but it is a band on case VOLUME and the "Grade N"
+// scale is invented (there are three tiers and they start at 2). A case count
+// is unambiguous, needs no legend, and is the model's actual output.
+const createEventContext = { barangay: '', disease: '', forecastCases: null };
 
-function openCreateEventModal(barangay, disease, riskClassification) {
-    createEventContext.barangay           = barangay || '';
-    createEventContext.disease            = disease || '';
-    createEventContext.riskClassification = riskClassification || '';
+function openCreateEventModal(barangay, disease, forecastCases) {
+    createEventContext.barangay      = barangay || '';
+    createEventContext.disease       = disease || '';
+    createEventContext.forecastCases = Number.isFinite(Number(forecastCases)) ? Math.round(Number(forecastCases)) : null;
 
     const ctxEl = document.getElementById('createEventContext');
     if (ctxEl) ctxEl.textContent = `${createEventContext.barangay} — ${createEventContext.disease}`;
@@ -167,7 +201,16 @@ function openCreateEventModal(barangay, disease, riskClassification) {
     document.getElementsByName('eventType').forEach(r => { r.checked = r.value === 'vaccination'; });
     toggleVaccineField();
     const dateInput = document.getElementById('eventAnnouncementDate');
-    if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+    if (dateInput) {
+        // An event can't be scheduled in the past, and a year out is well
+        // beyond any real planning window — this only catches typos.
+        const today = new Date();
+        const horizon = new Date();
+        horizon.setFullYear(horizon.getFullYear() + 1);
+        dateInput.value = today.toISOString().slice(0, 10);
+        dateInput.min = today.toISOString().slice(0, 10);
+        dateInput.max = horizon.toISOString().slice(0, 10);
+    }
     document.getElementById('createEventModal')?.classList.remove('hidden');
 }
 
@@ -186,7 +229,7 @@ function toggleVaccineField() {
 async function submitCreateEvent() {
     const btn   = document.getElementById('confirmCreateEventBtn');
     const type  = document.querySelector('input[name="eventType"]:checked')?.value || 'vaccination';
-    const { barangay, disease, riskClassification } = createEventContext;
+    const { barangay, disease, forecastCases } = createEventContext;
     const today = new Date().toISOString().slice(0, 10);
 
     if (btn) { btn.disabled = true; btn.dataset.originalText = btn.textContent; btn.textContent = 'Creating…'; }
@@ -194,7 +237,7 @@ async function submitCreateEvent() {
         let result, successMsg;
         if (type === 'vaccination') {
             const vaccine = document.getElementById('eventVaccine')?.value || 'Others';
-            const res = await fetch('/bvetter/api/mass-vaccination/events.php', {
+            const res = await fetch('/api/mass-vaccination/events.php', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
                 body: JSON.stringify({ action: 'create', date: today, barangay, vaccine }),
             });
@@ -203,10 +246,12 @@ async function submitCreateEvent() {
         } else {
             const title = `Disease Response: ${disease} in ${barangay}`;
             const description = `Community advisory for ${disease} cases in ${barangay}.` +
-                (riskClassification ? ` Risk level: ${riskClassification}.` : '') +
+                (forecastCases !== null
+                    ? ` Forecast: about ${forecastCases} case${forecastCases === 1 ? '' : 's'} next month.`
+                    : '') +
                 ' Please observe preventive measures and report symptoms in pets to your barangay vet team.';
             const eventDate = document.getElementById('eventAnnouncementDate')?.value || today;
-            const res = await fetch('/bvetter/api/announcements/announcements.php', {
+            const res = await fetch('/api/announcements/announcements.php', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
                 body: JSON.stringify({
                     action: 'create', title, description,
@@ -218,28 +263,30 @@ async function submitCreateEvent() {
         }
 
         if (result.success) {
-            alert(successMsg);
+            await vbAlert(successMsg);
             closeCreateEventModal();
         } else {
-            alert(`Could not create event: ${result.message || 'Unknown error.'}`);
+            await vbAlert(`Could not create event: ${result.message || 'Unknown error.'}`);
         }
     } catch (e) {
-        alert(`Could not create event: ${e.message}`);
+        await vbAlert(`Could not create event: ${e.message}`);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = btn.dataset.originalText; }
     }
 }
 
 /* ── Main loader ────────────────────────────────────────────── */
-async function loadDiseaseAnalytics(disease, period) {
+async function loadDiseaseAnalytics(disease, period, dataView, currentMonth) {
     const requestId = ++state.loadRequestId;
-    disease = disease || 'All Diseases';
-    period  = period  || 'year';
+    disease  = disease  || 'All Diseases';
+    period   = period   || 'year';
+    dataView = dataView || 'historical';
+    const isCurrent   = dataView === 'current';
     const allDiseases = isAllDiseasesSelected(disease);
 
     const analyticsRes = window.VetAPI?.getDiseaseAnalytics
-        ? await window.VetAPI.getDiseaseAnalytics(disease, period)
-        : await diseaseAnalyticsRequest(disease, period);
+        ? await window.VetAPI.getDiseaseAnalytics(disease, period, dataView, currentMonth)
+        : await diseaseAnalyticsRequest(disease, period, dataView, currentMonth);
 
     if (requestId !== state.loadRequestId) return false;
     if (!analyticsRes.ok || !analyticsRes.data || !Object.keys(analyticsRes.data).length) return false;
@@ -256,23 +303,173 @@ async function loadDiseaseAnalytics(disease, period) {
         if (!seenBarangays[key]) { seenBarangays[key] = true; barangayNames.push(h.barangay); }
     });
 
-    const currentCasesByBarangay = {};
-    (diseaseAnalyticsData.actualCases || []).forEach(r => {
-        currentCasesByBarangay[r.barangay] = Number(r.value) || 0;
-    });
+    // The Predicted/Forecast chart always trains on the full historical
+    // series and does not change as you browse Current mode's month picker
+    // -- a live month with a handful of records isn't enough to refit a
+    // model on, so the request that drives it stays fixed to "next month"
+    // and skips the current-cases override rather than reflecting whichever
+    // month happens to be selected.
+    let rfPeriod = period;
+    let currentCasesByBarangay = {};
+    if (isCurrent) {
+        rfPeriod = 'month';
+    } else {
+        (diseaseAnalyticsData.actualCases || []).forEach(r => {
+            currentCasesByBarangay[r.barangay] = Number(r.value) || 0;
+        });
+    }
 
-    const rfRes = window.VetAPI?.getDiseaseRiskPrediction
-        ? await window.VetAPI.getDiseaseRiskPrediction(barangayNames, currentCasesByBarangay, disease, period)
-        : await diseaseRiskRequest(barangayNames, currentCasesByBarangay, disease, period);
+    // Fetched in parallel with the barangay predictions: it is a different
+    // model answering a different question, and waiting for it in series would
+    // add its latency to a page that already takes seconds on a cold cache.
+    const [rfRes, diseaseFc] = await Promise.all([
+        window.VetAPI?.getDiseaseRiskPrediction
+            ? window.VetAPI.getDiseaseRiskPrediction(barangayNames, currentCasesByBarangay, disease, rfPeriod)
+            : diseaseRiskRequest(barangayNames, currentCasesByBarangay, disease, rfPeriod),
+        diseaseForecastRequest(disease)
+    ]);
+    diseaseAnalyticsData.diseaseForecast = diseaseFc;
 
     if (requestId !== state.loadRequestId) return false;
 
     if (rfRes.ok && Array.isArray(rfRes.data) && rfRes.data.length) {
-        _mergeRFResults(rfRes.data, disease, period, allDiseases);
+        _mergeRFResults(rfRes.data, disease, rfPeriod, allDiseases);
     }
 
     state.selectedInsightId = diseaseAnalyticsData.insights?.[0]?.id || null;
     return true;
+}
+
+/* ── Top-down forecast panel ─────────────────────────────────────
+   Renders what the backend actually produced, labelled by how it was
+   produced. Three rules this markup exists to keep:
+
+   1. The action level is a RULE over observed cases, never a forecast, so it
+      carries no confidence figure. The old panel printed "High case volume ·
+      99.6% confidence" beside "predicts 20.8 cases" -- the same fact twice,
+      with an invented certainty attached.
+   2. Interval coverage is stated as MEASURED (about 80%), not as a flat 80%
+      target: monthly lands at 80.2% and the quarter at 77.8% on 27 barangays.
+   3. A barangay on the fallback path is marked. It is produced by the ~91%
+      MAPE per-barangay method rather than top-down, and must never look
+      identical to a top-down figure. */
+function intervalLabel(insight) {
+    const c = insight.interval_coverage;
+    if (!c) return 'estimated range';
+    return `about ${c.target_pct}% of months fall in this range`;
+}
+
+function topDownPanelHtml(insight) {
+    if (!insight) return '';
+    // The insight object renames these: rf.arima_forecast is stored as
+    // .forecast, and .predicted is an array of chart bars rather than a number.
+    // Reading the raw API names here produced "Next month NaN cases".
+    const fc = insight.forecast || [];
+    const lo = insight.lower_ci || [];
+    const hi = insight.upper_ci || [];
+    const hasQuarter = insight.quarter_total != null;
+
+    const fallbackNote = insight.is_fallback
+        ? `<div class="td-fallback">Limited data &mdash; estimated differently.
+             ${insight.fallback_reason ? vbEscapeHtml(insight.fallback_reason) : ''}
+             <small>This barangay is not part of the municipality-wide forecast, so its
+             figures are less reliable than the others shown.</small>
+           </div>`
+        : '';
+
+    const sharePct = insight.barangay_share != null
+        ? `${(Number(insight.barangay_share) * 100).toFixed(1)}%`
+        : '—';
+
+    return `
+        <div class="td-panel${insight.is_fallback ? ' is-fallback' : ''}">
+            ${fallbackNote}
+            <div class="td-grid">
+                <div class="td-cell">
+                    <span class="td-label">Next month</span>
+                    <span class="td-value">${fc[0] ?? '—'}<small> cases</small></span>
+                    ${lo[0] != null ? `<span class="td-range">${lo[0]}–${hi[0]} &middot; ${intervalLabel(insight)}</span>` : ''}
+                    <span class="td-caveat">Single months vary widely at this size</span>
+                </div>
+                <div class="td-cell td-primary">
+                    <span class="td-label">Next 3 months <em>&mdash; use this for planning</em></span>
+                    <span class="td-value">${hasQuarter ? insight.quarter_total : '—'}<small> cases</small></span>
+                    ${hasQuarter ? `<span class="td-range">${insight.quarter_lower}–${insight.quarter_upper} &middot; ${intervalLabel(insight)}</span>` : ''}
+                    <span class="td-caveat">Typically within about a third of the actual total</span>
+                </div>
+                <div class="td-cell">
+                    <span class="td-label">Share of municipality</span>
+                    <span class="td-value">${sharePct}</span>
+                    <span class="td-caveat">${insight.is_fallback
+                        ? 'Not allocated from the municipal total'
+                        : 'Municipal forecast is split by this share'}</span>
+                </div>
+            </div>
+        </div>`;
+}
+
+/* The action level, stated as the rule it is. */
+function actionTierHtml(insight) {
+    if (!insight?.action_tier_label) return '';
+    const tone = insight.action_tier === 'ESCALATE' ? 'act'
+               : insight.action_tier === 'MONITOR' ? 'watch' : 'normal';
+    return `
+        <div class="td-action td-action-${tone}">
+            <span class="td-action-label">${vbEscapeHtml(insight.action_tier_label)}</span>
+            <span class="td-action-reason">${vbEscapeHtml(insight.action_reason || '')}</span>
+            <span class="td-action-basis">Based on cases already recorded &mdash; not a forecast</span>
+        </div>`;
+}
+
+/* ── Per-disease forecast (pooled Random Forest) ─────────────────
+   Separate model from the barangay forecast and a separate question: this one
+   is per DISEASE, municipality-wide. It is also the model that genuinely beats
+   ARIMA -- pooling all 42 disease series into one regressor scores MAE 0.230
+   against per-disease ARIMA's 0.441, because 36 monthly points per disease is
+   too few to fit each series on its own.
+
+   Only meaningful for a specific disease, so it is skipped for "All Diseases".
+   Never blocks the page: a failure leaves the strip hidden. */
+async function diseaseForecastRequest(disease) {
+    if (!disease || disease.toLowerCase() === 'all diseases') return null;
+    try {
+        const res = await fetch('/api/dashboard/dashboard.php?scope=disease_forecast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({ diagnosis: disease, steps: 3 })
+        });
+        const json = await res.json();
+        return json.success ? (json.data || null) : null;
+    } catch (error) {
+        console.warn('Per-disease forecast unavailable:', error);
+        return null;
+    }
+}
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function diseaseForecastHtml(fc) {
+    if (!fc || !fc.available || !(fc.forecast || []).length) return '';
+    const months = fc.forecast.map(f => `
+        <div class="df-month">
+            <span class="df-month-label">${MONTH_LABELS[(f.month_no || 1) - 1]} ${f.year}</span>
+            <span class="df-month-value">${f.predicted_cases}</span>
+        </div>`).join('');
+    // Reports the holdout error next to the number rather than a bare
+    // prediction, and names the baseline it beat.
+    const acc = (fc.holdout_mae != null && fc.baseline_mae != null)
+        ? `usually within ${fc.holdout_mae} cases &middot; the simpler "same as usual" estimate misses by ${fc.baseline_mae}`
+        : '';
+    return `
+        <div class="df-strip">
+            <div class="df-strip-head">
+                <span class="df-strip-title">${vbEscapeHtml(fc.diagnosis || '')} &mdash; expected cases, municipality-wide</span>
+                <span class="df-strip-acc">${acc}</span>
+            </div>
+            <div class="df-months">${months}</div>
+        </div>`;
 }
 
 function _mergeRFResults(rfData, disease, period, allDiseases) {
@@ -288,7 +485,18 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
         sourceByBarangay[normalizeBarangayName(r.barangay)]    = r.source || 'fallback';
     });
 
-    const maxCases = Math.max(...Object.values(actualByBarangay), 1);
+    /* One scale for every mini-bar, covering predicted values as well as
+       recorded ones. Scaling by the largest RECORDED count alone meant any
+       forecast above it hit Math.min(100, ...) and drew a full bar, so
+       "Expected 87.1" and the busiest barangay looked identical and a forecast
+       could never be seen to exceed anything. Reading predicted_cases from the
+       API rows rather than diseaseAnalyticsData.predictedCases because the
+       latter is not rebuilt until further down this function. */
+    const maxActual = Math.max(...Object.values(actualByBarangay), 1);
+    const maxScale  = Math.max(
+        maxActual,
+        ...rfData.map(r => Number(r.predicted_cases ?? r.fused_predicted ?? 0)),
+        1);
 
     diseaseAnalyticsData.insights = rfData.map(rf => {
         const key            = normalizeBarangayName(rf.barangay);
@@ -296,31 +504,63 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
         const predictedCases = predictedByBarangay[key] ?? (rf.predicted_cases ?? 0);
         const source         = sourceByBarangay[key]    ?? rf.model_type     ?? 'fallback';
 
-        const loadPct = Math.min(100, Math.round((actualCases           / maxCases) * 100));
-        const avgPct  = Math.min(100, Math.round(((rf.avg_cases || 0)   / maxCases) * 100));
-        const predPct = Math.min(100, Math.round((predictedCases        / maxCases) * 100));
+        const loadPct = Math.min(100, Math.round((actualCases         / maxScale) * 100));
+        const avgPct  = Math.min(100, Math.round(((rf.avg_cases || 0) / maxScale) * 100));
+        const predPct = Math.min(100, Math.round((predictedCases      / maxScale) * 100));
+        const peakPct = Math.min(100, Math.round((maxActual           / maxScale) * 100));
 
         const arimaForecast = rf.arima_forecast || [];
         const arimaLowerCi  = rf.arima_lower_ci  || [];
         const arimaUpperCi  = rf.arima_upper_ci  || [];
 
         const modelType   = rf.model_type || (allDiseases ? 'AllDiseaseARIMA+RF' : 'DiseaseMovingAverageFallback');
-        const isRuleBased = rf.rf_model_type === 'RuleBasedThreshold';
+        // action_is_rule is the all-disease pipeline's own flag; the string
+        // check covers the disease-specific "RuleBasedThreshold". Neither
+        // path has a model behind its status, and both used to be routed
+        // through the branch written for one that does.
+        const isRuleBased = rf.action_is_rule === true ||
+                            String(rf.rf_model_type || '').toLowerCase().includes('rule');
+        // Volume and action level answer different questions. The all-disease
+        // response carries the volume in volume_band and the action level in
+        // risk_class; the disease-specific response has only risk_class, where
+        // it genuinely IS a volume band. Reading risk_class for both is what
+        // produced "Case volume level: ESCALATE".
+        const volumeBand = rf.volume_band || rf.risk_class || 'N/A';
+        const nextMonth  = arimaForecast[0] ?? '?';
 
         let protocolDesc;
-        if (isRuleBased) {
+        if (rf.action_is_rule) {
+            // Reports the threshold the barangay crossed. Python sets
+            // confidence to null here on purpose -- "presenting a made-up
+            // confidence beside a deterministic threshold is how the old panel
+            // came to show High: 100%, Low: 0%" -- and the UI used to coerce
+            // that null to 0 and print "(0% confidence)" anyway.
+            protocolDesc = (
+                `Our ${friendlyModelLabel(modelType)} predicts ${nextMonth} cases next month. ` +
+                `Case volume level: ${volumeBand}. ` +
+                (rf.action_basis ? `Action level from ${rf.action_basis}. ` : '') +
+                (rf.municipality_accuracy?.mape != null
+                    ? `The municipality-wide forecast this is split from is usually within `
+                      + `${rf.municipality_accuracy.mape}% of the actual total; a single barangay varies more.`
+                    : '')
+            );
+        } else if (isRuleBased) {
             const thr = rf.risk_thresholds || {};
             protocolDesc = (
-                `Our ${friendlyModelLabel(modelType)} predicts ${arimaForecast[0] ?? '?'} cases next month. ` +
-                `Risk level: ${rf.risk_class || 'N/A'} ` +
+                `Our ${friendlyModelLabel(modelType)} predicts ${nextMonth} cases next month. ` +
+                `Case volume level: ${volumeBand} ` +
                 `(Low: under ${thr.low_max ?? '?'} · Medium: up to ${thr.med_max ?? '?'}). ` +
                 `${rf.eval_note || ''}`
             );
         } else {
             protocolDesc = (
-                `Our Advanced Forecast predicts ${arimaForecast[0] ?? '?'} cases next month. ` +
-                `Risk level: ${rf.risk_class || 'N/A'} (${rf.confidence || 0}% confidence). ` +
-                `Typically accurate within ±${rf.model_mae ?? 'N/A'} cases.`
+                `Our Advanced Forecast predicts ${nextMonth} cases next month. ` +
+                `Case volume level: ${volumeBand}` +
+                (rf.confidence != null ? ` (${rf.confidence}% confidence)` : '') + '. ' +
+                (rf.municipality_accuracy?.mape != null
+                    ? `The municipality-wide forecast this is split from is usually within `
+                      + `${rf.municipality_accuracy.mape}% of the actual total; a single barangay varies more.`
+                    : '')
             );
         }
 
@@ -332,9 +572,35 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
             avg:             rf.avg_cases || 0,
             recommendation:  rf.recommendation,
             rf_risk_class:   rf.risk_class,
+            // The single field every status surface reads. action_tier is the
+            // all-disease rule, tier is the disease-specific one, risk_class is
+            // the last resort; actionStatus() normalises whichever arrives.
+            action_level:    rf.action_tier || rf.tier || rf.risk_class,
+            volume_band:     volumeBand,
             rf_confidence:   rf.confidence,
+            // Top-down output. action_* is a RULE over observed cases, not a
+            // forecast; quarter_* is the barangay figure that can actually be
+            // trusted (~36% MAPE against ~91% for a single month); is_fallback
+            // marks a barangay still on the old per-barangay ARIMA path.
+            action_tier:       rf.action_tier,
+            action_tier_label: rf.action_tier_label,
+            action_reason:     rf.action_reason,
+            action_is_rule:    rf.action_is_rule,
+            quarter_total:     rf.quarter_total,
+            quarter_lower:     rf.quarter_lower,
+            quarter_upper:     rf.quarter_upper,
+            barangay_share:    rf.barangay_share,
+            forecast_method:   rf.forecast_method,
+            is_fallback:       rf.is_fallback,
+            fallback_reason:   rf.fallback_reason,
+            interval_coverage: rf.interval_coverage,
+            municipality_accuracy: rf.municipality_accuracy,
             rf_risk_proba:   rf.risk_proba || rf.rf_future_proba,
-            rf_model_type:   rf.rf_model_type || 'RandomForestClassifier',
+            // No default. Claiming "RandomForestClassifier" for a missing field
+            // is how a rule-based status ended up described as a model's
+            // prediction, complete with a confidence it never reported.
+            rf_model_type:   rf.rf_model_type || '',
+            action_is_rule:  rf.action_is_rule === true,
             risk_thresholds: rf.risk_thresholds || null,
             model_type:      modelType,
             model_mae:       rf.model_mae,
@@ -344,14 +610,17 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
             n_obs:           rf.n_obs || 0,
             pred_source:     source,
             eval_note:       rf.eval_note || rf.split_method || '',
+            /* Plain words and real counts. "Load" is not a word a vet uses for
+               a case count, and "Peak Barangay" was a full bar by definition
+               with no number to say what the peak was. */
             comparisons: [
-                { label: 'This Barangay',    value: loadPct, color: '#002A58' },
-                { label: 'Barangay Average', value: avgPct,  color: '#5B8DB8' },
-                { label: 'Peak Barangay',    value: 100,     color: '#CBD5E1' },
+                { label: 'This barangay',    value: loadPct, count: actualCases,          color: '#002A58' },
+                { label: 'Average barangay', value: avgPct,  count: rf.avg_cases || 0,    color: '#5B8DB8' },
+                { label: 'Busiest barangay', value: peakPct, count: maxActual,            color: '#CBD5E1' },
             ],
             predicted: [
-                { label: 'Predicted Load', value: predPct, color: '#002A58' },
-                { label: 'Current Load',   value: loadPct, color: '#94A3B8' },
+                { label: 'Expected', value: predPct, count: predictedCases, color: '#002A58' },
+                { label: 'Recorded', value: loadPct, count: actualCases,    color: '#94A3B8' },
             ],
             forecast:       arimaForecast,
             lower_ci:       arimaLowerCi,
@@ -360,9 +629,13 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
             seasonal_order: rf.seasonal_order || null,
             trend:          rf.arima_trend    || 'stable',
             protocol: {
-                classification: rf.tier === 'critical' ? 'Grade 4 — High Risk'
-                               : rf.tier === 'monitor'  ? 'Grade 3 — Medium Risk'
-                               :                          'Grade 2 — Low Risk',
+                // The action the tier calls for, not an invented severity grade.
+                // "Grade 4/3/2" implied a calibrated four-level public-health
+                // scale; there are only three tiers and they never reach 1.
+                // Uses the shared vocabulary: this used to be a third set of
+                // words ("Immediate Response"/"Monitor") for the same value the
+                // card and the map already labelled two other ways.
+                classification: actionStatus(rf.action_tier || rf.tier).label,
                 title:       (isRuleBased ? 'Response Plan: ' : 'Advanced Response Plan: ') + rf.barangay,
                 description: protocolDesc,
                 steps:       rf.steps || [],
@@ -404,9 +677,9 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
     const firstRf    = rfData[0] || {};
 
     diseaseAnalyticsData.kpis[2] = {
-        label: 'High Risk Barangays',
+        label: 'High Case Volume Barangays',
         value: String(critical),
-        trend: `${critical} critical · ${monitor} monitoring`,
+        trend: `${critical} need action · ${monitor} to watch`,
     };
 
     // Average error margin across every barangay shown, not just whichever
@@ -414,15 +687,21 @@ function _mergeRFResults(rfData, disease, period, allDiseases) {
     // barangay (e.g. one barangay ±3.9 cases vs another ±2.8 for the same
     // disease), so showing a single borrowed barangay's number as "Forecast
     // Accuracy" for the whole page was misleading.
-    const maeValues = rfData.map(r => r.model_mae).filter(v => v != null && !Number.isNaN(v));
-    const avgMae    = maeValues.length ? (maeValues.reduce((a, b) => a + b, 0) / maeValues.length) : null;
+    // model_mae is the MUNICIPALITY-wide holdout error, and every barangay in
+    // the response carries the same value -- it is one figure for one model,
+    // not 27 separate measurements. Averaging it and captioning the result
+    // "checked across 27 barangays" implied a per-barangay accuracy of ±2.6
+    // cases when the real per-barangay error is ±3.4. Labelled for what it
+    // measures instead.
+    const munMape = firstRf.municipality_accuracy?.mape ?? null;
+    const munMae  = firstRf.model_mae ?? null;
 
     diseaseAnalyticsData.kpis[3] = {
         label: 'Forecast Accuracy',
-        value: avgMae != null ? `Within ±${avgMae.toFixed(1)} cases` : 'N/A',
-        trend: avgMae != null
-            ? [friendlyModelLabel(firstRf.model_type), `avg across ${maeValues.length} barangays`].filter(Boolean).join(' · ')
-            : 'Automatic risk check',
+        value: munMape != null ? `Within ${munMape}%` : (munMae != null ? `Within ${munMae} cases` : 'N/A'),
+        trend: munMape != null
+            ? 'of the municipality-wide total · single barangays vary much more'
+            : 'Automatic case volume check',
     };
 }
 
@@ -441,34 +720,187 @@ function bindEvents() {
         filterEl.appendChild(opt);
     });
 
-    function reloadWithCurrentFilters() {
-        const disease = document.getElementById('diseaseFilter').value  || 'All Diseases';
-        const period  = document.getElementById('periodFilter')?.value  || 'year';
+    // Current mode's month picker.
+    //
+    // This used to be built from `new Date()` alone -- January of this calendar
+    // year through today -- and defaulted to today's month. It therefore offered
+    // a dozen months without knowing whether any of them held a single visit,
+    // could not reach a record from any earlier year at all, and on a clinic
+    // with a handful of entries opened on an empty month: 0 cases, "N/A" top
+    // disease, an empty Actual chart. Nothing was broken, but the page had no
+    // way to say so.
+    //
+    // Now the server reports which months actually hold records (`liveMonths`),
+    // and this merges those with the plain calendar so an empty month is still
+    // browsable -- just labelled as empty rather than silently blank.
+    //
+    // Those months span the whole timeline (api/includes/case_timeline.php):
+    // every month of the uploaded dataset, then the months of typed visits
+    // after it. Each says which it is, because a month's figures change when the
+    // dataset version does, and the label is what explains why.
+
+    const MONTH_SOURCE_LABEL = { upload: 'uploaded file', live: 'logged in clinic' };
+
+    /* `known` is false before Current mode has ever been loaded, when the page
+       genuinely does not know what each month holds. Bare month names then --
+       labelling every month "no records" on a guess would be worse than the
+       silence it replaces. */
+    function monthOptionLabel(value, byMonth, known) {
+        const [y, m] = value.split('-').map(Number);
+        const name   = new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        if (!known) return name;
+        const row = byMonth[value];
+        if (!row || !row.visits) return `${name} — no records`;
+        const source = (row.sources || []).map(s => MONTH_SOURCE_LABEL[s]).filter(Boolean).join(' + ');
+        const from   = source ? ` · ${source}` : '';
+        if (!row.cases)          return `${name} — ${row.visits} visit${row.visits === 1 ? '' : 's'}, no diagnosis${from}`;
+        return `${name} — ${row.cases} case${row.cases === 1 ? '' : 's'}${from}`;
+    }
+
+    function syncMonthPicker() {
+        const sel = document.getElementById('currentMonthFilter');
+        if (!sel) return;
+
+        const live    = diseaseAnalyticsData.liveMonths;
+        const known   = Array.isArray(live);
+        const byMonth = {};
+        (live || []).forEach(r => { if (r && r.month) byMonth[r.month] = r; });
+
+        // Calendar months of this year up to today, plus every month that has
+        // records (which may predate this year). Newest first: the month a vet
+        // wants is almost always the most recent one.
+        const values = new Set(Object.keys(byMonth));
+        const now    = new Date();
+        for (let m = 0; m <= now.getMonth(); m++) {
+            values.add(`${now.getFullYear()}-${String(m + 1).padStart(2, '0')}`);
+        }
+        const ordered = [...values].sort().reverse();
+
+        // Rebuilt rather than appended to: logging a visit changes these labels,
+        // and the old "populate once" guard left them stale for the page's life.
+        // Grouped by year: an uploaded dataset puts three-plus years of months
+        // in this one list.
+        const groups = new Map();
+        ordered.forEach(value => {
+            const year = value.slice(0, 4);
+            if (!groups.has(year)) {
+                const group = document.createElement('optgroup');
+                group.label = year;
+                groups.set(year, group);
+            }
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = monthOptionLabel(value, byMonth, known);
+            groups.get(year).appendChild(opt);
+        });
+        sel.replaceChildren(...groups.values());
+
+        const loaded = diseaseAnalyticsData.currentMonth;
+        sel.value = ordered.includes(loaded)
+            ? loaded
+            : (ordered[0] || '');
+    }
+
+    /* The newest month worth opening on: one with countable cases, else one with
+       visits logged but no listed diagnosis, else nothing. `liveMonths` is
+       already newest-first from SQL. */
+    function bestLiveMonth() {
+        const live = diseaseAnalyticsData.liveMonths || [];
+        return (live.find(r => r.cases  > 0)
+             || live.find(r => r.visits > 0)
+             || null)?.month || null;
+    }
+
+    syncMonthPicker();
+
+    function applyDataViewVisibility() {
+        const isCurrent = (document.getElementById('dataViewFilter')?.value || 'historical') === 'current';
+        const periodEl  = document.getElementById('periodFilter');
+        const monthEl   = document.getElementById('currentMonthFilter');
+        if (periodEl) periodEl.hidden = isCurrent;
+        if (monthEl)  monthEl.hidden  = !isCurrent;
+    }
+    applyDataViewVisibility();
+
+    function reloadWithCurrentFilters(opts) {
+        const { jumpToLatestRecords = false } = opts || {};
+        const disease      = document.getElementById('diseaseFilter').value      || 'All Diseases';
+        const period       = document.getElementById('periodFilter')?.value      || 'year';
+        const dataView     = document.getElementById('dataViewFilter')?.value    || 'historical';
+        const currentMonth = document.getElementById('currentMonthFilter')?.value || '';
         ['actualChart', 'predictedChart'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = '<div class="chart-loading">Updating…</div>';
         });
-        loadDiseaseAnalytics(disease, period).then(applied => {
-            if (!applied) return;
+        return loadDiseaseAnalytics(disease, period, dataView, currentMonth).then(applied => {
+            if (!applied) return false;
+
+            // Entering Current mode lands on the newest month that actually has
+            // records instead of on today's, which on most clinics is empty.
+            // Only on the switch INTO Current, never after an explicit pick --
+            // overriding a month the vet chose would make the picker unusable.
+            // The reload it triggers renders on its own, so this returns early.
+            if (jumpToLatestRecords) {
+                const sel  = document.getElementById('currentMonthFilter');
+                const best = bestLiveMonth();
+                const here = diseaseAnalyticsData.liveMonths?.find(
+                    r => r.month === diseaseAnalyticsData.currentMonth);
+                if (sel && best && !here?.visits) {
+                    syncMonthPicker();
+                    sel.value = best;
+                    reloadWithCurrentFilters();
+                    return false;
+                }
+            }
+
+            syncMonthPicker();
             state.mapActionMode = false;
             if (state.map) refreshMapLayers();
             renderOverview();
             renderInsightPanel();
             renderMapPanel();
+            return true;
         });
     }
 
-    filterEl.addEventListener('change', reloadWithCurrentFilters);
-    document.getElementById('periodFilter')?.addEventListener('change', reloadWithCurrentFilters);
+    // Wrapped rather than passed directly: these handlers receive the change
+    // Event, and reloadWithCurrentFilters' first argument is its options bag.
+    filterEl.addEventListener('change', () => reloadWithCurrentFilters());
+    document.getElementById('periodFilter')?.addEventListener('change', () => reloadWithCurrentFilters());
+    document.getElementById('currentMonthFilter')?.addEventListener('change', () => reloadWithCurrentFilters());
+    document.getElementById('dataViewFilter')?.addEventListener('change', (ev) => {
+        applyDataViewVisibility();
+        reloadWithCurrentFilters({ jumpToLatestRecords: ev.target.value === 'current' });
+    });
     document.getElementById('refreshSourcesBtn')?.addEventListener('click', () => {
         document.getElementById('refreshSourcesBtn').textContent = 'Refreshed ' + new Date().toLocaleTimeString();
     });
+
+    // Ordering only — the data for both charts is already loaded, so this
+    // re-draws rather than re-fetching.
+    document.getElementById('chartSortFilter')?.addEventListener('change', (ev) => {
+        state.chartSort = ev.target.value === 'predicted' ? 'predicted' : 'actual';
+        renderBarChart('actualChart',    diseaseAnalyticsData.actualCases,    'actual');
+        renderBarChart('predictedChart', diseaseAnalyticsData.predictedCases, 'predicted');
+    });
+
+    document.getElementById('manageDatasetBtn')?.addEventListener('click', () => window.DatasetModal?.open());
+    // Uploading a workbook or switching back to an older version replaces the
+    // data every chart on this page is reading, so the modal re-runs the same
+    // reload the filter dropdowns use. Without it, a successful upload leaves
+    // superseded figures on screen behind the modal.
+    window.DatasetModal?.init({ onChange: reloadWithCurrentFilters });
 
     document.getElementsByName('eventType').forEach(r => r.addEventListener('change', toggleVaccineField));
     document.getElementById('cancelCreateEventBtn')?.addEventListener('click', closeCreateEventModal);
     document.getElementById('confirmCreateEventBtn')?.addEventListener('click', submitCreateEvent);
     document.getElementById('createEventModal')?.addEventListener('click', (ev) => {
         if (ev.target.id === 'createEventModal') closeCreateEventModal();
+    });
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        const modal = document.getElementById('createEventModal');
+        if (modal && !modal.classList.contains('hidden')) closeCreateEventModal();
     });
 }
 
@@ -482,24 +914,72 @@ function switchPanel(panelId) {
     }
 }
 
+/* ── Live layer ──────────────────────────────────────────────────
+   Visits typed in after the uploaded dataset ends, reported separately from
+   the uploaded baseline the cards above and the charts below are built on.
+   Hidden entirely if the API predates this field. */
+function renderLiveLayer() {
+    const root = document.getElementById('liveLayer');
+    if (!root) return;
+
+    const live = diseaseAnalyticsData.liveLayer;
+    if (!live) { root.hidden = true; return; }
+
+    // Built as text nodes, not interpolated HTML. `summary` carries the
+    // selected disease name, which is whatever the client sent -- the server
+    // only trims and lowercases it (bv_clean/disease_name_filter), so markup
+    // reaches this point intact and innerHTML here would run it.
+    const span = (cls, text) => {
+        const el = document.createElement('span');
+        el.className = cls;
+        el.textContent = text;
+        return el;
+    };
+
+    root.replaceChildren(
+        span('live-label',   live.label   || ''),
+        span('live-summary', live.summary || ''),
+        span('live-meta',    [live.latest, live.note].filter(Boolean).join(' · '))
+    );
+    root.hidden = false;
+}
+
 /* ── Overview render ────────────────────────────────────────── */
 function renderOverview() {
+    const baselineLabel = document.getElementById('baselineLabel');
+    if (baselineLabel) baselineLabel.textContent = diseaseAnalyticsData.baselineLabel || '';
+
+    renderLiveLayer();
+
     document.getElementById('kpiCards').innerHTML = diseaseAnalyticsData.kpis
         .map((kpi, i) => `
             <article class="kpi-card" style="animation-delay:${i * 60}ms">
-                <h5>${kpi.label}</h5>
-                <strong>${kpi.value}</strong>
-                <small>${kpi.trend}</small>
+                <h5>${esc(kpi.label)}</h5>
+                <strong>${esc(kpi.value)}</strong>
+                <small>${esc(kpi.trend)}</small>
             </article>
         `).join('');
     document.querySelectorAll('#kpiCards .kpi-card strong').forEach(el => countUp(el));
+
+    // Per-disease forecast sits directly under the KPI row: it is the same
+    // scope those cards describe (this disease, municipality-wide), just
+    // forward-looking. Hidden entirely for "All Diseases", where the pooled
+    // model has nothing single to forecast.
+    const kpiHost = document.getElementById('kpiCards');
+    let dfHost = document.getElementById('diseaseForecastStrip');
+    if (!dfHost && kpiHost?.parentNode) {
+        dfHost = document.createElement('div');
+        dfHost.id = 'diseaseForecastStrip';
+        kpiHost.parentNode.insertBefore(dfHost, kpiHost.nextSibling);
+    }
+    if (dfHost) dfHost.innerHTML = diseaseForecastHtml(diseaseAnalyticsData.diseaseForecast);
 
     document.getElementById('sourceList').innerHTML = diseaseAnalyticsData.sources
         .map(s => {
             const isUsed = (s.status || '').toLowerCase().includes('used') &&
                            !(s.status || '').toLowerCase().includes('not used');
             return `<li>
-                <div class="source-info"><strong>${s.name}</strong><span>${s.status}</span></div>
+                <div class="source-info"><strong>${esc(s.name)}</strong><span>${esc(s.status)}</span></div>
                 <span class="source-status ${isUsed ? 'active' : 'inactive'}"></span>
             </li>`;
         }).join('');
@@ -508,16 +988,64 @@ function renderOverview() {
     document.getElementById('predictionBanner').innerHTML = `
         <div class="prediction">
             <span>Predicted</span>
-            <img src="/bvetter/vet/images/shares.svg" alt="">
+            <img src="../../vet/images/shares.svg" alt="">
         </div>
         <strong>${pred.total}</strong>
         <span>${pred.label}</span>
     `;
 
-    const isMonthly   = diseaseAnalyticsData.period === 'month';
-    const periodLabel = diseaseAnalyticsData.periodLabel || (isMonthly ? 'Latest Month' : 'Full Year 2025');
+    const isCurrentView = diseaseAnalyticsData.dataView === 'current';
+    const isMonthly   = isCurrentView || diseaseAnalyticsData.period === 'month';
+    const periodLabel = diseaseAnalyticsData.periodLabel || (isMonthly ? 'Latest Month' : 'Full Year');
     const allDiseases = diseaseAnalyticsData.isAllDiseases;
     const diseaseName = diseaseAnalyticsData.selectedDisease || 'All Diseases';
+
+    // Honest small-N state: a Current-mode month can be a handful of records,
+    // and a normal-looking chart off 1 case reads as a full, comparable picture
+    // when it isn't one. Named rather than hidden -- and worded for the source
+    // the month actually comes from, the uploaded file or typed-in visits.
+    const coverageNote = document.getElementById('liveCoverageNote');
+    if (coverageNote) {
+        const cov = diseaseAnalyticsData.liveCoverage;
+        const SPARSE_THRESHOLD = 5;
+        const fromUpload = !!cov && (cov.sources || []).includes('upload')
+                                 && !(cov.sources || []).includes('live');
+        const span = diseaseAnalyticsData.datasetSpan;
+        const toHistorical = span ? ` or switch to Historical for the ${span} dataset` : '';
+        if (isCurrentView && cov && cov.with_diagnosis < SPARSE_THRESHOLD) {
+            coverageNote.hidden = false;
+            if (cov.total_visits === 0) {
+                // An empty month is only half the answer. Saying which months DO
+                // hold records turns "this page is broken" into one click, and
+                // distinguishes "nothing logged yet this month" from "nothing
+                // has ever been logged", which need very different responses.
+                const elsewhere = (diseaseAnalyticsData.liveMonths || [])
+                    .filter(r => r.visits > 0)
+                    .slice(0, 3)
+                    .map(r => {
+                        const [y, m] = r.month.split('-').map(Number);
+                        return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                    });
+                const empty = fromUpload
+                    ? `The uploaded file has no consultations for ${periodLabel}.`
+                    : `No clinic visits recorded for ${periodLabel} yet.`;
+                coverageNote.textContent = elsewhere.length
+                    ? `${empty} Records exist for ${elsewhere.join(', ')} — pick one of those months above${toHistorical}.`
+                    : `No records yet. This view fills in as a dataset is uploaded and visits are logged.`;
+            } else if (fromUpload) {
+                coverageNote.textContent =
+                    `Only ${cov.total_visits} consultation${cov.total_visits === 1 ? '' : 's'} in the uploaded file `
+                  + `for ${periodLabel} — treat this chart as thin, not a full picture.`;
+            } else {
+                coverageNote.textContent =
+                    `${cov.total_visits} clinic visit${cov.total_visits === 1 ? '' : 's'} recorded in ${periodLabel} · `
+                  + `${cov.with_diagnosis} with a listed diagnosis. Case counts are just starting to build up — `
+                  + `treat this chart as early, not a full picture yet.`;
+            }
+        } else {
+            coverageNote.hidden = true;
+        }
+    }
 
     const actualCard = document.querySelector('#actualChart')?.closest('.chart-card');
     if (actualCard) {
@@ -543,18 +1071,49 @@ function renderOverview() {
     renderBarChart('actualChart',    diseaseAnalyticsData.actualCases,    'actual');
     renderBarChart('predictedChart', diseaseAnalyticsData.predictedCases, 'predicted');
 
+    /* Part-year actuals sit beside a 12-month forecast, so every forecast bar
+       runs proportionally longer for arithmetic reasons alone and the whole
+       right-hand chart reads as a jump. Stating the pace removes the misread
+       without touching either chart.
+
+       Compared at MUNICIPALITY level deliberately: that is where the model is
+       accurate (1.5% MAPE against ~91% for a single barangay-month), so
+       annualising each bar would put the page's least reliable figure beside
+       its most prominent one. */
+    const paceNote = document.getElementById('partialPaceNote');
+    if (paceNote) {
+        const months    = Number(diseaseAnalyticsData.periodMonths) || 0;
+        const sumValues = rows => (rows || []).reduce((total, r) => total + (Number(r.value) || 0), 0);
+        const actual    = sumValues(diseaseAnalyticsData.actualCases);
+        const predicted = sumValues(diseaseAnalyticsData.predictedCases);
+
+        if (months > 0 && months < 12 && actual > 0 && predicted > 0) {
+            const pace = Math.round((actual * 12) / months);
+            paceNote.hidden = false;
+            paceNote.innerHTML =
+                `Actuals cover <strong>${months} of 12 months</strong> (${actual.toLocaleString()} cases). ` +
+                `At this pace the year would total about <strong>${pace.toLocaleString()}</strong>; ` +
+                `the forecast projects about <strong>${Math.round(predicted).toLocaleString()}</strong>. ` +
+                `The bars are not directly comparable — the left chart shows ${months} months, the right projects 12.`;
+        } else {
+            paceNote.hidden = true;
+        }
+    }
+
     const insightRoot = document.getElementById('insightCards');
     insightRoot.innerHTML = diseaseAnalyticsData.insights
-        .map((insight, idx) => `
-            <article class="insight-card risk-${getRiskLevel(insight)}" style="animation-delay:${idx * 55}ms">
+        .map((insight, idx) => {
+            const status = actionStatus(insight.action_level);
+            return `
+            <article class="insight-card risk-${status.level}" style="animation-delay:${idx * 55}ms">
                 <div class="insight-card-top">
                     <span class="chip">${insight.barangay}</span>
-                    ${insight.rf_risk_class ? `<span class="risk-indicator">${insight.rf_risk_class}</span>` : ''}
+                    <span class="risk-indicator">${status.label}</span>
                 </div>
                 <p>${insight.recommendation || 'No recommendation yet.'}</p>
                 <button class="action-link" data-insight-id="${insight.id}">View Action <span class="arrow">→</span></button>
-            </article>
-        `).join('');
+            </article>`;
+        }).join('');
 
     insightRoot.querySelectorAll('.action-link').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -566,9 +1125,48 @@ function renderOverview() {
 }
 
 /* ── Bar chart ──────────────────────────────────────────────── */
-function renderBarChart(targetId, rows, chartType) {
+/* The one ranking both charts are drawn in. Ranks by whichever column the
+   Sort by control names, so the two charts stay row-aligned and a barangay
+   can be compared across them without hunting for it twice. */
+function sharedBarangayOrder() {
+    const source = state.chartSort === 'predicted'
+        ? diseaseAnalyticsData.predictedCases
+        : diseaseAnalyticsData.actualCases;
+    const rank = {};
+    [...(source || [])]
+        .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
+        .forEach((row, index) => { rank[normalizeBarangayName(row.barangay)] = index; });
+    return rank;
+}
+
+function renderBarChart(targetId, sourceRows, chartType) {
     const root = document.getElementById(targetId);
-    if (!root || !rows?.length) { if (root) root.innerHTML = '<p class="no-data">No data available.</p>'; return; }
+    if (!root || !sourceRows?.length) { if (root) root.innerHTML = '<p class="no-data">No data available.</p>'; return; }
+
+    // HIGHEST FIRST. There was no ordering anywhere before this -- not in
+    // dashboard.php, which appends barangays in whatever order the aggregation
+    // produced, and not here. That order is not stable either: the Excel path,
+    // the live-DB path and each disease filter group their rows differently, so
+    // the same barangay moved around the chart as the filters changed and the
+    // top of the chart meant nothing.
+    //
+    // Sorted on a COPY: diseaseAnalyticsData.actualCases and .predictedCases are
+    // read elsewhere to look barangays up, and reordering the shared arrays
+    // underneath those readers would be a nasty way to save an allocation.
+    //
+    // BOTH charts now take the SAME order, from sharedBarangayOrder(). Sorting
+    // each chart by its own values made either ranking honest on its own but
+    // put a barangay at two different heights, so reading "is San Jose worse
+    // than forecast?" meant finding it twice and comparing positions by eye.
+    // The Sort by control decides which column drives the shared order.
+    const order = sharedBarangayOrder();
+    const rows  = [...sourceRows].sort((a, b) => {
+        const ra = order[normalizeBarangayName(a.barangay)] ?? Number.MAX_SAFE_INTEGER;
+        const rb = order[normalizeBarangayName(b.barangay)] ?? Number.MAX_SAFE_INTEGER;
+        // Ties and barangays missing from the ordering column fall back to this
+        // chart's own value, so a row never lands in an arbitrary spot.
+        return ra !== rb ? ra - rb : (Number(b.value) || 0) - (Number(a.value) || 0);
+    });
 
     const allDiseases  = diseaseAnalyticsData.isAllDiseases;
     const maxValue     = Math.max(...rows.map(r => r.value), 1);
@@ -592,19 +1190,37 @@ function renderBarChart(targetId, rows, chartType) {
                 : `<div class="fallback-warning">Showing a ${friendlyModelLabel(modelType).toLowerCase()} estimate.</div>`;
     }
 
+    /* 'rfmonthly' alongside sarima/arima so the RF-based monthly forecast (both
+       all-disease and per-disease) is recognised as a model rather than falling
+       through to the generic "Estimate". */
+    const sourceOf = (item) => {
+        if (chartType !== 'predicted') return null;
+        const src = (item.source || '').toLowerCase();
+        if (src.includes('sarima') || src.includes('arima') || src.includes('rfmonthly')) {
+            return src.includes('alldisease')
+                ? { text: 'Advanced Forecast', kind: 'model' }
+                : { text: 'Smart Forecast',    kind: 'model' };
+        }
+        if (src.includes('moving') || src.includes('wma')) return { text: 'Basic Estimate', kind: 'wma' };
+        return { text: 'Estimate', kind: 'fallback' };
+    };
+
+    // The chart's usual source. The badge used to repeat on every one of the 27
+    // rows, restating the card's own heading ("Advanced Forecast — Projected
+    // Annual"), and it wrapped under the number — so predicted rows stood taller
+    // than actual ones and the two charts drifted apart down the page despite
+    // being in the same order. It now marks only the rows that DIFFER, which is
+    // the only case where it ever carried information.
+    const tally = {};
+    rows.forEach((r) => { const s = sourceOf(r); if (s) tally[s.text] = (tally[s.text] || 0) + 1; });
+    const usualSource = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || null;
+
     root.innerHTML = warning + rows.map((item, index) => {
         const width = Math.max((item.value / maxValue) * 100, 3);
-        let badge = '';
-        if (chartType === 'predicted') {
-            const src = (item.source || '').toLowerCase();
-            if (src.includes('sarima') || src.includes('arima')) {
-                badge = (src.includes('alldisease') || src.includes('rf'))
-                    ? `<span class="source-badge model">Advanced Forecast</span>`
-                    : `<span class="source-badge model">Smart Forecast</span>`;
-            }
-            else if (src.includes('moving') || src.includes('wma')) badge = `<span class="source-badge wma">Basic Estimate</span>`;
-            else                                                 badge = `<span class="source-badge fallback">Estimate</span>`;
-        }
+        const source = sourceOf(item);
+        const badge = (source && source.text !== usualSource)
+            ? `<span class="source-badge ${source.kind}">${source.text}</span>`
+            : '';
         // JS-FIX-3: likely-range tooltip on predicted bars
         const ciAttr = (chartType === 'predicted' && item.upper > 0)
             ? ` title="Likely Range: ${item.lower ?? '?'} – ${item.upper ?? '?'}"` : '';
@@ -644,36 +1260,40 @@ function renderInsightPanel() {
 
     renderMiniBars('comparisonBars', insight.comparisons);
     renderMiniBars('predictionBars', insight.predicted);
+    // Filled further down, once forecastHtml is built.
 
     // ── 3-Month Forecast ─────────────────────────────────────────
-    let forecastHtml = '';
-    if (insight.forecast?.length) {
-        const months    = ['Next Month', 'Month 2', 'Month 3'];
-        const modelLabel = friendlyModelLabel(insight.model_type);
-        const metaParts = insight.model_mae != null ? `Usually accurate within ±${insight.model_mae} cases` : '';
+    /* The month-by-month grid that used to sit here has gone.
+       Measured across every barangay, it printed the SAME number three times
+       (Poblacion 11.4/11.4/11.4, San Jose 13.5/13.5/13.5, ...) with three
+       identical ranges: the top-down forecast multiplies one municipal figure
+       by a share that does not change month to month, so there was never a
+       month 2 distinct from month 1. It carried one number's worth of
+       information as three, implied three predictions that do not exist, and
+       repeated the right column's monthly figure WITHOUT the caveat that makes
+       it safe to read.
 
-        const trend     = (insight.trend || 'stable').toLowerCase();
-        const trendIcon = trend === 'rising' ? '↑' : trend === 'falling' ? '↓' : '→';
+       The top-down panel below says the same thing once and honestly: the
+       monthly figure with its warning, the quarter total to actually plan on,
+       and the share it was split by. */
+    const trend     = (insight.trend || 'stable').toLowerCase();
+    const trendIcon = trend === 'rising' ? '↑' : trend === 'falling' ? '↓' : '→';
+    const modelLabel = friendlyModelLabel(insight.model_type);
+    const mape = insight.municipality_accuracy?.mape;
 
-        forecastHtml = `
-            <div class="ip-forecast">
-                <div class="ip-forecast-header">
-                    <span class="ip-forecast-title">${modelLabel} — 3-Month Forecast</span>
-                    ${metaParts ? `<span class="ip-forecast-meta">${metaParts}</span>` : ''}
-                </div>
-                <div class="ip-forecast-grid">
-                    ${insight.forecast.map((val, i) => `
-                        <div class="ip-fc-card">
-                            <span class="ip-fc-label">${months[i] || 'Month ' + (i + 1)}</span>
-                            <span class="ip-fc-val">${val}</span>
-                            <span class="ip-fc-range">${insight.lower_ci?.[i] ?? '–'} – ${insight.upper_ci?.[i] ?? '–'}</span>
-                            <span class="ip-fc-ci">Likely Range</span>
-                        </div>
-                    `).join('')}
-                </div>
-                <div class="ip-trend ip-trend-${trend}">${trendIcon} Trend: ${trend.toUpperCase()}</div>
+    // Left column: every figure for this barangay, each one once.
+    // Right column: what to do about them.
+    const forecastHost = document.getElementById('insightForecast');
+    if (forecastHost) {
+        forecastHost.innerHTML = `
+            <div class="ip-forecast-header">
+                <span class="ip-forecast-title">${modelLabel}</span>
+                ${mape != null
+                    ? `<span class="ip-forecast-meta">Municipality forecast usually within ${mape}%</span>`
+                    : ''}
             </div>
-        `;
+            ${topDownPanelHtml(insight)}
+            <div class="ip-trend ip-trend-${trend}">${trendIcon} Trend: ${trend.toUpperCase()}</div>`;
     }
 
     // ── Model badge ───────────────────────────────────────────────
@@ -696,26 +1316,37 @@ function renderInsightPanel() {
             </div>
         `;
     } else {
+        // No confidence figure: the action level is a rule over observed
+        // cases, and the forecast's uncertainty is shown as a range instead.
         modelBadgeHtml = `
             <div class="ip-model-row">
-                <span class="ip-model-badge">Advanced Forecast</span>
-                <span class="ip-model-text">${insight.rf_risk_class || 'N/A'} Risk · ${insight.rf_confidence ?? 'N/A'}% confidence</span>
+                <span class="ip-model-badge">${insight.is_fallback ? 'Limited Data' : 'Municipality Forecast'}</span>
+                <span class="ip-model-text">${insight.is_fallback
+                    ? 'Estimated from this barangay alone'
+                    : `Split from the municipality-wide forecast${insight.municipality_accuracy?.mape != null
+                        ? ` (usually within ${insight.municipality_accuracy.mape}% municipality-wide)` : ''}`}</span>
             </div>
-        `;
+        `
+        // topDownPanelHtml is deliberately NOT appended here any more: it moved
+        // to the left column, where the figures live. Leaving it would draw the
+        // same three tiles twice on one screen.
+        + actionTierHtml(insight);
     }
 
     // ── Risk tier chip ────────────────────────────────────────────
-    const protocol  = insight.protocol;
-    const classText = (protocol.classification || '').toLowerCase();
-    const tierClass = classText.includes('high') ? 'high' : classText.includes('medium') ? 'medium' : 'low';
+    const protocol = insight.protocol;
+    // Derived from the status value, not from string-matching the displayed
+    // words. The old test looked for "high"/"medium" inside a classification
+    // that read "Immediate Response", matched neither, and painted the most
+    // urgent chip in the calm green of ip-risk-low.
+    const status = actionStatus(insight.action_level);
 
     document.getElementById('protocolPanel').innerHTML = `
         <div class="ip-risk-header">
-            <span class="ip-risk-chip ip-risk-${tierClass}">${protocol.classification}</span>
+            <span class="ip-risk-chip ip-risk-${status.level}">${status.label}</span>
         </div>
         ${offlineWarningHtml}
         ${modelBadgeHtml}
-        ${forecastHtml}
         <div class="ip-protocol-block">
             <p class="ip-protocol-title">${protocol.title}</p>
             <p class="ip-protocol-desc">${protocol.description}</p>
@@ -731,6 +1362,7 @@ function renderInsightPanel() {
                 </div>
             `).join('')}
         </div>
+        <div class="rf-diff" id="rfDifferential" data-barangay="${esc(insight.barangay)}"></div>
         <div class="ip-actions">
             <button class="ip-btn-primary" id="createEventBtn">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px;flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/></svg>Create Event
@@ -742,20 +1374,143 @@ function renderInsightPanel() {
     `;
 
     document.getElementById('createEventBtn').addEventListener('click', () => {
-        openCreateEventModal(insight.barangay, insight.disease, protocol.classification);
+        openCreateEventModal(insight.barangay, insight.disease, Array.isArray(insight.forecast) ? insight.forecast[0] : null);
     });
     document.getElementById('backOverviewBtn2').addEventListener('click', () => switchPanel('overviewPanel'));
+    loadBarangayDifferential(insight.barangay);
 }
 
+/* ── Differential diagnosis for this barangay (RandomForestClassifier) ──
+   The one place a forest belongs in this pipeline. Barangay-month case counts
+   have a lag-1 autocorrelation of 0.018, which is why the action tier above is
+   a rule and not a model; "given these symptoms in this species, which disease
+   is it?" is cross-sectional, so none of that applies.
+
+   Inputs default to what this barangay's own consultations actually look like,
+   so the panel opens on a finding rather than an empty picker. The observed
+   column beside the prediction is deliberate: a shortlist that cannot be read
+   against the record is a claim, not evidence. */
+async function loadBarangayDifferential(barangay, symptomCluster, animalGroup) {
+    const host = document.getElementById('rfDifferential');
+    if (!host) return;
+    host.innerHTML = '<p class="rf-muted">Reading this barangay’s case patterns…</p>';
+
+    let payload;
+    try {
+        const response = await fetch('/api/dashboard/dashboard.php?scope=barangay_differential', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                barangay,
+                symptom_cluster: symptomCluster || '',
+                animal_group:    animalGroup || '',
+                // Follows the page's disease filter. Without it this block sat
+                // on the barangay's overall top pattern while every other panel
+                // showed the selected disease — filter to Rabies and the
+                // differential still discussed mange.
+                disease: diseaseAnalyticsData.selectedDisease || '',
+            }),
+        });
+        const result = await response.json();
+        payload = result?.data;
+        if (!result?.success || !payload?.available) {
+            // Never blocks the panel: the protocol above stands on its own.
+            host.innerHTML = `<p class="rf-muted">${esc(payload?.reason
+                || 'Differential unavailable — the analytics service is not responding.')}</p>`;
+            return;
+        }
+    } catch (error) {
+        host.innerHTML = '<p class="rf-muted">Differential unavailable — the analytics service is not responding.</p>';
+        return;
+    }
+
+    const selected = payload.selected || {};
+    const predictions = payload.predictions || [];
+    const observed = payload.observed_top || [];
+
+    host.innerHTML = `
+        <div class="rf-head">
+            <h4>Likely diagnoses here</h4>
+            <span class="rf-tag">Random Forest classifier</span>
+        </div>
+        <p class="rf-lede">
+            ${esc(payload.cases_for_pattern)} of this barangay’s cases present as
+            <strong>${esc(selected.symptom_cluster)}</strong>${payload.pattern_basis
+                ? ` — chosen from ${esc(payload.pattern_basis)}` : ''}.
+            For that pattern the classifier’s shortlist is:
+        </p>
+        <div class="rf-controls">
+            <select id="rfCluster" aria-label="Symptom pattern">
+                ${(payload.patterns || []).map(p => `
+                    <option value="${esc(p.symptom_cluster)}" ${p.symptom_cluster === selected.symptom_cluster ? 'selected' : ''}>
+                        ${esc(p.symptom_cluster)} — ${esc(p.share)}%
+                    </option>`).join('')}
+            </select>
+            <select id="rfAnimal" aria-label="Animal group">
+                ${(payload.animal_groups_here || []).map(g => `
+                    <option ${g === selected.animal_group ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="rf-cols">
+            <div class="rf-col">
+                <p class="rf-col-title">Model shortlist</p>
+                ${predictions.length ? predictions.map(p => `
+                    <div class="rf-row">
+                        <span>${esc(p.diagnosis)}</span>
+                        <b>${Math.round((p.probability || 0) * 100)}%</b>
+                    </div>`).join('') : '<p class="rf-muted">No prediction for this combination.</p>'}
+            </div>
+            <div class="rf-col">
+                <p class="rf-col-title">Actually recorded here</p>
+                ${observed.length ? observed.map(o => `
+                    <div class="rf-row">
+                        <span>${esc(o.diagnosis)}</span>
+                        <b>${esc(o.cases)}</b>
+                    </div>`).join('') : '<p class="rf-muted">No cases on record.</p>'}
+            </div>
+        </div>
+        <p class="rf-note">
+            A shortlist to consider, not a diagnosis. It names the right disease first
+            ${esc(payload.top1_accuracy)}% of the time and has it among these three
+            ${esc(payload.top3_accuracy)}% of the time — against ${esc(payload.lookup_baseline)}%
+            for simply always picking the commonest disease for this symptom pattern.
+            The classifier reads symptoms and species only — not location — so two barangays
+            showing the same pattern get the same shortlist. What differs here is which pattern
+            dominates, and what was recorded against it.
+        </p>`;
+
+    ['rfCluster', 'rfAnimal'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', () => {
+            // Changing the pattern clears the animal group so the barangay's own
+            // dominant group for the NEW pattern is picked, not the stale one.
+            const cluster = document.getElementById('rfCluster')?.value || '';
+            const group   = id === 'rfCluster' ? '' : (document.getElementById('rfAnimal')?.value || '');
+            loadBarangayDifferential(barangay, cluster, group);
+        });
+    });
+}
+
+/* The bar length is a share of the busiest barangay; the number beside it is
+   the case count. Without the count these were three bars against an unlabelled
+   maximum -- a vet could see that one bar was longer than another but not
+   whether it meant four cases or four hundred. And when the barangay being
+   viewed IS the busiest, every bar pins to 100% and the shape alone says
+   nothing at all. */
 function renderMiniBars(targetId, rows) {
     const el = document.getElementById(targetId);
     if (!el || !rows?.length) return;
+    const show = (n) => {
+        const value = Number(n);
+        if (!isFinite(value)) return '—';
+        return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    };
     el.innerHTML = rows.map(item => `
         <div class="bar-row">
-            <span>${item.label}</span>
+            <span>${esc(item.label)}</span>
             <div class="bar-track">
                 <span class="bar-fill" style="width:${item.value}%; background:${item.color};"></span>
             </div>
+            <span>${item.count != null ? show(item.count) : ''}</span>
         </div>
     `).join('');
 }
@@ -773,9 +1528,24 @@ function renderMapPanel() {
     renderHotspotList();
 }
 
+/* Needs Action first, then Watch, then Normal -- and within each, the busiest
+   barangay first.
+   The list used to render in whatever order the API returned, so a vet opening
+   the page scanned 27 rows to find the two that mattered. Ordering is the
+   cheapest thing this page can do to turn a data dump into a worklist. */
+const TIER_ORDER = { critical: 0, monitor: 1, stable: 2 };
+
+function sortedHotspots() {
+    return [...(diseaseAnalyticsData.map?.hotspots || [])].sort((a, b) => {
+        const ta = TIER_ORDER[a.risk] ?? 3, tb = TIER_ORDER[b.risk] ?? 3;
+        if (ta !== tb) return ta - tb;
+        return (Number(b.cases) || 0) - (Number(a.cases) || 0);
+    });
+}
+
 function renderHotspotList() {
     const list = document.getElementById('hotspotList');
-    list.innerHTML = (diseaseAnalyticsData.map?.hotspots || []).map(hotspot => {
+    list.innerHTML = sortedHotspots().map(hotspot => {
         const src = (hotspot.pred_source || '').toLowerCase();
         let badge = '';
         if (src.includes('sarima') || src.includes('arima')) {
@@ -789,7 +1559,7 @@ function renderHotspotList() {
             <article class="hotspot-item" data-hotspot-id="${hotspot.id}">
                 <h4>
                     ${hotspot.barangay}
-                    <span class="risk-chip risk-${hotspot.risk}">${hotspot.risk.toUpperCase()}</span>
+                    <span class="risk-chip risk-${actionStatus(hotspot.risk).level}">${actionStatus(hotspot.risk).label}</span>
                 </h4>
                 <p>${hotspot.disease}</p>
                 <small>Cases: ${hotspot.cases} | Predicted: ${hotspot.predicted} ${badge}</small>
@@ -808,30 +1578,226 @@ function renderHotspotList() {
     });
 }
 
+/* ── Heat surface + barangay markers ─────────────────────────────
+   A continuous colour field interpolated from the 27 barangay values, with a
+   marker on each barangay on top.
+
+   The surface is inverse-distance weighting (IDW), drawn to a canvas and laid
+   over the map as an image overlay. That is what produces a filled field
+   rather than the isolated glowing blobs a kernel-density heat layer gives on
+   sparse points -- every pixel gets a value from all 27 barangays, weighted by
+   1/distance^2, so the colour is continuous everywhere instead of fading to
+   nothing between markers.
+
+   HONEST LABEL, and the legend says so: the colour BETWEEN barangays is
+   interpolated, not measured. Only the 27 marker positions carry real counts.
+   Interpolation is standard for surface estimation, but it should never be
+   read as "this street had this many cases". */
+
+const SYMBOL_MIN_RADIUS = 6;
+const SYMBOL_MAX_RADIUS = 20;
+
+/* Sampling grid for the surface. 160x160 over the municipality is far finer
+   than 27 source points can justify, so the limit on detail is the data, not
+   the raster -- this size just keeps the gradient smooth when scaled up. */
+const HEAT_GRID = 160;
+
+/* How far the surface reaches beyond a barangay before fading out, in degrees
+   of lat/lng. ~0.010 deg is roughly 1.1 km, about the spacing between
+   neighbouring barangays here, so the field stays continuous across the built-up
+   area and fades over open ground rather than at a rectangle edge. */
+const FADE_INNER = 0.009;
+const FADE_OUTER = 0.026;
+
+/* Cool-to-hot ramp matching the reference: deep green through yellow and
+   orange to red, with a white peak. Stops are on 0..1 of the value range. */
+const HEAT_STOPS = [
+    [0.00, [ 16,  78,  92]],   // deep teal — quietest
+    [0.18, [ 34, 128,  62]],
+    [0.38, [ 96, 176,  50]],   // green
+    [0.55, [201, 219,  62]],   // yellow-green
+    [0.68, [255, 221,  64]],   // yellow
+    [0.80, [255, 150,  40]],   // orange
+    [0.91, [226,  46,  40]],   // red
+    [1.00, [255, 245, 245]],   // white peak
+];
+
+function heatColor(t) {
+    t = Math.max(0, Math.min(1, t));
+    for (let i = 1; i < HEAT_STOPS.length; i++) {
+        const [p1, c1] = HEAT_STOPS[i - 1];
+        const [p2, c2] = HEAT_STOPS[i];
+        if (t <= p2) {
+            const k = (t - p1) / (p2 - p1 || 1);
+            return [
+                Math.round(c1[0] + (c2[0] - c1[0]) * k),
+                Math.round(c1[1] + (c2[1] - c1[1]) * k),
+                Math.round(c1[2] + (c2[2] - c1[2]) * k),
+            ];
+        }
+    }
+    return HEAT_STOPS[HEAT_STOPS.length - 1][1];
+}
+
+function symbolRadius(value, maxValue) {
+    const v = Math.max(0, Number(value) || 0);
+    if (v <= 0 || maxValue <= 0) return SYMBOL_MIN_RADIUS;
+    // Area proportional to the value, not radius: doubling a radius quadruples
+    // the visible circle, so scaling radius directly overstates big barangays.
+    return SYMBOL_MIN_RADIUS + (SYMBOL_MAX_RADIUS - SYMBOL_MIN_RADIUS)
+         * Math.sqrt(Math.min(1, v / maxValue));
+}
+
+/* Builds the interpolated surface as a data URL sized to `bounds`. */
+function buildHeatCanvas(points, bounds) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = HEAT_GRID;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(HEAT_GRID, HEAT_GRID);
+
+    const south = bounds.getSouth(), north = bounds.getNorth();
+    const west  = bounds.getWest(),  east  = bounds.getEast();
+    const values = points.map(p => p.value);
+    const lo = Math.min(...values), hi = Math.max(...values);
+    const span = (hi - lo) || 1;
+
+    for (let y = 0; y < HEAT_GRID; y++) {
+        // Row 0 is the top of the image, which is the NORTH edge.
+        const lat = north - (y / (HEAT_GRID - 1)) * (north - south);
+        for (let x = 0; x < HEAT_GRID; x++) {
+            const lng = west + (x / (HEAT_GRID - 1)) * (east - west);
+
+            let num = 0, den = 0, exact = null, nearest = Infinity;
+            for (const pt of points) {
+                const dLat = lat - pt.lat, dLng = lng - pt.lng;
+                const d2 = dLat * dLat + dLng * dLng;
+                if (d2 < nearest) nearest = d2;
+                if (d2 < 1e-10) { exact = pt.value; break; }
+                const w = 1 / d2;                              // 1/d^2
+                num += w * pt.value;
+                den += w;
+            }
+            const v = exact !== null ? exact : (den ? num / den : lo);
+
+            // ALPHA FALLS OFF WITH DISTANCE FROM THE NEAREST BARANGAY.
+            //
+            // A flat alpha painted the whole bounding box, so the overlay ended
+            // in two hard vertical lines down the map -- the rectangle edge,
+            // not anything in the data. Fading by distance removes that edge
+            // and is the more honest rendering besides: colour stops where
+            // there is no nearby barangay to support it, instead of implying a
+            // measured value out in empty farmland.
+            const d = Math.sqrt(exact !== null ? 0 : nearest);
+            const fade = 1 - Math.min(1, Math.max(0, (d - FADE_INNER) / (FADE_OUTER - FADE_INNER)));
+
+            const [r, g, b] = heatColor((v - lo) / span);
+            const i = (y * HEAT_GRID + x) * 4;
+            img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b;
+            img.data[i + 3] = Math.round(255 * fade * fade);   // squared = softer tail
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas.toDataURL();
+}
+
 function refreshMapLayers() {
     if (!state.map || !diseaseAnalyticsData.map) return;
     state.hotspotMarkers.forEach(m => m.remove());
     state.hotspotMarkers = [];
-    if (state.heatLayer) state.heatLayer.remove();
+    if (state.heatLayer) { state.heatLayer.remove(); state.heatLayer = null; }
 
-    const hotspots   = diseaseAnalyticsData.map.hotspots || [];
-    const heatPoints = hotspots.map(s => [s.lat, s.lng, s.intensity]);
+    const hotspots = (diseaseAnalyticsData.map.hotspots || [])
+        .filter(h => Number.isFinite(h.lat) && Number.isFinite(h.lng));
+    if (!hotspots.length) { renderMapLegend(null); return; }
 
-    state.heatLayer = L.heatLayer(heatPoints, {
-        radius: 65, blur: 40, minOpacity: 0.5,
-        gradient: { 0.3: '#6ec7ff', 0.55: '#fff27a', 0.75: '#ff9248', 1.0: '#e53030' },
+    const values = hotspots.map(h => Number(h.cases) || 0);
+    const maxValue = Math.max(...values, 1);
+    const minValue = Math.min(...values);
+
+    // Padded so the surface reaches past the outermost barangays instead of
+    // stopping at them with a visible straight edge.
+    const lats = hotspots.map(h => h.lat), lngs = hotspots.map(h => h.lng);
+    const padLat = ((Math.max(...lats) - Math.min(...lats)) * 0.18 || 0.01) + FADE_OUTER;
+    const padLng = ((Math.max(...lngs) - Math.min(...lngs)) * 0.18 || 0.01) + FADE_OUTER;
+    const bounds = L.latLngBounds(
+        [Math.min(...lats) - padLat, Math.min(...lngs) - padLng],
+        [Math.max(...lats) + padLat, Math.max(...lngs) + padLng]);
+
+    const url = buildHeatCanvas(
+        hotspots.map(h => ({ lat: h.lat, lng: h.lng, value: Number(h.cases) || 0 })), bounds);
+    state.heatLayer = L.imageOverlay(url, bounds, {
+        opacity: 0.82, interactive: false, className: 'da-heat-surface',
     }).addTo(state.map);
 
-    hotspots.forEach(spot => {
-        const color  = getRiskColor(spot.risk);
+    // Least urgent first, so a Needs Action marker is never buried under a
+    // Normal one where barangays overlap in the town centre.
+    [...hotspots]
+        .sort((a, b) => (TIER_ORDER[b.risk] ?? 3) - (TIER_ORDER[a.risk] ?? 3))
+        .forEach(spot => {
+        const actual    = Number(spot.cases) || 0;
+        const predicted = Number(spot.predicted) || 0;
+        const needsAction = spot.risk === 'critical';
+
+        // Solid tier colour, as the original design had it: red for Needs
+        // Action, amber for Watch, green for Normal.
+        //
+        // This does put two colour systems on one map -- the surface uses red
+        // for "many cases", a marker uses red for "needs action". A neutral
+        // scheme was tried and rejected on the look. The white outline and drop
+        // shadow below are what keep the markers legible against the field, so
+        // the two never visually merge even though they share hues.
         const marker = L.circleMarker([spot.lat, spot.lng], {
-            radius: 6, color, fillColor: color, fillOpacity: 0.9, weight: 1,
-        }).addTo(state.map).bindTooltip(`${spot.barangay} | ${spot.disease}`);
+            radius: symbolRadius(actual, maxValue),
+            color: '#ffffff',
+            fillColor: getRiskColor(spot.risk),
+            fillOpacity: 0.95,
+            weight: needsAction ? 2.5 : 1.8,
+            className: needsAction ? 'da-marker da-marker-urgent' : 'da-marker',
+        }).addTo(state.map);
+
+        const direction = predicted > actual ? 'expected to rise'
+                        : predicted < actual ? 'expected to ease' : 'expected to hold';
+        marker.bindTooltip(
+            `<strong>${vbEscapeHtml(spot.barangay)}</strong><br>` +
+            `<span style="opacity:.8">${actionStatus(spot.risk).label}</span><br>` +
+            `${actual} recorded &middot; ${predicted.toFixed(0)} forecast<br>` +
+            `<span style="opacity:.75">${direction}</span>`,
+            { direction: 'top', offset: [0, -4] });
         marker.on('click', () => { showHotspotAction(spot); toggleMapActionMode(true); });
         state.hotspotMarkers.push(marker);
     });
 
+    renderMapLegend({ min: minValue, max: maxValue });
     fitMapToHotspots();
+}
+
+/* Vertical colour bar, like the reference. Reads bottom-to-top so the hottest
+   value sits at the top, which is the convention people expect from a scale. */
+function renderMapLegend(range) {
+    const host = document.getElementById('mapLegend');
+    if (!host) return;
+    if (!range) { host.innerHTML = ''; return; }
+
+    const ramp = HEAT_STOPS
+        .map(([p, c]) => `rgb(${c[0]},${c[1]},${c[2]}) ${(p * 100).toFixed(0)}%`)
+        .join(', ');
+    const mid = Math.round((range.min + range.max) / 2);
+
+    host.innerHTML = `
+        <div class="heat-scale">
+            <div class="heat-scale-bar" style="background:linear-gradient(to top, ${ramp})"></div>
+            <div class="heat-scale-ticks">
+                <span>${Math.round(range.max)}</span>
+                <span>${mid}</span>
+                <span>${Math.round(range.min)}</span>
+            </div>
+        </div>
+        <div class="heat-scale-caption">
+            <strong>Cases</strong>
+            <span>Circle = barangay, sized by cases</span>
+            <span>Colour = Needs Action / Watch / Normal</span>
+            <span class="heat-scale-note">Shading between barangays is estimated</span>
+        </div>`;
 }
 
 function fitMapToHotspots() {
@@ -849,8 +1815,11 @@ function initMap() {
     refreshMapLayers();
 }
 
+/* Map fill colours, keyed off the same normalised level as every other
+   status surface -- see actionStatus(). */
 function getRiskColor(risk) {
-    return risk === 'critical' ? '#c31d1d' : risk === 'monitor' ? '#a4851f' : '#1e8a47';
+    const level = actionStatus(risk).level;
+    return level === 'high' ? '#c31d1d' : level === 'medium' ? '#a4851f' : '#1e8a47';
 }
 
 function toggleMapActionMode(forceOn) {
@@ -858,7 +1827,9 @@ function toggleMapActionMode(forceOn) {
     document.getElementById('toggleActionBtn').textContent =
         state.mapActionMode ? 'Close Action Tab' : 'Action Tab';
     if (!state.mapActionMode) { renderHotspotList(); return; }
-    const defaultHotspot = diseaseAnalyticsData.map.hotspots?.[0];
+    // The most urgent barangay, not whichever the API happened to return
+    // first -- opening the action tab should land on what needs attention.
+    const defaultHotspot = sortedHotspots()[0];
     if (defaultHotspot) showHotspotAction(defaultHotspot);
 }
 
@@ -870,7 +1841,7 @@ function showHotspotAction(hotspot) {
     );
 
     let steps = [], protocolTitle = 'Barangay Response Protocol: ' + hotspot.barangay;
-    let protocolDesc = '', classification = 'Risk: ' + hotspot.risk.toUpperCase(), modelBadge = '';
+    let protocolDesc = '', classification = actionStatus(hotspot.risk).label, modelBadge = '';
 
     if (insight?.protocol) {
         steps          = insight.protocol.steps    || [];
@@ -882,8 +1853,8 @@ function showHotspotAction(hotspot) {
             const t = insight.risk_thresholds || {};
             modelBadge = `
                 <div class="rule-based-note">
-                    ⚠ Rule-Based Risk (${insight.model_type || 'DiseaseSpecific'}) —
-                    ${insight.rf_risk_class || 'N/A'} risk
+                    ⚠ Rule-Based Case Volume —
+                    ${insight.volume_band || 'N/A'} case volume
                     ${insight.pred_source?.includes('fallback')
                         ? '<span class="source-badge fallback">Estimate</span>'
                         : `<span class="source-badge model">${friendlyModelLabel(insight.model_type)}</span>`}
@@ -891,10 +1862,11 @@ function showHotspotAction(hotspot) {
                 </div>`;
         } else {
             modelBadge = `
-                <div class="rf-badge">
-                    Advanced Forecast — ${insight.rf_risk_class || 'N/A'} Risk ·
-                    ${insight.rf_confidence ?? 'N/A'}% confidence
-                </div>`;
+                <div class="rf-badge${insight.is_fallback ? ' is-fallback' : ''}">
+                    ${insight.is_fallback
+                        ? 'Limited data — estimated from this barangay alone'
+                        : 'Municipality Forecast — split by this barangay’s share'}
+                </div>` + actionTierHtml(insight) + topDownPanelHtml(insight);
         }
     } else {
         steps = [
@@ -905,7 +1877,7 @@ function showHotspotAction(hotspot) {
             { level: 'green', title: 'Preventive: Education Drive',
               detail: `Distribute prevention materials to ${hotspot.barangay}.` },
             { level: 'gray',  title: 'Monitoring: Weekly Review',
-              detail: 'Track cases weekly until risk normalizes.' },
+              detail: 'Track cases weekly until case volume normalizes.' },
         ];
         modelBadge = `
             <div class="rf-badge" style="background:#fff7ed;border-color:#fed7aa;color:#c2410c;">
@@ -937,24 +1909,13 @@ function showHotspotAction(hotspot) {
         </section>
     `;
     document.getElementById('createMapEventBtn').addEventListener('click', () => {
-        openCreateEventModal(hotspot.barangay, hotspot.disease, classification);
+        openCreateEventModal(hotspot.barangay, hotspot.disease, insight?.forecast?.[0] ?? hotspot.predicted ?? null);
     });
     document.getElementById('backToMapOverviewBtn').addEventListener('click', () => {
         state.mapActionMode = false;
         document.getElementById('toggleActionBtn').textContent = 'Action Tab';
         renderHotspotList();
     });
-}
-
-/* ── VetAPI extension ───────────────────────────────────────── */
-if (window.VetAPI) {
-    const _orig = window.VetAPI.getDiseaseRiskPrediction;
-    window.VetAPI.getDiseaseRiskPrediction = async function (barangays, currentCases, disease, period) {
-        if (typeof disease === 'undefined') {
-            return _orig ? _orig(barangays, currentCases) : diseaseRiskRequest(barangays, currentCases, '', 'year');
-        }
-        return diseaseRiskRequest(barangays, currentCases, disease, period);
-    };
 }
 
 /* ── Skeleton loading (shown until the first fetch resolves) ─── */
@@ -1015,4 +1976,4 @@ async function initDiseaseAnalytics() {
     renderMapPanel();
 }
 
-document.addEventListener('DOMContentLoaded', initDiseaseAnalytics);
+document.addEventListener('DOMContentLoaded', initDiseaseAnalytics);
