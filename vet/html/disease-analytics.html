@@ -4,69 +4,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VBetter | Disease Analytics</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter | Disease Analytics</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="/bvetter/shared/css/sidebar.css">
-    <link rel="stylesheet" href="/bvetter/vet/css/disease-analytics.css?v=20260711-2">
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../vet/css/disease-analytics.css?v=20261006-rf">
+    <link rel="stylesheet" href="../../vet/css/dataset-upload.css?v=20260922-timeline">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-    <!-- <script src="/bvetter/shared/js/sidebar.js" defer></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-            crossorigin="" defer></script>
-    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" defer></script>
-    <script src="/bvetter/vet/js/disease-analytics.js" defer></script> -->
+
 </head>
 
 <body>
     <div class="main-holder da-page">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo"><img src="/bvetter/vet/images/logo.png" alt="VBetter Logo"></div>
+                <div class="logo"><img src="../../vet/images/logo.png" alt="BVetter Logo"></div>
             </div>
               <nav class="sidebar-nav">
-                <a href="/bvetter/vet/html/index.html" class="nav-item" title="Dashboard">
-                    <img src="/bvetter/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                <a href="../../vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="../../shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
                     <span class="nav-label">Dashboard</span>
                 </a>
-                <a href="/bvetter/vet/html/appointment.html" class="nav-item" title="Appointments">
-                    <img src="/bvetter/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                <a href="../../vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="../../shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
                     <span class="nav-label">Appointment Management</span>
                 </a>
-                <a href="/bvetter/vet/html/patient-records.html" class="nav-item" title="Patient Records">
-                    <img src="/bvetter/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                <a href="../../vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="../../shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
                     <span class="nav-label">Patient Records</span>
                 </a>
-                <a href="/bvetter/vet/html/report.html" class="nav-item" title="Reports">
-                    <img src="/bvetter/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                <a href="../../vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="../../shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
                     <span class="nav-label">Report</span>
                 </a>
-                <a href="/bvetter/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
-                    <img src="/bvetter/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                <a href="../../vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="../../shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
                     <span class="nav-label">Disease Analytics</span>
                 </a>
-                <a href="/bvetter/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
-                    <img src="/bvetter/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                <a href="../../vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="../../shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
                     <span class="nav-label">Lost And Found</span>
                 </a>
-                <a href="/bvetter/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
-                    <img src="/bvetter/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                <a href="../../vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="../../shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
                     <span class="nav-label">Chatbot Management</span>
                 </a>
-                <a href="/bvetter/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
-                    <img src="/bvetter/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                <a href="../../vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                     <span class="nav-label">Mass Vaccination</span>
                 </a>
-                <!-- ADMIN-ONLY section: sidebar.js hides these for vet role -->
+                <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                    <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                    <span class="nav-label">Support Tickets</span>
+                </a>
                 <div class="nav-section-label" data-roles="admin">Administration</div>
-                <a href="/bvetter/admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                <a href="../../admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
                     <span class="nav-label">Account Management</span>
                 </a>
-                <a href="/bvetter/admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                <a href="../../admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
                     <span class="nav-label">Website Management</span>
                 </a>
             </nav>
@@ -74,7 +80,6 @@
         </aside>
 
         <main class="da-main">
-            <!-- Overview panel -->
             <section id="overviewPanel" class="panel panel-active">
                 <header class="overview-header">
                     <div>
@@ -82,10 +87,15 @@
                         <p>View reports and auto-triggered insights here.</p>
                     </div>
                     <div class="header-actions">
+    <select id="dataViewFilter" aria-label="Select data view">
+        <option value="historical">Historical (Training Data)</option>
+        <option value="current">Current (Monthly Records)</option>
+    </select>
     <select id="periodFilter" aria-label="Select period">
         <option value="year">Yearly</option>
         <option value="month">Monthly</option>
     </select>
+    <select id="currentMonthFilter" aria-label="Select month" hidden></select>
     <select id="diseaseFilter" aria-label="Select disease"></select>
     <button id="openMapBtn" class="btn btn-primary">View Detailed Map</button>
 </div>
@@ -93,19 +103,34 @@
 
                 <section class="overview-grid">
                     <div class="detailed-headers">
+                        <p class="layer-label" id="baselineLabel"></p>
                         <div class="kpi-row" id="kpiCards"></div>
+                        <section class="live-layer card" id="liveLayer" hidden></section>
                         <section class="prediction-banner card" id="predictionBanner"></section>
                     </div>
                     <aside class="data-sources card">
                         <h3>Data Sources</h3>
                         <ul id="sourceList"></ul>
-                        <button class="btn btn-secondary" id="refreshSourcesBtn">Refresh All Sources</button>
+                        <div class="data-sources-actions">
+                            <button type="button" class="btn btn-secondary" id="refreshSourcesBtn">Refresh All Sources</button>
+                            <button type="button" class="btn btn-primary" id="manageDatasetBtn">Manage Dataset</button>
+                        </div>
                     </aside>
                 </section>
+
+                <div class="chart-sort-bar">
+                    <label class="chart-sort-label" for="chartSortFilter">Both charts sorted by</label>
+                    <select id="chartSortFilter">
+                        <option value="actual">Actual cases</option>
+                        <option value="predicted">Predicted cases</option>
+                    </select>
+                    <span class="chart-sort-hint">Barangays stay on the same row in both charts</span>
+                </div>
 
                 <section class="chart-grid">
                     <div class="card chart-card">
                         <h3>Actual Disease Cases per Barangay</h3>
+                        <div id="liveCoverageNote" class="fallback-warning" hidden></div>
                         <div id="actualChart" class="bar-chart"></div>
                     </div>
                     <div class="card chart-card">
@@ -113,6 +138,7 @@
                         <div id="predictedChart" class="bar-chart"></div>
                     </div>
                 </section>
+                <p id="partialPaceNote" class="pace-note" hidden></p>
 
                 <section class="card insight-section">
                     <h3>Insights</h3>
@@ -120,8 +146,6 @@
                 </section>
             </section>
 
-            <!-- Create Event modal: routes into whichever module actually owns the
-                 event type instead of a separate disease-analytics-only list -->
             <div id="createEventModal" class="modal hidden" role="dialog" aria-modal="true">
                 <div class="modal-card">
                     <h2>Create Response Event</h2>
@@ -154,32 +178,139 @@
                 </div>
             </div>
 
-            <!-- Insight drill-down panel -->
+            <div id="datasetModal" class="modal hidden" role="dialog" aria-modal="true"
+                 aria-labelledby="datasetModalTitle">
+                <div class="modal-card du-modal-card">
+                    <div class="du-modal-head">
+                        <div>
+                            <h2 id="datasetModalTitle">Manage Dataset</h2>
+                            <p class="du-modal-sub">
+                                Upload the clinic's consultation workbook to replace the data behind
+                                Disease Analytics, the reports and the forecasts. Every upload is kept,
+                                so you can switch back to an earlier one at any time.
+                            </p>
+                        </div>
+                        <button type="button" class="du-modal-close" id="du-close" aria-label="Close">&times;</button>
+                    </div>
+
+                    <div class="du-tabs" role="tablist" aria-label="Dataset">
+                        <button type="button" class="du-tab is-active" id="du-tab-upload" role="tab"
+                                aria-selected="true" aria-controls="du-panel-upload"
+                                data-du-tab="upload">Upload</button>
+                        <button type="button" class="du-tab" id="du-tab-history" role="tab"
+                                aria-selected="false" aria-controls="du-panel-history"
+                                data-du-tab="history">History</button>
+                    </div>
+
+                    <div class="du-modal-body">
+                        <section class="du-tabpanel" id="du-panel-upload" role="tabpanel"
+                                 aria-labelledby="du-tab-upload">
+                            <h3 class="du-section-title">Currently in use</h3>
+                            <p class="du-sub">The dataset every chart, report and forecast is reading right now.</p>
+                            <div id="du-active"></div>
+
+                            <h3 class="du-section-title">Upload a workbook</h3>
+                            <p class="du-sub">
+                                Use the same sheet layout the clinic already fills in. Nothing changes until
+                                the file passes every check &mdash; if anything is wrong, the upload is
+                                rejected and the current dataset is left exactly as it is.
+                            </p>
+
+                            <form id="du-form" novalidate>
+                                <div class="du-field">
+                                    <span class="du-label">Workbook</span>
+                                    <div class="du-dropzone" id="du-dropzone" role="button" tabindex="0"
+                                         aria-label="Choose or drop an .xlsx workbook">
+                                        <div class="du-dz-title">Drop your .xlsx file here, or click to choose</div>
+                                        <div class="du-dz-hint">Excel workbook, up to 25&nbsp;MB</div>
+                                        <div class="du-dz-file" id="du-dz-file"></div>
+                                    </div>
+                                    <input type="file" id="du-file" name="file" accept=".xlsx"
+                                           style="display:none" aria-hidden="true">
+                                </div>
+
+                                <div class="du-field">
+                                    <label class="du-label" for="du-note">Note (optional)</label>
+                                    <input class="du-input" type="text" id="du-note" maxlength="255"
+                                           placeholder="e.g. records through August 2026">
+                                </div>
+
+                                <button type="submit" class="du-btn" id="du-submit">Upload dataset</button>
+                            </form>
+
+                            <details class="du-details">
+                                <summary>What the file needs</summary>
+                                <div class="du-note">
+                                    One row per consultation, with at least these columns:
+                                    <ul class="du-cols">
+                                        <li><code>consultation_id</code> &mdash; unique for each consultation</li>
+                                        <li><code>year</code> and <code>month_no</code></li>
+                                        <li><code>barangay</code></li>
+                                        <li><code>diagnosis</code></li>
+                                    </ul>
+                                    <p style="margin:10px 0 0">
+                                        Other columns such as <code>disease_category</code>,
+                                        <code>symptom_cluster</code>, <code>animal_group</code> and
+                                        <code>cases_reported</code> are used when present. Because each
+                                        consultation carries an id, uploading the same file twice is safe
+                                        &mdash; nothing gets counted twice.
+                                    </p>
+                                </div>
+                            </details>
+                        </section>
+
+                        <section class="du-tabpanel" id="du-panel-history" role="tabpanel"
+                                 aria-labelledby="du-tab-history" hidden>
+                            <h3 class="du-section-title">Upload history</h3>
+                            <p class="du-sub">
+                                Every version is kept. Switching back does not delete anything &mdash;
+                                it just changes which one the system reads.
+                            </p>
+                            <div id="du-versions"></div>
+                        </section>
+
+                        <!-- Deliberately outside the tab panels: a version switch is started
+                             from History, but its result has to stay readable from either tab. -->
+                        <div class="du-msg" id="du-message" hidden></div>
+                    </div>
+                </div>
+            </div>
+
             <section id="insightPanel" class="panel">
                 <button class="back-btn" id="backToOverviewBtn">
-                    <img src="/bvetter/vet/images/back.svg" alt="back"> Back to Disease Analytics
+                    <img src="../../vet/images/back.svg" alt="back"> Back to Disease Analytics
                 </button>
                 <div class="insight-layout">
                     <div class="insight-left card">
-                        <h2 id="insightBarangayName">Tangos</h2>
+                        <!-- Left empty on purpose. These held "Tangos" and "0",
+                             a real barangay name and a plausible count, so a
+                             failed load rendered as data rather than as a
+                             failure. Every value here comes from the API. -->
+                        <h2 id="insightBarangayName"></h2>
                         <div class="summary-kpi-grid">
-                            <div class="summary-kpi"><span id="selectedCaseCount">0</span>
+                            <div class="summary-kpi"><span id="selectedCaseCount">—</span>
                                 <p>Cases</p>
                             </div>
-                            <div class="summary-kpi"><span id="selectedAverage">0</span>
+                            <div class="summary-kpi"><span id="selectedAverage">—</span>
                                 <p>Avg</p>
                             </div>
                         </div>
-                        <h4>Barangay Comparison – This Disease vs Average</h4>
+                        <!-- The 3-month forecast lives here rather than on the
+                             right, so the two columns split by KIND: the numbers
+                             for this barangay on the left, the plan of action on
+                             the right. It previously sat above the plan, leaving
+                             this column with five short bars against a column
+                             three times its height. -->
+                        <div id="insightForecast"></div>
+                        <h4>How this barangay compares</h4>
                         <div id="comparisonBars" class="mini-bars"></div>
-                        <h4>Predicted Case Count</h4>
+                        <h4>Expected vs recorded</h4>
                         <div id="predictionBars" class="mini-bars"></div>
                     </div>
                     <div class="insight-right card" id="protocolPanel"></div>
                 </div>
             </section>
 
-            <!-- Map panel -->
             <section id="mapPanel" class="panel">
                 <div class="map-topbar">
                     <button class="back-btn" id="backFromMapBtn">
@@ -192,12 +323,12 @@
                     <div class="map-stage">
                         <div class="map-metrics" id="mapMetricCards"></div>
                         <div id="baliwagMap"></div>
-                        <div class="map-footer-legend">
-                            <span>Disease Intensity</span>
-                            <span class="dot critical"></span>Critical
-                            <span class="dot monitor"></span>Monitor
-                            <span class="dot stable"></span>Stable
-                        </div>
+                        <!-- Built by renderMapLegend(). Was a static list reading
+                             "Disease Intensity / Critical / Monitor / Stable" -- the
+                             heading described the removed heat layer, and the three
+                             words were the old vocabulary the rest of the page no
+                             longer uses. -->
+                        <div class="map-footer-legend" id="mapLegend"></div>
                     </div>
                     <aside class="map-side" id="mapSidePanel">
                         <div class="map-side-header">
@@ -212,12 +343,15 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
-    <script src="/bvetter/shared/js/auth.js"></script>
-    <!-- <script>VBetterAuth.requireAuth(['vet']);</script> -->
-    <script src="/bvetter/shared/js/sidebar.js"></script>
-    <script src="/bvetter/vet/js/vet-api.js?v=20260614-2"></script>
-    <script src="/bvetter/vet/js/disease-analytics.js?v=20260711-7"></script>
+    <!-- leaflet.heat removed: the map uses proportional symbols now, not a
+         kernel density layer. One less CDN dependency, and one less script
+         that has to be allowed through the CSP. -->
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../vet/js/vet-api.js?v=20260819-idor"></script>
+    <script src="../../vet/js/dataset-upload.js?v=20260926-merged"></script>
+    <script src="../../vet/js/disease-analytics.js?v=20261006-rf"></script>
 
 </body>
 

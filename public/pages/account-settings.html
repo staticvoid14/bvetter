@@ -1,29 +1,22 @@
-<!DOCTYPE html>
-<!--
-  Page:    account-settings.html
-  Feature: Profile editing, password, 2FA, deactivation
-  CSS:     variables.css → components.css → account-settings.css
-  JS:      nav.js → api.js → account-settings.js
-
-  TODO backend:
-  - Load profile: api.getProfile() on page load
-  - Save profile: api.updateProfile(data)
-  - Change password: api.changePassword(data)
-  - Toggle 2FA: PATCH /api/user/2fa
--->
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>BVETTER - Account Settings</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+  <title>BVetter - Account Settings</title>
+  <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <!-- 1. Design tokens (ALWAYS first) -->
   <link rel="stylesheet" href="../css/variables.css"/>
-  <!-- 2. Shared components -->
   <link rel="stylesheet" href="../css/components.css"/>
-  <link rel="stylesheet" href="../css/account-settings.css"/>
+  <link rel="stylesheet" href="../css/account-settings.css?v=20260919-confirm"/>
 </head>
 <body>
 
@@ -35,70 +28,17 @@
       <li><a href="landing.html">Home</a></li>
       <li><a href="book-appointment.html">Book An Appointment</a></li>
       <li><a href="lost-found.html">Lost And Found</a></li>
+      <li><a href="my-pets.html">My Pets</a></li>
     </ul>
   </div>
   <div class="nav-right nav-right-auth">
-    <div class="nav-notif-wrap">
-      <button type="button" class="nav-notif-btn" onclick="toggleNotifPanel()">
-        <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
-        <span class="nav-notif-dot"></span>
-      </button>
-      <!-- TODO backend: replace static items with api.getNotifications(); wire markAllNotifsRead() to api.markAllRead() -->
-      <div class="notif-panel" id="notifPanel">
-        <div class="notif-panel-head">
-          <span class="notif-panel-title">Notifications</span>
-          <div class="notif-panel-actions">
-            <button type="button" class="notif-mark-read" onclick="markAllNotifsRead()">Mark all as read</button>
-            <button type="button" class="notif-clear-all" onclick="clearAllNotifs()">Clear all</button>
-          </div>
-        </div>
-        <div class="notif-panel-list">
-          <div class="notif-panel-item unread">
-            <a href="lost-found.html" class="notif-item-link">
-              <div class="notif-item-icon-wrap green">
-                <img src="../images/icons/notif-report-found.svg" alt="" class="notif-item-icon"/>
-              </div>
-              <div class="notif-item-body">
-                <div class="notif-item-title">Lost Pet Found Near Sector 4</div>
-                <div class="notif-item-desc">A Border Collie matching your watch profile was found.</div>
-                <div class="notif-item-time">2 hours ago</div>
-              </div>
-            </a>
-            <button type="button" class="notif-item-delete" aria-label="Dismiss notification" onclick="dismissNotif(event, this)">&times;</button>
-          </div>
-          <div class="notif-panel-item unread">
-            <a href="book-appointment.html" class="notif-item-link">
-              <div class="notif-item-icon-wrap blue">
-                <img src="../images/icons/notif-appointment-confirmed.svg" alt="" class="notif-item-icon"/>
-              </div>
-              <div class="notif-item-body">
-                <div class="notif-item-title">Appointment Confirmed</div>
-                <div class="notif-item-desc">Dr. Aris will see 'Max' tomorrow at 10:30 AM.</div>
-                <div class="notif-item-time">Yesterday</div>
-              </div>
-            </a>
-            <button type="button" class="notif-item-delete" aria-label="Dismiss notification" onclick="dismissNotif(event, this)">&times;</button>
-          </div>
-          <div class="notif-panel-item">
-            <a href="my-claims.html" class="notif-item-link">
-              <div class="notif-item-icon-wrap blue">
-                <img src="../images/icons/notif-updates.svg" alt="" class="notif-item-icon"/>
-              </div>
-              <div class="notif-item-body">
-                <div class="notif-item-title">Claim Approved</div>
-                <div class="notif-item-desc">Your insurance claim #CL-2091 has been processed.</div>
-                <div class="notif-item-time">2 days ago</div>
-              </div>
-            </a>
-            <button type="button" class="notif-item-delete" aria-label="Dismiss notification" onclick="dismissNotif(event, this)">&times;</button>
-          </div>
-        </div>
-        <a href="notification-settings.html" class="notif-panel-footer">View All Notifications</a>
-      </div>
-    </div>
+    <button class="nav-notif-btn" id="notification-icon-btn">
+      <img src="../images/icons/icon-bell.svg" alt="Notifications" class="nav-notif-icon"/>
+      <span class="nav-notif-dot" hidden></span>
+    </button>
     <div class="nav-user-pill" onclick="toggleUserMenu()">
       <div class="nav-user-info">
-        <span class="nav-user-name">Mark Depa</span>
+        <span class="nav-user-name"></span>
         <span class="nav-user-role">Pet Owner</span>
       </div>
       <img src="../images/img/account-avatar.png" alt="User" class="nav-user-avatar"/>
@@ -112,6 +52,9 @@
       </a>
       <a href="notification-settings.html" class="dropdown-item">
         <img src="../images/icons/account-notifications.svg" alt="" class="dropdown-icon"/> Notifications
+      </a>
+      <a href="my-tickets.html" class="dropdown-item">
+        <img src="../images/icons/icon-warning.svg" alt="Report a problem" class="dropdown-icon"/> Report a Problem
       </a>
       <div class="dropdown-divider"></div>
       <a href="#" class="dropdown-item dropdown-logout" onclick="logout()">
@@ -127,7 +70,6 @@
     <h1 class="page-title">Account Settings</h1>
     <p class="page-sub">Manage your clinical profile, security preferences, and pet ownership details.</p>
 
-    <!-- Profile Information -->
     <div class="settings-card profile-card">
       <div class="profile-banner">
         <div class="profile-card-header">
@@ -182,7 +124,6 @@
       </div>
     </div>
 
-    <!-- Security Cards -->
     <div class="security-row">
       <div class="settings-card security-card">
         <div class="sec-icon-wrap lock-bg">
@@ -192,7 +133,7 @@
         <div class="sec-desc">It's a good idea to use a strong password that you don't use elsewhere.</div>
         <button class="btn-sec" id="btnUpdatePw">
           Update Security Credentials
-          <img src="../images/icons/icon-arrow-right.png" alt="" class="btn-arrow"/>
+          <img src="../images/icons/icon-right-arrow.svg" alt="" class="btn-arrow"/>
         </button>
       </div>
 
@@ -201,13 +142,13 @@
           <div class="sec-icon-wrap shield-bg">
             <img src="../images/icons/settings-2fa.svg" alt="" class="sec-icon"/>
           </div>
-          <span class="twofa-badge enabled" id="twofaBadge">ENABLED</span>
+          <span class="twofa-badge disabled" id="twofaBadge">DISABLED</span>
         </div>
         <div class="sec-title">Two-Factor Auth</div>
         <div class="sec-desc">Add an extra layer of security to your clinical records and billing data.</div>
         <button class="btn-sec twofa-sec" id="btnManage2FA">
           Manage Authentication
-          <img src="../images/icons/icon-fingerprint.svg" alt="" class="btn-arrow"/>
+          <img src="../images/icons/settings-2fa.svg" alt="" class="btn-arrow"/>
         </button>
       </div>
     </div>
@@ -215,14 +156,13 @@
     <div class="danger-row">
       <button class="btn-deactivate" id="btnDeactivate">
         Deactivate My Account
-        <img src="../images/icons/icon-warning.svg" alt="" class="danger-icon"/>
+        <img src="../images/icons/icon-close.svg" alt="" class="danger-icon"/>
       </button>
     </div>
 
   </div>
 </main>
 
-<!-- Password Modal -->
 <div class="modal-overlay" id="pwModal">
   <div class="modal-box">
     <div class="modal-head">
@@ -243,12 +183,15 @@
         <div class="pw-wrap"><input type="password" class="form-input" placeholder="••••••••" id="inputNewPw"/>
           <button class="pw-eye" data-target="inputNewPw"><img src="../images/icons/icon-eye.svg" alt="" class="eye-icon"/></button>
         </div>
+        <small style="font-size:11.5px;color:#8A94A6;" data-pw-policy-hint>At least 12 characters, with an uppercase letter, a lowercase letter, a number and a special character.</small>
+        <div data-pw-strength="inputNewPw"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Confirm New Password</label>
         <div class="pw-wrap"><input type="password" class="form-input" placeholder="••••••••" id="inputConfirmPw"/>
           <button class="pw-eye" data-target="inputConfirmPw"><img src="../images/icons/icon-eye.svg" alt="" class="eye-icon"/></button>
         </div>
+        <div data-pw-match="inputNewPw" data-pw-confirm="inputConfirmPw"></div>
       </div>
     </div>
     <div class="modal-footer-row">
@@ -258,30 +201,35 @@
   </div>
 </div>
 
-<!-- Deactivate Modal -->
 <div class="modal-overlay" id="deactivateModal">
   <div class="modal-box narrow">
     <div class="modal-icon-wrap danger-wrap">
-      <img src="../images/icons/icon-warning.svg" alt="" class="modal-icon-lg"/>
+      <img src="../images/icons/icon-close.svg" alt="" class="modal-icon-lg"/>
     </div>
     <div class="modal-title center">Deactivate Account?</div>
-    <div class="modal-desc center">This will suspend access to all services. Your data will be retained for 30 days before permanent deletion.</div>
+    <div class="modal-desc center">You will be signed out on every device and will not be able to sign in again. Your records are kept, not deleted &mdash; the Baliwag City Veterinary Office can reopen your account if you change your mind. To have your personal data deleted instead, contact the office using the details in our <a href="privacy-policy.html">Privacy Policy</a>.</div>
+    <label class="deact-confirm-label" for="deactivateConfirmInput">To confirm, type <strong>DEACTIVATE</strong></label>
+    <input type="text" id="deactivateConfirmInput" class="form-input deact-confirm-input"
+           autocomplete="off" autocapitalize="characters" spellcheck="false"
+           placeholder="DEACTIVATE" aria-describedby="deactivateConfirmHint"/>
+    <span class="deact-confirm-hint" id="deactivateConfirmHint">The button below stays locked until this matches.</span>
     <div class="modal-footer-row centered">
       <button class="btn-modal-cancel" id="btnCancelDeactivate">Cancel</button>
-      <button class="btn-modal-danger">Yes, Deactivate</button>
+      <button class="btn-modal-danger" id="btnConfirmDeactivate" disabled>Yes, Deactivate</button>
     </div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
-  <!-- ══ SCRIPTS — auth.js MUST be first ══ -->
-  <script src="../../shared/js/auth.js"></script>
+  <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
   <script>
     /* Route guard — redirects wrong role to their home */
-    guardPage([ROLES.PET_OWNER]);
+    requireAuth(['owner']);
   </script>
-  <script src="../js/nav.js"></script>
-  <script src="../js/api.js"></script>
-  <script src="../js/account-settings.js"></script>
+  <script src="../js/nav.js?v=20260829-preview"></script>
+  <script src="../js/api.js?v=20260819-authfix"></script>
+  <script src="../js/password-policy.js?v=20260928-wording"></script>
+  <script src="../js/account-settings.js?v=20260925-feedback"></script>
+  <script src="../js/site-settings.js?v=20260829-preview"></script>
 </body>
 </html>

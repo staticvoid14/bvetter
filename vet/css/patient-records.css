@@ -1,5 +1,5 @@
 /* ======================================= */
-/* VBETTER — PATIENT RECORDS CSS           */
+/* BVetter — PATIENT RECORDS CSS           */
 /* Design tokens aligned with vet/index.css */
 /* ======================================= */
 
@@ -328,6 +328,49 @@ body {
     padding: 0;
 }
 
+/* ── Coverage declaration ────────────────────────────────────────
+   Declaring entry complete through a month is what lets the analytics
+   pipeline read an empty barangay-month as a real zero instead of
+   un-encoded data, and what allows those months to train the risk model. */
+.coverage-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 18px;
+    margin-top: 14px;
+    padding: 14px 18px;
+    background: var(--bg-white);
+    border: 1px solid #E8EEF6;
+    border-left: 3px solid #94A3B8;
+    border-radius: var(--radius-md);
+}
+
+.coverage-bar.is-declared  { border-left-color: #16A34A; }
+.coverage-bar.is-undeclared { border-left-color: #F59E0B; }
+
+.coverage-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748B;
+}
+
+.coverage-status {
+    margin-top: 3px;
+    font-size: 13px;
+    color: #334155;
+}
+
+.coverage-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.coverage-controls .form-input { min-width: 170px; }
+
 .metric-card {
     background: var(--bg-white);
     padding: 16px 18px;
@@ -603,6 +646,35 @@ body {
     border-top: none;
 }
 
+.bulk-action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding: 10px 16px;
+    background: #FEF3F2;
+    border: 1px solid #FECDCA;
+    border-radius: var(--radius-sm);
+}
+
+.bulk-action-count {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #B42318;
+}
+
+.bulk-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* The shared ICONS.* svgs carry no width/height, so without this they render
+   at the 300x150 default and the button swallows its neighbour. */
+.bulk-action-buttons .btn svg { width: 14px; height: 14px; }
+
 /* ======================================= */
 /* TABLE                                   */
 /* ======================================= */
@@ -645,14 +717,19 @@ body {
 .records-table tbody tr { transition: background 0.12s; }
 .records-table tbody tr:hover td { background: #F8FAFF; cursor: pointer; }
 
-/* Column widths */
-.records-table th:nth-child(1), .records-table td:nth-child(1) { width: 22%; }
-.records-table th:nth-child(2), .records-table td:nth-child(2) { width: 17%; }
-.records-table th:nth-child(3), .records-table td:nth-child(3) { width: 13%; }
-.records-table th:nth-child(4), .records-table td:nth-child(4) { width: 15%; }
-.records-table th:nth-child(5), .records-table td:nth-child(5) { width: 12%; }
-.records-table th:nth-child(6), .records-table td:nth-child(6) { width: 9%; }
-.records-table th:nth-child(7), .records-table td:nth-child(7) { width: 12%; }
+/* Column widths -- nth-child(1) is the select checkbox added for bulk
+   delete, so every other column shifted one slot to the right. */
+.records-table th:nth-child(1), .records-table td:nth-child(1) { width: 36px; }
+.records-table th:nth-child(2), .records-table td:nth-child(2) { width: 22%; }
+.records-table th:nth-child(3), .records-table td:nth-child(3) { width: 17%; }
+.records-table th:nth-child(4), .records-table td:nth-child(4) { width: 13%; }
+.records-table th:nth-child(5), .records-table td:nth-child(5) { width: 15%; }
+.records-table th:nth-child(6), .records-table td:nth-child(6) { width: 12%; }
+.records-table th:nth-child(7), .records-table td:nth-child(7) { width: 9%; }
+.records-table th:nth-child(8), .records-table td:nth-child(8) { width: 12%; }
+
+.th-select, .td-select { padding-left: 16px; padding-right: 4px; }
+.row-select-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent-red, #D92D20); }
 
 /* ======================================= */
 /* TABLE CELLS                             */
@@ -1194,8 +1271,11 @@ body {
     letter-spacing: 0;
 }
 
-.kpi-status-ok    { color: #059669; }
-.kpi-status-alert { color: #DC2626; }
+.kpi-status-ok     { color: #059669; }
+.kpi-status-warn   { color: #B45309; }
+.kpi-status-danger { color: #B91C1C; }
+.kpi-status-neutral { color: #475569; }
+.kpi-status-alert  { color: #DC2626; }
 
 .kpi-tile-sub {
     font-size: 11px;
@@ -1834,6 +1914,14 @@ body {
 
 .field { display: flex; flex-direction: column; gap: 5px; }
 
+.field-row { display: flex; gap: 8px; }
+.field-row .form-input { flex: 1 1 auto; min-width: 0; }
+.field-row select.form-input { flex: 0 0 108px; }
+
+.field-inline-row { display: flex; gap: 8px; align-items: stretch; }
+.field-inline-row .form-input { flex: 1 1 auto; min-width: 0; }
+.field-inline-row .btn-add-type { flex: 0 0 auto; padding: 0 14px; white-space: nowrap; }
+
 .field-label, .field label {
     font-size: 10px;
     font-weight: 800;
@@ -1879,6 +1967,50 @@ body {
 .form-textarea { min-height: 100px; resize: vertical; }
 
 .span-2 { grid-column: span 2; }
+
+.pet-entry {
+    border: 1.5px dashed #E2E8F0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.pet-entry + .pet-entry { margin-top: 0; }
+
+.pet-entry-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.pet-entry-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #002A58;
+    font-family: 'Manrope', sans-serif;
+}
+
+.pet-entry-remove {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    color: #DC2626;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Manrope', sans-serif;
+    cursor: pointer;
+    padding: 4px 6px;
+}
+
+.pet-entry-remove:hover { text-decoration: underline; }
+.pet-entry-remove svg { width: 13px; height: 13px; }
+
+.btn-add-pet { margin-top: 4px; }
 
 .form-footer, .modal-footer {
     display: flex;
@@ -2044,6 +2176,28 @@ body {
 
 .delete-confirm-field {
     width: 100%;
+}
+
+.delete-modal-icon.icon-add {
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+    color: #059669;
+}
+
+.field-error {
+    display: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #EF4444;
+    margin-top: 5px;
+}
+
+.field-error.visible {
+    display: block;
+}
+
+.form-input.invalid {
+    border-color: #EF4444 !important;
 }
 
 .delete-confirm-label {
@@ -2432,6 +2586,10 @@ body {
     gap: 5px;
 }
 
+.em-field-row { display: flex; gap: 8px; }
+.em-field-row .em-input { flex: 1 1 auto; min-width: 0; }
+.em-field-row select.em-input { flex: 0 0 108px; }
+
 .em-span-2 { grid-column: span 2; }
 
 .em-label {
@@ -2494,6 +2652,10 @@ body {
     align-items: center;
     gap: 10px;
 }
+
+/* See .bulk-action-buttons -- unsized ICONS.* svgs need an explicit box. */
+.em-footer-right .btn svg { width: 14px; height: 14px; }
+.em-header-icon svg { width: 18px; height: 18px; }
 
 .em-delete-btn {
     display: inline-flex;
@@ -2639,6 +2801,102 @@ body {
     margin: 1px 0 0;
     overflow-wrap: break-word;
 }
+
+/* --- Other Pets of this owner (inside the Ownership Information card) --- */
+
+.pi-owner-pets {
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px solid #F1F5F9;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pi-owner-pets-empty {
+    font-size: 12px;
+    color: #94A3B8;
+    margin: 0;
+}
+
+.pi-owner-pets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* An owner with many pets would otherwise push the Add Pet button below
+       the fold and stretch the card past its neighbour. */
+    max-height: 232px;
+    overflow-y: auto;
+}
+
+.pi-owner-pet-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #F8FAFC;
+    border: 1px solid #E8EEF6;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.pi-owner-pet-chip:hover {
+    background: #EFF6FF;
+    border-color: #BFDBFE;
+}
+
+.pi-owner-pet-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #002A58;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.pi-owner-pet-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pi-owner-pet-text strong {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #0F172A;
+}
+
+.pi-owner-pet-text span {
+    font-size: 11px;
+    color: #94A3B8;
+}
+
+.pi-owner-pet-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #002A58;
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.pi-owner-pet-add:hover { background: #E0EDFF; }
+.pi-owner-pet-add svg { width: 13px; height: 13px; }
 
 /* --- Latest Visit card --- */
 
@@ -2852,4 +3110,101 @@ body {
     .lv-col-border { border-left: none; border-top: 1px solid #F1F5F9; }
     .pi-row { grid-template-columns: 1fr; }
     .pi-field-full { grid-column: span 1; }
+}
+/* Helper text under the visit-date field, explaining the uploaded-dataset
+   boundary. Quieter than .field-error: this is guidance shown before the vet
+   types, not a failure after they did. */
+.field-hint {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #667a94;
+    line-height: 1.45;
+    margin-top: 5px;
+}
+
+/* ── Differential diagnosis suggestion ──────────────────────────────
+   Deliberately quieter than the fields around it: this is an aid beside
+   the DIAGNOSIS control, not a peer of it. If it looked like a form field
+   a vet could reasonably read the suggestion as the recorded value. */
+.dx-block {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+
+.dx-optional {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #94a3b8;
+    text-transform: none;
+}
+
+.dx-lede {
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #667a94;
+}
+
+.dx-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.dx-result { margin-top: 12px; }
+
+.dx-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dx-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dx-pick {
+    flex: 1;
+    text-align: left;
+    appearance: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #12263f;
+    background: #fff;
+    border: 1px solid #dbe3ec;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.dx-pick:hover { background: #eef4fb; border-color: #002A58; }
+.dx-pick.is-chosen { background: #dcfce7; border-color: #15803d; color: #15803d; }
+
+.dx-prob {
+    font-size: 12px;
+    font-weight: 700;
+    color: #667a94;
+    min-width: 38px;
+    text-align: right;
+}
+
+.dx-note, .dx-muted {
+    margin: 10px 0 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #667a94;
+}
+
+@media (max-width: 640px) {
+    .dx-controls { grid-template-columns: minmax(0, 1fr); }
 }

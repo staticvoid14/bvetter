@@ -11,8 +11,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/../config/email_verification.php';
+require_once __DIR__ . '/../config/login_security.php';
+require_once __DIR__ . '/../config/auth_guard.php';
+require_once __DIR__ . '/../config/security_settings.php';
+require_once __DIR__ . '/../config/veterinarian_profile.php';
+require_once __DIR__ . '/../config/input_validation.php';
+require_once __DIR__ . '/../config/walk_in_accounts.php';
+require_once __DIR__ . '/../includes/timed_rules.php';
+
+requireRole($pdo, ['admin']);
+ensureLoginSecuritySchema($pdo);
+
+// listUsers() selects users.is_walk_in, so the column has to exist before any
+// action runs -- not just before the linking ones. Placed here, above every
+// beginTransaction() in this file, because it can run DDL.
+ensureWalkInSchema($pdo);
 
 function respond($statusCode, $payload)
 {
@@ -36,13 +51,19 @@ function roleLabel($roleName)
     return ucfirst($roleName);
 }
 
+/**
+ * Roles an admin may create from Add Account. Administrator is not one of
+ * them: a new administrator takes over an existing admin account through
+ * Hand Over Account on its profile (api/admin/handover.php), so the account
+ * -- and the record of who held it when -- carries on instead of multiplying.
+ */
 function listRoles($pdo)
 {
     $stmt = $pdo->query("
         SELECT id, name, description
         FROM roles
-        WHERE name IN ('veterinarian', 'admin')
-        ORDER BY FIELD(name, 'veterinarian', 'admin'), name
+        WHERE name = 'veterinarian'
+        ORDER BY name
     ");
 
     $roles = array_map(function ($row) {
@@ -71,12 +92,21 @@ function listUsers($pdo)
             users.phone_number,
             users.profile_photo,
             users.account_status,
+            users.blocked_reason,
+            users.is_walk_in,
             users.created_at,
+            users.last_login_at,
             roles.name AS role_name,
             owner_profiles.verification_status,
+            owner_profiles.verified_at,
             barangays.name AS barangay_name,
             documents.file_path AS proof_path,
-            documents.original_name AS proof_name
+            documents.original_name AS proof_name,
+            documents.reviewed_at AS proof_reviewed_at,
+            ' . (ensureTimedRulesSchema($pdo) ? 'documents.review_overdue_at' : 'NULL') . ' AS review_overdue_at,
+            documents.review_notes AS proof_review_notes,
+            reviewer.full_name AS proof_reviewer_name,
+            (SELECT COUNT(*) FROM pets WHERE pets.owner_id = users.id) AS pet_count
         FROM users
         INNER JOIN roles ON roles.id = users.role_id
         LEFT JOIN owner_profiles ON owner_profiles.user_id = users.id
@@ -90,6 +120,7 @@ function listUsers($pdo)
                 GROUP BY user_id
             ) d2 ON d2.latest_id = d1.id
         ) documents ON documents.user_id = users.id
+        LEFT JOIN users reviewer ON reviewer.id = documents.reviewed_by_user_id
         ORDER BY users.created_at DESC
     ';
 
@@ -116,11 +147,30 @@ function listUsers($pdo)
             'roleLabel' => roleLabel($row['role_name']),
             'status' => $status,
             'accountStatus' => $row['account_status'],
+            'blockedReason' => $row['blocked_reason'],
             'verificationStatus' => $row['verification_status'],
+            // Walk-ins are people a vet entered at the counter, not app
+            // members: they have never logged in and their address is usually
+            // a synthetic placeholder. Rendering them identically to a
+            // self-registered owner is what made 44 rows read as 44 users.
+            'isWalkIn' => (bool) $row['is_walk_in'],
+            'emailIsPlaceholder' => str_ends_with((string) $row['email'], '@vbetter.local'),
             'barangay' => $row['barangay_name'],
             'created' => $row['created_at'],
-            'idImage' => $row['proof_path'] ? '/bvetter/' . $row['proof_path'] : '',
+            'idImage' => $row['proof_path'] ? '/' . $row['proof_path'] : '',
             'proofName' => $row['proof_name'],
+            // For the read-only Account Details window: who checked this
+            // person's ID and when, so an admin can answer "who approved
+            // this resident?" without digging through the database.
+            'lastLogin' => $row['last_login_at'],
+            'verifiedAt' => $row['verified_at'],
+            'reviewedAt' => $row['proof_reviewed_at'],
+            'reviewerName' => $row['proof_reviewer_name'],
+            'reviewNotes' => $row['proof_review_notes'],
+            'petCount' => (int) $row['pet_count'],
+            // Applications waiting past 2 working days (timed_rules.php).
+            'overdueSince' => $status === 'pending' && $row['review_overdue_at'] && strtotime($row['review_overdue_at']) <= time()
+                ? $row['review_overdue_at'] : null,
         ];
     }, $rows);
 
@@ -214,8 +264,207 @@ function updateOwnerVerification($pdo, $userId, $decision, $notes)
     ]);
 }
 
+/**
+ * Walk-in rows that might be the same person as a pending registrant.
+ *
+ * Suggestions only. Shown in the verification modal beside the ID document the
+ * admin is already reading, because that document is the actual evidence --
+ * a name and a phone number are not proof of identity, and this list must
+ * never be allowed to decide anything on its own.
+ */
+function walkInCandidates($pdo)
+{
+    ensureWalkInSchema($pdo);
+
+    $userId = (int) (isset($_POST['user_id']) ? $_POST['user_id'] : 0);
+    if ($userId <= 0) {
+        respond(422, ['success' => false, 'message' => 'Invalid user id.']);
+    }
+
+    $stmt = $pdo->prepare('
+        SELECT users.full_name, users.phone_number, users.is_walk_in, roles.name AS role_name
+        FROM users
+        INNER JOIN roles ON roles.id = users.role_id
+        WHERE users.id = :id
+        LIMIT 1
+    ');
+    $stmt->execute([':id' => $userId]);
+    $user = $stmt->fetch();
+
+    if (!$user) {
+        respond(404, ['success' => false, 'message' => 'User not found.']);
+    }
+
+    // A walk-in is never a registrant, so it has nothing to be linked to.
+    if ($user['role_name'] !== 'pet_owner' || (int) $user['is_walk_in'] === 1) {
+        respond(200, ['success' => true, 'data' => []]);
+    }
+
+    respond(200, [
+        'success' => true,
+        'data' => findWalkInCandidates($pdo, $user['full_name'], $user['phone_number'], $userId),
+    ]);
+}
+
+/**
+ * Folds a pending registration into the walk-in row that is the same person.
+ *
+ * The walk-in row SURVIVES and the registration row is destroyed, which is the
+ * opposite of what reads naturally -- but the walk-in row is the one carrying
+ * pets and patient_visit_records, and those are irreplaceable. The registration
+ * row carries an email, a password hash, a profile and one uploaded document,
+ * all of which copy across in a few statements. Moving the small side means
+ * pets.owner_id, patient_visit_records.owner_id and appointments.owner_id are
+ * never rewritten, so the silent-orphan failure the de-identify comment in
+ * deleteUser() describes cannot arise here at all.
+ *
+ * Returns a sentence describing the merge; the caller stamps it onto the
+ * document row through updateOwnerVerification() as the audit trail.
+ */
+function linkWalkInAccount($pdo, $registrantId, $walkInId)
+{
+    // Both of these run DDL, and DDL forces an implicit commit in MySQL, which
+    // would silently end the transaction opened below. They must run BEFORE
+    // beginTransaction(), never inside it -- the same trap deleteUser()
+    // documents further down this file.
+    require_once __DIR__ . '/../includes/patient_tables.php';
+    setupPatientTables($pdo);
+    ensureWalkInSchema($pdo);
+
+    if ($registrantId <= 0 || $walkInId <= 0 || $registrantId === $walkInId) {
+        respond(422, ['success' => false, 'message' => 'Invalid accounts to link.']);
+    }
+
+    $load = $pdo->prepare('
+        SELECT users.id, users.full_name, users.email, users.password_hash,
+               users.phone_number, users.is_walk_in, roles.name AS role_name,
+               owner_profiles.verification_status, owner_profiles.barangay_id,
+               owner_profiles.is_outside_baliwag, owner_profiles.complete_address
+        FROM users
+        INNER JOIN roles ON roles.id = users.role_id
+        LEFT JOIN owner_profiles ON owner_profiles.user_id = users.id
+        WHERE users.id = :id
+        LIMIT 1
+    ');
+
+    $load->execute([':id' => $registrantId]);
+    $registrant = $load->fetch();
+    $load->execute([':id' => $walkInId]);
+    $walkIn = $load->fetch();
+
+    if (!$registrant || !$walkIn) {
+        respond(404, ['success' => false, 'message' => 'One of these accounts no longer exists.']);
+    }
+
+    if ($registrant['role_name'] !== 'pet_owner' || $walkIn['role_name'] !== 'pet_owner') {
+        respond(422, ['success' => false, 'message' => 'Only pet owner accounts can be linked.']);
+    }
+
+    if ((int) $walkIn['is_walk_in'] !== 1) {
+        respond(422, ['success' => false, 'message' => 'That account is not a clinic walk-in record.']);
+    }
+
+    if ((int) $registrant['is_walk_in'] === 1) {
+        respond(422, ['success' => false, 'message' => 'A walk-in record cannot be linked into another one.']);
+    }
+
+    // Only a fresh, still-pending registration may be absorbed. An account that
+    // has already been approved has been logged into and used, and may own pets
+    // and appointments of its own -- destroying it here would take those with
+    // it. Refusing is the safe answer, and nothing in this flow needs it.
+    if ($registrant['verification_status'] !== 'pending') {
+        respond(422, [
+            'success' => false,
+            'message' => 'Only a pending registration can be linked to a walk-in record.'
+        ]);
+    }
+
+    // Belt and braces on the guard above. pets and appointments are NO ACTION
+    // rather than CASCADE, so if either somehow exists the DELETE below fails
+    // on the constraint anyway -- far better to say why than to throw 23000.
+    $petCount = $pdo->prepare('SELECT COUNT(*) FROM pets WHERE owner_id = :id');
+    $petCount->execute([':id' => $registrantId]);
+    $apptCount = $pdo->prepare('SELECT COUNT(*) FROM appointments WHERE owner_id = :id');
+    $apptCount->execute([':id' => $registrantId]);
+
+    if ((int) $petCount->fetchColumn() > 0 || (int) $apptCount->fetchColumn() > 0) {
+        respond(422, [
+            'success' => false,
+            'message' => 'This registration already has pets or appointments of its own and cannot be merged.'
+        ]);
+    }
+
+    $pdo->beginTransaction();
+
+    // 1. Move the ID document onto the surviving row and record which
+    //    registration was absorbed. This is the audit trail: the admin, the
+    //    timestamp, the decision and the document that justified it all land on
+    //    one row rather than two joined by a timestamp.
+    $pdo->prepare('
+        UPDATE user_verification_documents
+        SET user_id = :walk_in_id,
+            merged_from_user_id = :registrant_id
+        WHERE user_id = :from_id
+    ')->execute([
+        ':walk_in_id' => $walkInId,
+        ':registrant_id' => $registrantId,
+        ':from_id' => $registrantId,
+    ]);
+
+    // 2. Fold the registration's self-declared address into the survivor. The
+    //    owner picked their own barangay on a form; the vet picked one at the
+    //    counter. The owner is the better authority on where they live.
+    $pdo->prepare('
+        UPDATE owner_profiles
+        SET barangay_id = :barangay_id,
+            is_outside_baliwag = :is_outside,
+            complete_address = :address
+        WHERE user_id = :walk_in_id
+    ')->execute([
+        ':barangay_id' => $registrant['barangay_id'],
+        ':is_outside' => (int) $registrant['is_outside_baliwag'],
+        ':address' => $registrant['complete_address'],
+        ':walk_in_id' => $walkInId,
+    ]);
+
+    // 3. Destroy the registration row BEFORE copying its address across:
+    //    users.email is UNIQUE and this row still holds the address that is
+    //    about to move. notifications cascade; owner_profiles does not.
+    $pdo->prepare('DELETE FROM owner_profiles WHERE user_id = :id')->execute([':id' => $registrantId]);
+    $pdo->prepare('DELETE FROM users WHERE id = :id')->execute([':id' => $registrantId]);
+
+    // 4. Credentials last, so the owner signs in with exactly the address and
+    //    password they just chose. full_name is deliberately NOT overwritten:
+    //    it is the name the clinic's own patient records are filed under, and
+    //    rewriting it here would quietly change how the vet finds this patient.
+    $pdo->prepare("
+        UPDATE users
+        SET email = :email,
+            password_hash = :password_hash,
+            phone_number = COALESCE(NULLIF(:phone_number, ''), phone_number),
+            is_walk_in = 0
+        WHERE id = :id
+    ")->execute([
+        ':email' => $registrant['email'],
+        ':password_hash' => $registrant['password_hash'],
+        ':phone_number' => (string) $registrant['phone_number'],
+        ':id' => $walkInId,
+    ]);
+
+    $pdo->commit();
+
+    return sprintf(
+        'Linked to clinic walk-in record #%d (%s). Absorbed registration #%d (%s).',
+        $walkInId,
+        (string) $walkIn['full_name'],
+        $registrantId,
+        (string) $registrant['email']
+    );
+}
+
 function createUser($pdo)
 {
+    // P$_post  is fetching thed ata from the JS
     $fullName = trim(isset($_POST['full_name']) ? $_POST['full_name'] : '');
     $email = trim(isset($_POST['email']) ? $_POST['email'] : '');
     $password = isset($_POST['password']) ? $_POST['password'] : '';
@@ -237,10 +486,20 @@ function createUser($pdo)
         ]);
     }
 
-    if (strlen($password) < 8) {
+    $fieldError = firstIdentityFieldError([
+        [$fullName,    'Full name', 150, 2],
+        [$email,       'Email address', 190, 5],
+        [$phoneNumber, 'Phone number', 30, 0],
+    ]);
+    if ($fieldError !== null) {
+        respond(422, ['success' => false, 'message' => $fieldError]);
+    }
+
+    $policyError = passwordPolicyError($pdo, $password, ['name' => $fullName, 'email' => $email]);
+    if ($policyError !== null) {
         respond(422, [
             'success' => false,
-            'message' => 'Password must be at least 8 characters.'
+            'message' => $policyError
         ]);
     }
 
@@ -248,11 +507,19 @@ function createUser($pdo)
         $accountStatus = 'active';
     }
 
-    $roleQuery = $pdo->prepare("SELECT id, name FROM roles WHERE id = :id AND name IN ('veterinarian', 'admin') LIMIT 1");
+    $roleQuery = $pdo->prepare("SELECT id, name FROM roles WHERE id = :id LIMIT 1");
     $roleQuery->execute([':id' => $roleId]);
     $role = $roleQuery->fetch();
 
-    if (!$role) {
+    // Enforced here, not only by leaving the option out of the form.
+    if ($role && $role['name'] === 'admin') {
+        respond(422, [
+            'success' => false,
+            'message' => 'Administrator accounts are not created here. A new administrator takes over an existing admin account through Hand Over Account on its profile page.'
+        ]);
+    }
+
+    if (!$role || $role['name'] !== 'veterinarian') {
         respond(422, [
             'success' => false,
             'message' => 'Selected role is invalid for admin-created accounts.'
@@ -302,10 +569,11 @@ function createUser($pdo)
             ]);
         }
 
-        $profilePhoto = '/bvetter/storage/profile/' . $fileName;
+        $profilePhoto = '/storage/profile/' . $fileName;
     }
 
     ensureEmailVerificationSchema($pdo);
+    ensureVeterinarianBookableColumn($pdo);
 
     $pdo->beginTransaction();
 
@@ -327,49 +595,87 @@ function createUser($pdo)
     $userId = (int) $pdo->lastInsertId();
 
     if ($role['name'] === 'veterinarian') {
-        $licenseNumber = trim(isset($_POST['license_number']) ? $_POST['license_number'] : '');
         $education = trim(isset($_POST['education']) ? $_POST['education'] : '');
         $specialization = trim(isset($_POST['specialization']) ? $_POST['specialization'] : '');
         $clinicLocation = trim(isset($_POST['clinic_location']) ? $_POST['clinic_location'] : '');
         $positionTitle = trim(isset($_POST['position_title']) ? $_POST['position_title'] : 'Veterinarian');
+        // Checkboxes are absent from POST entirely when unchecked, so absence means false.
+        $isBookable = isset($_POST['is_bookable']) && $_POST['is_bookable'] === '1';
 
-        if ($licenseNumber === '' || $education === '' || $specialization === '' || $clinicLocation === '') {
+        if ($education === '' || $specialization === '' || $clinicLocation === '') {
             $pdo->rollBack();
             respond(422, [
                 'success' => false,
-                'message' => 'License number, education, specialization, and clinic location are required for veterinarians.'
+                'message' => 'Education, specialization, and clinic location are required for veterinarians.'
             ]);
         }
 
         $insertVet = $pdo->prepare('
             INSERT INTO veterinarian_profiles
-                (user_id, license_number, position_title, education, specialization, clinic_location, employment_status)
+                (user_id, position_title, education, specialization, clinic_location, employment_status, is_bookable)
             VALUES
-                (:user_id, :license_number, :position_title, :education, :specialization, :clinic_location, :employment_status)
+                (:user_id, :position_title, :education, :specialization, :clinic_location, :employment_status, :is_bookable)
         ');
 
         $insertVet->execute([
             ':user_id' => $userId,
-            ':license_number' => $licenseNumber,
             ':position_title' => $positionTitle,
             ':education' => $education,
             ':specialization' => $specialization,
             ':clinic_location' => $clinicLocation,
             ':employment_status' => $accountStatus === 'active' ? 'active' : 'inactive',
+            ':is_bookable' => $isBookable ? 1 : 0,
         ]);
     }
 
     $pdo->commit();
 
-    $emailSent = sendEmailVerificationLink($pdo, $userId, $email, $fullName);
+    // Email verification is only enforced for admin accounts at login (see
+    // api/auth/login.php) — veterinarian accounts can log in right away, so
+    // there's no need to send or wait on a verification link for them.
+    if ($role['name'] === 'admin') {
+        $emailSent = sendEmailVerificationLink($pdo, $userId, $email, $fullName);
+
+        respond(201, [
+            'success' => true,
+            'message' => $emailSent
+                ? 'Account created successfully. A verification link was sent to ' . $email . '.'
+                : 'Account created successfully, but the verification email could not be sent. Please ask the user to use "Forgot password" once you resend it.',
+            'user_id' => $userId
+        ]);
+    }
 
     respond(201, [
         'success' => true,
-        'message' => $emailSent
-            ? 'Account created successfully. A verification link was sent to ' . $email . '.'
-            : 'Account created successfully, but the verification email could not be sent. Please ask the user to use "Forgot password" once you resend it.',
+        'message' => 'Account created successfully. They can log in right away with their email and password.',
         'user_id' => $userId
     ]);
+}
+
+/**
+ * The system must always keep one working administrator: with admin
+ * creation removed, blocking or deleting the last one would leave nobody
+ * able to approve residents -- or to undo the block.
+ */
+function assertKeepsAnAdmin($pdo, $userId)
+{
+    $roleQuery = $pdo->prepare('SELECT roles.name FROM users INNER JOIN roles ON roles.id = users.role_id WHERE users.id = :id LIMIT 1');
+    $roleQuery->execute([':id' => $userId]);
+    if ($roleQuery->fetchColumn() !== 'admin') return;
+
+    $others = $pdo->prepare("
+        SELECT COUNT(*) FROM users
+        INNER JOIN roles ON roles.id = users.role_id
+        WHERE roles.name = 'admin' AND users.account_status = 'active' AND users.id <> :id
+    ");
+    $others->execute([':id' => $userId]);
+
+    if ((int) $others->fetchColumn() === 0) {
+        respond(422, [
+            'success' => false,
+            'message' => 'This is the only active administrator account, so it cannot be blocked or deleted. To pass it to someone else, use Hand Over Account on its profile page.'
+        ]);
+    }
 }
 
 function updateAccountStatus($pdo)
@@ -384,17 +690,38 @@ function updateAccountStatus($pdo)
         ]);
     }
 
-    $userQuery = $pdo->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+    $userQuery = $pdo->prepare('SELECT id, account_status, last_login_at FROM users WHERE id = :id LIMIT 1');
     $userQuery->execute([':id' => $userId]);
-    if (!$userQuery->fetch()) {
+    $existing = $userQuery->fetch();
+    if (!$existing) {
         respond(404, [
             'success' => false,
             'message' => 'User not found.'
         ]);
     }
 
-    $updateUser = $pdo->prepare('UPDATE users SET account_status = :status WHERE id = :id');
-    $updateUser->execute([':status' => $status, ':id' => $userId]);
+    if ($status !== 'active') {
+        assertKeepsAnAdmin($pdo, $userId);
+    }
+
+    if ($status === 'active') {
+        // Unblocking also clears the failed-login counter so the user gets a
+        // fresh 3 attempts (see api/config/login_security.php), and clears
+        // blocked_reason since the account is no longer blocked.
+        //
+        // Restoring from 'blocked' additionally resets last_login_at to now —
+        // otherwise a restored account whose last_login_at is still old would
+        // get immediately re-blocked by the very next sweepInactiveAccounts()
+        // sweep or login attempt, silently undoing this restore.
+        $resetLoginClock = $existing['account_status'] === 'blocked' && $existing['last_login_at'] !== null;
+        $sql = 'UPDATE users SET account_status = :status, failed_login_attempts = 0, blocked_reason = NULL'
+             . ($resetLoginClock ? ', last_login_at = NOW()' : '')
+             . ' WHERE id = :id';
+        $pdo->prepare($sql)->execute([':status' => $status, ':id' => $userId]);
+    } else {
+        $pdo->prepare('UPDATE users SET account_status = :status WHERE id = :id')
+            ->execute([':status' => $status, ':id' => $userId]);
+    }
 
     respond(200, [
         'success' => true,
@@ -413,6 +740,8 @@ function deleteUser($pdo)
         ]);
     }
 
+    assertKeepsAnAdmin($pdo, $userId);
+
     $userQuery = $pdo->prepare('SELECT id, full_name FROM users WHERE id = :id LIMIT 1');
     $userQuery->execute([':id' => $userId]);
     $user = $userQuery->fetch();
@@ -424,6 +753,13 @@ function deleteUser($pdo)
         ]);
     }
 
+    // Guarantees patient_visit_records has the de-identification columns and a
+    // nullable pet_id before we rely on them below. Deliberately called BEFORE
+    // beginTransaction(): it runs DDL, and DDL forces an implicit commit in
+    // MySQL, which would silently end the transaction we are about to open.
+    require_once __DIR__ . '/../includes/patient_tables.php';
+    setupPatientTables($pdo);
+
     $pdo->beginTransaction();
 
     $clearReviewedDocs = $pdo->prepare('
@@ -432,6 +768,45 @@ function deleteUser($pdo)
         WHERE reviewed_by_user_id = :user_id
     ');
     $clearReviewedDocs->execute([':user_id' => $userId]);
+
+    $deleteAppointments = $pdo->prepare('
+        DELETE FROM appointments
+        WHERE owner_id = :owner_id
+           OR veterinarian_id = :vet_id
+           OR reviewed_by_user_id = :reviewer_id
+           OR pet_id IN (SELECT id FROM (SELECT id FROM pets WHERE owner_id = :pet_owner_id) AS owned_pets)
+    ');
+    $deleteAppointments->execute([
+        ':owner_id' => $userId,
+        ':vet_id' => $userId,
+        ':reviewer_id' => $userId,
+        ':pet_owner_id' => $userId,
+    ]);
+
+    // De-identify rather than destroy: disease surveillance
+    // (api/reports/reports.php, api/analytics/arima_service.py) needs the
+    // barangay, species and diagnosis of past visits, but none of it needs to
+    // know whose animal it was. Snapshot whatever is still resolvable, then cut
+    // the personal links so the row survives the pet delete below as an
+    // anonymous case instead of a record pointing at rows that no longer exist.
+    //
+    // Previously this step did not exist: DELETE FROM pets left visit records
+    // dangling, and every report's INNER JOIN pets then dropped them silently.
+    $deidentifyVisits = $pdo->prepare('
+        UPDATE patient_visit_records pvr
+        INNER JOIN pets ON pets.id = pvr.pet_id
+        LEFT JOIN owner_profiles op ON op.user_id = pets.owner_id
+        LEFT JOIN barangays b ON b.id = op.barangay_id
+        SET pvr.barangay_at_visit = COALESCE(pvr.barangay_at_visit, CASE WHEN op.is_outside_baliwag = 1 THEN \'Outside Baliwag\' ELSE NULLIF(b.name, \'\') END),
+            pvr.species_at_visit  = COALESCE(pvr.species_at_visit, NULLIF(pets.species, \'\')),
+            pvr.pet_id            = NULL,
+            pvr.owner_id          = NULL
+        WHERE pets.owner_id = :user_id
+    ');
+    $deidentifyVisits->execute([':user_id' => $userId]);
+
+    $deletePets = $pdo->prepare('DELETE FROM pets WHERE owner_id = :user_id');
+    $deletePets->execute([':user_id' => $userId]);
 
     $deleteDocs = $pdo->prepare('DELETE FROM user_verification_documents WHERE user_id = :user_id');
     $deleteDocs->execute([':user_id' => $userId]);
@@ -457,6 +832,8 @@ $action = isset($_POST['action']) ? $_POST['action'] : 'list';
 
 try {
     if ($action === 'list') {
+        sweepInactiveAccounts($pdo);
+        runTimedRules($pdo);
         listUsers($pdo);
     }
 
@@ -472,9 +849,28 @@ try {
         deleteUser($pdo);
     }
 
+    if ($action === 'walkin_candidates') {
+        walkInCandidates($pdo);
+    }
+
     if ($action === 'approve') {
         $userId = (int) (isset($_POST['user_id']) ? $_POST['user_id'] : 0);
-        updateOwnerVerification($pdo, $userId, 'approved', '');
+        $linkId = (int) (isset($_POST['link_user_id']) ? $_POST['link_user_id'] : 0);
+        $notes = trim(isset($_POST['review_notes']) ? $_POST['review_notes'] : '');
+
+        // Linking changes which row survives, so the approval that follows has
+        // to be aimed at the walk-in record -- the registration row no longer
+        // exists by then. linkWalkInAccount() commits before returning, so a
+        // failure in the approval leaves the merge standing; that is benign,
+        // because a walk-in row is already active and approved from the moment
+        // findOrCreateOwner() creates it.
+        if ($linkId > 0) {
+            $mergeNote = linkWalkInAccount($pdo, $userId, $linkId);
+            $notes = $notes === '' ? $mergeNote : $mergeNote . ' ' . $notes;
+            updateOwnerVerification($pdo, $linkId, 'approved', $notes);
+        }
+
+        updateOwnerVerification($pdo, $userId, 'approved', $notes);
     }
 
     if ($action === 'reject') {
@@ -492,6 +888,7 @@ try {
         'message' => 'Unknown action.'
     ]);
 } catch (PDOException $e) {
+    error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
@@ -499,14 +896,12 @@ try {
     if ($e->getCode() === '23000') {
         respond(409, [
             'success' => false,
-            'message' => 'This account cannot be deleted because it is connected to existing records. Set it to inactive or blocked instead.',
-            'error' => $e->getMessage()
+            'message' => 'This account cannot be deleted because it is connected to existing records. Set it to inactive or blocked instead.'
         ]);
     }
 
     respond(500, [
         'success' => false,
-        'message' => 'Account management request failed.',
-        'error' => $e->getMessage()
+        'message' => 'Account management request failed.'
     ]);
 }

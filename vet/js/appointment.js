@@ -1,4 +1,4 @@
-const FALLBACK_APPOINTMENTS = [
+﻿const FALLBACK_APPOINTMENTS = [
 	{ id: 1, datetime: '2026-04-21T09:00:00', patient: 'Luna', owner: 'Eleanor Rigby', service: 'Annual Vaccination', status: 'confirmed', type: 'Follow-up' },
 	{ id: 2, datetime: '2026-04-21T10:45:00', patient: 'Oliver', owner: 'Marcus Sterling', service: 'Dental Cleaning', status: 'pending', type: 'Consultation' },
 	{ id: 3, datetime: '2026-04-21T14:15:00', patient: 'Bella', owner: 'Sarah Connor', service: 'Skin Consultation', status: 'completed', type: 'Treatment' },
@@ -11,7 +11,7 @@ const FALLBACK_APPOINTMENTS = [
 	{ id: 10, datetime: '2026-04-25T16:00:00', patient: 'Rocky', owner: 'Monica Reyes', service: 'Ear Infection Follow-up', status: 'pending', type: 'Follow-up' }
 ];
 
-const VALID_STATUSES = new Set(['pending', 'confirmed', 'completed', 'canceled', 'cancelled', 'rejected']);
+const VALID_STATUSES = new Set(['pending', 'confirmed', 'completed', 'canceled', 'cancelled', 'rejected', 'reschedule_pending', 'expired']);
 const RESCHEDULE_SLOTS = [
 	{ label: 'Morning', value: '08:00', display: '8:00 AM' },
 	{ label: 'Morning', value: '09:00', display: '9:00 AM' },
@@ -23,6 +23,28 @@ const RESCHEDULE_SLOTS = [
 	{ label: 'Afternoon', value: '16:00', display: '4:00 PM' }
 ];
 const RESCHEDULE_WEEK_DAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+// Inline SVG rather than the old eye.png/trash.png, which were 22x15 and
+// 16x19 raster files -- blurry on any HiDPI screen, and two different sizes
+// so the pair never lined up. They also defeated the styling in
+// appointment.css, which targets `.action-buttons button svg`: the size rule
+// and both hover colours silently did nothing against an <img>. Same paths as
+// ICONS in vet/js/patient-records.js, so the two tables now match.
+const ICON_EYE = `
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+		<circle cx="12" cy="12" r="3"></circle>
+	</svg>
+`;
+const ICON_TRASH = `
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<path d="M3 6h18"></path>
+		<path d="M8 6V4h8v2"></path>
+		<path d="M19 6l-1 14H6L5 6"></path>
+		<path d="M10 11v6"></path>
+		<path d="M14 11v6"></path>
+	</svg>
+`;
 
 const ui = {
 	pendingCount: document.getElementById('pending-count'),
@@ -42,7 +64,8 @@ const ui = {
 	modalOverlay: document.getElementById('modal-overlay'),
 	modalShell: document.getElementById('modal-shell'),
 	modalClose: document.getElementById('modal-close'),
-	modalContent: document.getElementById('modal-content')
+	modalContent: document.getElementById('modal-content'),
+	settingsButton: document.getElementById('open-settings-btn')
 };
 
 const state = {
@@ -51,7 +74,9 @@ const state = {
 	selectedAppointmentId: null,
 	selectedSlot: '',
 	selectedDate: '',
-	rescheduleMonth: null
+	rescheduleMonth: null,
+	rescheduleBookedSlots: [],
+	visitTypes: []
 };
 
 // Desktop can comfortably show more rows per page than a phone screen.
@@ -66,6 +91,12 @@ function isValidDateString(value) {
 	return !Number.isNaN(date.getTime());
 }
 
+function extractDatePart(value) {
+	if (typeof value !== 'string') return '';
+	const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+	return match ? match[0] : '';
+}
+
 function normalizeAppointment(item, index) {
 	const fallbackDate = '2026-04-21T09:00:00';
 	const datetime = typeof item.datetime === 'string' && isValidDateString(item.datetime)
@@ -73,15 +104,75 @@ function normalizeAppointment(item, index) {
 		: fallbackDate;
 	const status = VALID_STATUSES.has(item.status) ? item.status : 'pending';
 
+	// preferred_date is a clean 'YYYY-MM-DD' column straight from the DB — use it for
+	// date filtering instead of the concatenated "preferred_date + time_slot" datetime
+	// string, which mixes 12-hour and 24-hour time formats and isn't reliably parseable.
+	const preferredDate = extractDatePart(item.preferred_date) || extractDatePart(datetime);
+
 	return {
 		id: Number.isFinite(Number(item.id)) ? Number(item.id) : index + 1,
 		datetime,
+		preferredDate,
 		patient: String(item.patient || 'Unknown Patient'),
 		owner: String(item.owner || 'Unknown Owner'),
 		service: String(item.service || 'General Service'),
 		status,
-		type: String(item.type || 'General')
+		type: String(item.type || 'General'),
+		veterinarianId: item.veterinarian_id ? Number(item.veterinarian_id) : null,
+		veterinarian: item.veterinarian ? String(item.veterinarian) : '',
+		timeSlot: canonicalSlot(item.time_slot || ''),
+		expiresAt: item.expires_at || null,
+		// When the owner made the request ('YYYY-MM-DD HH:MM:SS').
+		requestedAt: String(item.requested_at || ''),
+		ownerPhone: item.owner_info?.phone || '',
+		// Someone other than the account holder bringing the pet (the owner
+		// turned off "Use my account details" when booking).
+		contact: item.contact && item.contact.name ? { name: String(item.contact.name), phone: String(item.contact.phone || '') } : null
 	};
+}
+
+/**
+ * "Expires Tue, Sep 29, 10:00 AM" for a pending request -- after that it
+ * lapses on its own and the owner is asked to rebook
+ * (api/includes/timed_rules.php). Empty for requests from before the limit.
+ */
+function expiryLabel(item) {
+	if (!item.expiresAt) return '';
+	const at = new Date(String(item.expiresAt).replace(' ', 'T'));
+	if (Number.isNaN(at.getTime())) return '';
+	return 'Expires ' + at.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+/**
+ * Other pending requests for the same date, time and vet. Several owners
+ * may ask for the same time; the vet picks one to confirm, and the others
+ * for that time are declined automatically when they do.
+ */
+function sameSlotRequests(item) {
+	if (!item.timeSlot) return [];
+	return state.appointments.filter((other) => other.id !== item.id
+		&& other.status === 'pending'
+		&& other.preferredDate === item.preferredDate
+		&& other.timeSlot === item.timeSlot
+		&& (!other.veterinarianId || !item.veterinarianId || other.veterinarianId === item.veterinarianId));
+}
+
+/** Orders requests by when they were made (the id breaks ties). */
+function compareRequested(a, b) {
+	if (a.requestedAt !== b.requestedAt) return a.requestedAt < b.requestedAt ? -1 : 1;
+	return a.id - b.id;
+}
+
+/** Requests for this time made before this one, earliest first. */
+function earlierRequests(item) {
+	return sameSlotRequests(item)
+		.filter((other) => compareRequested(other, item) < 0)
+		.sort(compareRequested);
+}
+
+function ordinal(n) {
+	const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+	return n + suffix;
 }
 
 function loadAppointments(dataset) {
@@ -124,6 +215,17 @@ function toIsoDate(date) {
 	return `${y}-${m}-${d}`;
 }
 
+/* ── Same "today's already-started slot can't be picked" rule as the
+   owner-side booking form (public/js/book-appointment.js) — a reschedule
+   target of "today" shouldn't offer times that have already passed. ── */
+function isRescheduleSlotPast(dateIso, slotValue) {
+	if (!dateIso || dateIso !== toIsoDate(new Date())) return false;
+	const [hours, minutes] = String(slotValue || '').split(':').map(Number);
+	if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
+	const now = new Date();
+	return (hours * 60 + minutes) <= (now.getHours() * 60 + now.getMinutes());
+}
+
 function formatLongDateFromIso(isoDate) {
 	const date = new Date(`${isoDate}T00:00:00`);
 	if (Number.isNaN(date.getTime())) return isoDate;
@@ -153,11 +255,20 @@ function buildRescheduleCalendar(monthDate, selectedIsoDate) {
 		dayCells.push(`<span class="day-filler">${prevDate.getDate()}</span>`);
 	}
 
+	const todayIso = toIsoDate(new Date());
 	for (let day = 1; day <= daysInMonth; day += 1) {
 		const dayDate = new Date(year, month, day);
 		const iso = toIsoDate(dayDate);
 		const isActive = iso === selectedIsoDate ? ' active' : '';
-		dayCells.push(`<button type="button" class="day-btn${isActive}" data-resched-date="${iso}">${day}</button>`);
+		const isPast = iso < todayIso;
+		const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6; // Sun=0, Sat=6 — clinic is closed
+		// Holidays and office-closed dates (api/includes/clinic_calendar.php).
+		const closedReason = closedDates[iso] || '';
+		const isDisabled = isPast || isWeekend || closedReason !== '';
+		const disabledAttr = isDisabled ? ' disabled' : '';
+		const disabledClass = isDisabled ? ' disabled' : '';
+		const title = closedReason ? ` title="Clinic closed: ${escapeAttr(closedReason)}"` : '';
+		dayCells.push(`<button type="button" class="day-btn${isActive}${disabledClass}" data-resched-date="${iso}"${disabledAttr}${title}>${day}</button>`);
 	}
 
 	return dayCells.join('');
@@ -167,12 +278,37 @@ function statusClass(status) {
 	if (status === 'confirmed') return 'status-confirmed';
 	if (status === 'completed') return 'status-completed';
 	if (status === 'canceled' || status === 'cancelled' || status === 'rejected') return 'status-canceled';
+	if (status === 'expired') return 'status-expired';
 	return 'status-pending';
+}
+
+// A proposed reschedule reads as its own state rather than 'pending', so staff
+// can tell "waiting on the owner" apart from "waiting on us". Underscores never
+// reach the screen -- a raw enum like 'reschedule_pending' is not a label.
+function statusLabel(status) {
+	if (status === 'reschedule_pending') return 'Awaiting owner';
+	const text = String(status || '').replace(/_/g, ' ');
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Accepts '3:00 PM' or '15:00' and returns canonical 'HH:MM', so slot
+// comparisons never depend on which shape a row happens to be stored in.
+function canonicalSlot(value) {
+	const text = String(value ?? '').trim();
+	const twelve = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+	if (twelve) {
+		let hour = Number(twelve[1]) % 12;
+		if (twelve[3].toUpperCase() === 'PM') hour += 12;
+		return `${String(hour).padStart(2, '0')}:${twelve[2]}`;
+	}
+	const twentyFour = text.match(/^(\d{1,2}):(\d{2})$/);
+	return twentyFour ? `${twentyFour[1].padStart(2, '0')}:${twentyFour[2]}` : text;
 }
 
 function actionTitle(status) {
 	if (status === 'completed') return 'Completed';
 	if (status === 'canceled' || status === 'cancelled' || status === 'rejected') return 'Canceled';
+	if (status === 'reschedule_pending') return 'Awaiting owner';
 	return 'Open';
 }
 
@@ -185,7 +321,7 @@ function getFilteredAppointments() {
 		const searchable = `${appointment.patient} ${appointment.owner} ${appointment.service}`.toLowerCase();
 		const matchesSearch = !q || searchable.includes(q);
 		const matchesStatus = selectedStatus === 'all' || appointment.status === selectedStatus;
-		const matchesDate = !selectedDate || appointment.datetime.startsWith(selectedDate);
+		const matchesDate = !selectedDate || appointment.preferredDate === selectedDate;
 		return matchesSearch && matchesStatus && matchesDate;
 	});
 }
@@ -201,7 +337,7 @@ function updateCounters() {
 function renderPendingList() {
 	const pending = state.appointments
 		.filter((item) => item.status === 'pending')
-		.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+		.sort((a, b) => (new Date(a.datetime) - new Date(b.datetime)) || compareRequested(a, b));
 
 	ui.pendingHolder.innerHTML = '';
 	if (!pending.length) {
@@ -212,9 +348,15 @@ function renderPendingList() {
 	ui.pendingEmpty.hidden = true;
 	ui.pendingHolder.innerHTML = pending.map((item) => {
 		const dt = formatDateTime(item.datetime);
+		// Same-time requests are listed in the order they came in.
+		const clash = sameSlotRequests(item).length
+			? `<span class="status-pill status-pending">${ordinal(earlierRequests(item).length + 1)} request</span>`
+			: '';
 		return `
 			<article class="pending-item" data-id="${item.id}">
 				<p class="time">${dt.date} - ${dt.time}</p>
+				${clash}
+				${expiryLabel(item) ? `<p>${expiryLabel(item)}</p>` : ''}
 				<h4>${item.patient}</h4>
 				<p>${item.service}</p>
 				<div class="pending-actions">
@@ -252,15 +394,11 @@ function renderTable() {
 					</td>
 					<td>${item.owner}</td>
 					<td>${item.service}</td>
-					<td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
+					<td><span class="status-pill ${statusClass(item.status)}">${statusLabel(item.status)}</span></td>
 					<td>
 						<div class="action-buttons">
-							<button type="button" title="View" data-action="view" data-id="${item.id}">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-							</button>
-							<button type="button" title="Delete" data-action="delete" data-id="${item.id}">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-							</button>
+							<button type="button" title="View" data-action="view" data-id="${item.id}" aria-label="View">${ICON_EYE}</button>
+							<button type="button" title="Delete" data-action="delete" data-id="${item.id}" aria-label="Delete">${ICON_TRASH}</button>
 						</div>
 					</td>
 				</tr>
@@ -287,7 +425,7 @@ function rebuildCalendarEvents() {
 				? '#d6a308'
 				: item.status === 'completed'
 					? '#2f8243'
-					: item.status === 'canceled'
+					: (item.status === 'canceled' || item.status === 'cancelled')
 						? '#b3202c'
 						: '#1e61a7'
 		});
@@ -301,19 +439,56 @@ function refreshUI() {
 	rebuildCalendarEvents();
 }
 
-async function updateStatus(id, nextStatus) {
+async function reloadFromServer() {
+	if (!window.VetAPI?.getAppointments) return;
+	const result = await window.VetAPI.getAppointments();
+	if (result.ok) loadAppointments(result.data);
+}
+
+async function updateStatus(id, nextStatus, { skipReload } = {}) {
 	const selected = getAppointmentById(id);
-	if (!selected) return;
+	if (!selected) return [];
+	// Ids of other requests for the same time the server declined.
+	let declined = [];
 	if (window.VetAPI?.updateAppointmentStatus) {
 		const result = await window.VetAPI.updateAppointmentStatus(id, nextStatus);
 		if (!result.ok) {
-			alert(result.error || 'Failed to update appointment.');
-			return;
+			await vbAlert(result.error || 'Failed to update appointment.');
+			return [];
+		}
+		// Confirming a time others had also requested declines theirs.
+		if (Array.isArray(result.data?.declined)) declined = result.data.declined;
+		if (declined.length && !skipReload) {
+			await vbAlert(result.data.message || 'Other requests for the same time were declined.');
 		}
 	}
-	selected.status = nextStatus;
-	state.page = 1;
-	refreshUI();
+	if (skipReload) {
+		selected.status = nextStatus;
+		return declined;
+	}
+	// Re-fetch from the server (rather than just patching the local copy) so the
+	// table reflects the real DB state instead of going stale until a manual reload.
+	await reloadFromServer();
+	return declined;
+}
+
+/**
+ * Accept one request. When someone else asked for the same time first,
+ * the vet is asked before passing them over.
+ */
+async function acceptRequest(id) {
+	const item = getAppointmentById(id);
+	if (!item) return;
+	const first = earlierRequests(item)[0];
+	if (first) {
+		// Same owner twice: tell the requests apart by pet.
+		const [earlierName, thisName] = first.owner === item.owner
+			? [first.patient, item.patient]
+			: [first.owner, item.owner];
+		const ok = await vbConfirm(`${earlierName} requested this time first. Confirm ${thisName} instead?`);
+		if (!ok) return;
+	}
+	await updateStatus(id, 'confirmed');
 }
 
 function removeAppointment(id) {
@@ -355,7 +530,7 @@ function detailsModalTemplate(appointment) {
 				<div class="appt-header-name">${appointment.patient}</div>
 				<div class="appt-header-meta">${appointment.service} &middot; ${dt.date} at ${dt.time}</div>
 			</div>
-			<span class="appt-header-badge appt-badge-${statusSlug}">${appointment.status}</span>
+			<span class="appt-header-badge appt-badge-${statusSlug}">${statusLabel(appointment.status)}</span>
 		</div>
 
 		<div class="appt-modal-body">
@@ -386,6 +561,7 @@ function detailsModalTemplate(appointment) {
 						<div class="appt-info-row"><span>Date</span><strong>${dt.date}</strong></div>
 						<div class="appt-info-row"><span>Time</span><strong>${dt.time}</strong></div>
 						<div class="appt-info-row"><span>Service</span><strong>${appointment.service}</strong></div>
+						<div class="appt-info-row"><span>Veterinarian</span><strong>${appointment.veterinarian || 'Not yet assigned'}</strong></div>
 					</div>
 				</div>
 				<div class="appt-info-card">
@@ -395,6 +571,8 @@ function detailsModalTemplate(appointment) {
 					</div>
 					<div class="appt-info-rows">
 						<div class="appt-info-row"><span>Owner</span><strong>${appointment.owner}</strong></div>
+						${appointment.ownerPhone ? `<div class="appt-info-row"><span>Owner Phone</span><strong>${escapeAttr(appointment.ownerPhone)}</strong></div>` : ''}
+						${appointment.contact ? `<div class="appt-info-row"><span>Bringing the Pet</span><strong>${escapeAttr(appointment.contact.name)}${appointment.contact.phone ? ' &middot; ' + escapeAttr(appointment.contact.phone) : ''}</strong></div>` : ''}
 						<div class="appt-info-row"><span>Patient</span><strong>${appointment.patient}</strong></div>
 						<div class="appt-info-row"><span>Type</span><strong>${appointment.type}</strong></div>
 					</div>
@@ -404,9 +582,9 @@ function detailsModalTemplate(appointment) {
 			<div class="appt-notes-card">
 				<div class="appt-info-label">
 					<i data-lucide="clipboard-list"></i>
-					Medical Notes
+					Additional Notes
 				</div>
-				<p>${appointment.notes || 'No medical notes recorded for this appointment.'}</p>
+				<p>${appointment.notes || 'No additional notes recorded for this appointment.'}</p>
 			</div>
 
 			<div class="modal-footer">
@@ -425,15 +603,18 @@ function rescheduleModalTemplate(appointment) {
 	const selectedDate = state.selectedDate || dt.isoDate;
 	const baseMonth = state.rescheduleMonth || new Date(`${selectedDate}T00:00:00`);
 	const monthDate = new Date(baseMonth.getFullYear(), baseMonth.getMonth(), 1);
-	const slotsOpenCount = RESCHEDULE_SLOTS.length;
 	const selectedDateLabel = formatLongDateFromIso(selectedDate);
 	const selectedSlotLabel = state.selectedSlot
 		? (RESCHEDULE_SLOTS.find((slot) => slot.value === state.selectedSlot)?.display || state.selectedSlot)
 		: 'No time selected';
+	let slotsOpenCount = 0;
 	const slotCards = RESCHEDULE_SLOTS.map((slot) => {
 		const active = state.selectedSlot === slot.value ? ' active' : '';
+		const isUnavailable = state.rescheduleBookedSlots.includes(slot.value) || isRescheduleSlotPast(selectedDate, slot.value);
+		if (!isUnavailable) slotsOpenCount += 1;
+		const unavailable = isUnavailable ? ' unavailable' : '';
 		return `
-			<button type="button" class="slot-btn${active}" data-slot="${slot.value}">
+			<button type="button" class="slot-btn${active}${unavailable}" data-slot="${slot.value}"${isUnavailable ? ' disabled' : ''}>
 				<span class="slot-label">${slot.label}</span>
 				<span class="slot-time">${slot.display}</span>
 			</button>
@@ -476,7 +657,7 @@ function rescheduleModalTemplate(appointment) {
 				<section class="reschedule-slots">
 					<div class="reschedule-slots-head">
 						<h4>Available Slots</h4>
-						<span class="rsch-slots-badge">${slotsOpenCount} Open</span>
+						<span class="rsch-slots-badge" data-rsch-slots-badge>${slotsOpenCount} Open</span>
 					</div>
 					<div class="slot-grid">${slotCards}</div>
 					<div class="rsch-summary-card">
@@ -510,18 +691,17 @@ function completeModalTemplate(appointment) {
 	return `
 		<div class="confirm-content">
 			<div class="confirm-icon">&#10003;</div>
-			<h3 class="confirm-title" id="modal-title">Mark As Completed</h3>
-			<p class="confirm-text">You are about to mark this appointment as completed.</p>
+			<h3 class="confirm-title" id="modal-title">Mark this appointment as completed?</h3>
 			<article class="danger-card">
 				<p class="muted"><strong>Owner:</strong> ${appointment.owner}</p>
 				<p class="muted"><strong>Patient:</strong> ${appointment.patient}</p>
 				<p class="muted"><strong>Date and Time:</strong> ${dt.date} - ${dt.time}</p>
 				<p class="muted"><strong>Service:</strong> ${appointment.service}</p>
 			</article>
-			<textarea class="textarea" id="completion-notes" placeholder="Completion notes (optional)"></textarea>
+			<textarea class="textarea" id="completion-notes" maxlength="1000" placeholder="Completion notes (optional)"></textarea>
 			<div class="two-actions">
-				<button class="btn btn-outline" type="button" data-modal-action="open-details">Cancel</button>
-				<button class="btn btn-primary" type="button" data-modal-action="confirm-complete">Mark as Completed</button>
+				<button class="btn btn-outline" type="button" data-modal-action="open-details">No</button>
+				<button class="btn btn-primary" type="button" data-modal-action="confirm-complete">Yes</button>
 			</div>
 		</div>
 	`;
@@ -549,10 +729,10 @@ function cancelModalTemplate(appointment) {
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button class="btn btn-outline" type="button" data-modal-action="open-details">Keep Appointment</button>
+				<button class="btn btn-outline" type="button" data-modal-action="open-details">No</button>
 				<button class="btn btn-danger" type="button" data-modal-action="confirm-cancel">
 					<i data-lucide="x-circle"></i>
-					Cancel Appointment
+					Yes, cancel
 				</button>
 			</div>
 		</div>
@@ -598,6 +778,83 @@ function deleteModalTemplate(appointment) {
 	`;
 }
 
+function settingsModalTemplate(types) {
+	const rows = types.map((type) => `
+		<div class="visit-type-row">
+			<span>${type.name}${type.is_default ? '<span class="visit-type-badge">Default</span>' : ''}</span>
+			${!type.is_default ? `
+				<button type="button" class="visit-type-remove" data-modal-action="remove-visit-type" data-id="${type.id}" title="Remove ${type.name}">
+					<i data-lucide="trash-2"></i>
+				</button>
+			` : ''}
+		</div>
+	`).join('');
+
+	return `
+		<div class="appt-modal-header appt-accent-reschedule">
+			<div class="appt-header-avatar appt-avatar-reschedule"><i data-lucide="settings"></i></div>
+			<div class="appt-modal-identity">
+				<div class="appt-header-name">Manage Visit Types</div>
+				<div class="appt-header-meta">Control the types of visit owners can request when booking.</div>
+			</div>
+		</div>
+		<div class="appt-modal-body">
+			<div class="visit-type-list">${rows}</div>
+			<div class="add-visit-type-form">
+				<input type="text" class="visit-type-input" id="new-visit-type-input" placeholder="e.g. Grooming, Surgery" maxlength="60" autocomplete="off">
+				<button type="button" class="btn btn-primary" data-modal-action="confirm-add-visit-type">
+					<i data-lucide="plus"></i>
+					Add Type
+				</button>
+			</div>
+			<span class="visit-type-error" id="new-visit-type-error"></span>
+			<div class="modal-footer">
+				<button class="btn btn-outline" type="button" data-modal-action="close">Done</button>
+			</div>
+		</div>
+	`;
+}
+
+async function loadVisitTypesIntoModal() {
+	const result = window.VetAPI?.getVisitTypes
+		? await window.VetAPI.getVisitTypes()
+		: { ok: false, data: [], error: 'Visit type API unavailable.' };
+	state.visitTypes = result.ok ? result.data : [];
+	openModal(settingsModalTemplate(state.visitTypes));
+	if (!result.ok) await vbAlert(result.error || 'Could not load visit types.');
+}
+
+async function openSettingsModal() {
+	await loadVisitTypesIntoModal();
+	document.getElementById('new-visit-type-input')?.focus();
+}
+
+async function confirmAddVisitType() {
+	const input = document.getElementById('new-visit-type-input');
+	const error = document.getElementById('new-visit-type-error');
+	const name = input?.value || '';
+	const result = window.VetAPI?.addVisitType
+		? await window.VetAPI.addVisitType(name)
+		: { ok: false, error: 'Visit type API unavailable.' };
+	if (!result.ok) {
+		if (error) error.textContent = result.error || 'Could not add that visit type.';
+		input?.classList.add('invalid');
+		return;
+	}
+	await loadVisitTypesIntoModal();
+}
+
+async function removeVisitType(id) {
+	const result = window.VetAPI?.removeVisitType
+		? await window.VetAPI.removeVisitType(id)
+		: { ok: false, error: 'Visit type API unavailable.' };
+	if (!result.ok) {
+		await vbAlert(result.error || 'Could not remove that visit type.');
+		return;
+	}
+	await loadVisitTypesIntoModal();
+}
+
 function openDetailsModal(appointmentId) {
 	const selected = getAppointmentById(appointmentId);
 	if (!selected) return;
@@ -612,14 +869,69 @@ function openRescheduleModal() {
 	state.selectedDate = toIsoDate(selectedDate);
 	state.rescheduleMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
 	const currentTime = `${String(selectedDate.getHours()).padStart(2, '0')}:${String(selectedDate.getMinutes()).padStart(2, '0')}`;
-	state.selectedSlot = RESCHEDULE_SLOTS.some((slot) => slot.value === currentTime) ? currentTime : '';
+	const currentTimeStillValid = RESCHEDULE_SLOTS.some((slot) => slot.value === currentTime)
+		&& !isRescheduleSlotPast(state.selectedDate, currentTime);
+	state.selectedSlot = currentTimeStillValid ? currentTime : '';
+	state.rescheduleBookedSlots = [];
 	openModal(rescheduleModalTemplate(selected));
+	loadRescheduleBookedSlots();
 }
 
 function rerenderRescheduleModal() {
 	const selected = getAppointmentById(state.selectedAppointmentId);
 	if (!selected) return;
 	openModal(rescheduleModalTemplate(selected));
+}
+
+/* ── Fetch which slots are already booked for the appointment's vet on
+   the currently-selected reschedule date, so they render grayed out
+   instead of only failing after the vet picks one and hits confirm. ── */
+async function loadRescheduleBookedSlots() {
+	const selected = getAppointmentById(state.selectedAppointmentId);
+	if (!selected || !state.selectedDate || !window.VetAPI?.getBookedSlots) {
+		state.rescheduleBookedSlots = [];
+		applyRescheduleSlotAvailability();
+		return;
+	}
+
+	const result = await window.VetAPI.getBookedSlots({
+		veterinarian_id: selected.veterinarianId || undefined,
+		preferred_date: state.selectedDate,
+		exclude_id: selected.id
+	});
+	// Booked slots come back as canonical 'HH:MM'. This used to compare against
+	// slot.display ('3:00 PM'), so anything stored in 24-hour form never matched
+	// and its button stayed clickable. Normalising both sides keeps it correct
+	// even if an old 12-hour row survives somewhere.
+	const booked = (result.ok ? (result.data || []) : []).map(canonicalSlot);
+	state.rescheduleBookedSlots = RESCHEDULE_SLOTS
+		.filter((slot) => booked.includes(canonicalSlot(slot.value)))
+		.map((slot) => slot.value);
+
+	// Selected date may have moved on again before this resolved — ignore stale responses.
+	if (getAppointmentById(state.selectedAppointmentId) !== selected) return;
+	applyRescheduleSlotAvailability();
+}
+
+/* ── Toggle slot buttons already in the DOM against the latest booked
+   list, without a full modal re-render (keeps the calendar/month in place). ── */
+function applyRescheduleSlotAvailability() {
+	const slotButtons = ui.modalContent.querySelectorAll('[data-slot]');
+	let openCount = 0;
+	slotButtons.forEach((btn) => {
+		const isUnavailable = state.rescheduleBookedSlots.includes(btn.dataset.slot)
+			|| isRescheduleSlotPast(state.selectedDate, btn.dataset.slot);
+		btn.classList.toggle('unavailable', isUnavailable);
+		btn.disabled = isUnavailable;
+		if (isUnavailable && state.selectedSlot === btn.dataset.slot) {
+			state.selectedSlot = '';
+			btn.classList.remove('active');
+		}
+		if (!isUnavailable) openCount += 1;
+	});
+
+	const badge = ui.modalContent.querySelector('[data-rsch-slots-badge]');
+	if (badge) badge.textContent = `${openCount} Open`;
 }
 
 function openCompleteModal() {
@@ -645,33 +957,34 @@ async function applyReschedule() {
 	if (!selected) return;
 
 	if (!state.selectedDate) {
-		alert('Please select a new date on the calendar.');
+		await vbAlert('Please select a new date on the calendar.');
 		return;
 	}
 	if (state.selectedDate < toIsoDate(new Date())) {
-		alert('Cannot reschedule to a past date.');
+		await vbAlert('Cannot reschedule to a past date.');
 		return;
 	}
 	if (!state.selectedSlot) {
-		alert('Please select an available time slot.');
+		await vbAlert('Please select an available time slot.');
 		return;
 	}
 
 	if (window.VetAPI?.rescheduleAppointment) {
 		const result = await window.VetAPI.rescheduleAppointment(selected.id, state.selectedDate, state.selectedSlot);
 		if (!result.ok) {
-			alert(result.error || 'Failed to reschedule appointment.');
+			await vbAlert(result.error || 'Failed to propose a new time.');
 			return;
 		}
 	}
 
-	const nextDate = new Date(`${state.selectedDate}T00:00:00`);
-	const [hours, minutes] = state.selectedSlot.split(':').map(Number);
-	nextDate.setHours(hours, minutes, 0, 0);
-	selected.datetime = toLocalDateTimeString(nextDate);
-	selected.status = 'confirmed';
+	// The new time isn't applied until the owner accepts it, so the row keeps
+	// its original date and moves to the awaiting-owner state instead.
+	selected.status = 'reschedule_pending';
+	selected.proposed_date = state.selectedDate;
+	selected.proposed_time_slot = state.selectedSlot;
 	closeModal();
 	refreshUI();
+	await vbAlert('The pet owner has been asked to confirm the new time. Their original booking stands until they accept.');
 }
 
 function applyComplete() {
@@ -686,11 +999,14 @@ function applyCancel() {
 
 async function applyDelete() {
 	const input = document.getElementById('delete-confirm');
-	if (!input || input.value !== 'DELETE') return;
+	if (!input || input.value.trim() !== 'DELETE') {
+		await vbAlert('Please type DELETE exactly to confirm this permanent action.');
+		return;
+	}
 	if (window.VetAPI?.deleteAppointment) {
 		const result = await window.VetAPI.deleteAppointment(state.selectedAppointmentId);
 		if (!result.ok) {
-			alert(result.error || 'Failed to delete appointment.');
+			await vbAlert(result.error || 'Failed to delete appointment.');
 			return;
 		}
 	}
@@ -746,10 +1062,22 @@ function setupEvents() {
 		renderTable();
 	});
 
+	ui.settingsButton?.addEventListener('click', openSettingsModal);
+
 	ui.acceptAllButton.addEventListener('click', async () => {
-		const pending = state.appointments.filter((item) => item.status === 'pending');
-		await Promise.all(pending.map((item) => updateStatus(item.id, 'confirmed')));
-		refreshUI();
+		// One at a time, in the order the requests came in: for a time several
+		// owners asked for, the first request is confirmed and the rest are
+		// declined by the server, so they're skipped here.
+		const pending = state.appointments
+			.filter((item) => item.status === 'pending')
+			.sort(compareRequested);
+		const declined = new Set();
+		for (const item of pending) {
+			if (declined.has(item.id)) continue;
+			const ids = await updateStatus(item.id, 'confirmed', { skipReload: true });
+			ids.forEach((declinedId) => declined.add(Number(declinedId)));
+		}
+		await reloadFromServer();
 	});
 
 	ui.pendingHolder.addEventListener('click', (event) => {
@@ -757,7 +1085,7 @@ function setupEvents() {
 		if (!button) return;
 
 		const id = Number(button.dataset.id);
-		if (button.dataset.action === 'accept') updateStatus(id, 'confirmed');
+		if (button.dataset.action === 'accept') acceptRequest(id);
 		if (button.dataset.action === 'decline') {
 			state.selectedAppointmentId = id;
 			openCancelModal();
@@ -802,11 +1130,14 @@ function setupEvents() {
 			if (action === 'confirm-complete') applyComplete();
 			if (action === 'confirm-cancel') applyCancel();
 			if (action === 'confirm-delete') applyDelete();
+			if (action === 'confirm-add-visit-type') confirmAddVisitType();
+			if (action === 'remove-visit-type') removeVisitType(Number(actionEl.dataset.id));
 			return;
 		}
 
 		const slotEl = event.target.closest('[data-slot]');
 		if (slotEl) {
+			if (slotEl.classList.contains('unavailable')) return;
 			state.selectedSlot = slotEl.dataset.slot;
 			ui.modalContent.querySelectorAll('[data-slot]').forEach((slotButton) => {
 				slotButton.classList.remove('active');
@@ -825,7 +1156,9 @@ function setupEvents() {
 		const dateEl = event.target.closest('[data-resched-date]');
 		if (dateEl) {
 			state.selectedDate = dateEl.dataset.reschedDate;
+			state.rescheduleBookedSlots = [];
 			rerenderRescheduleModal();
+			loadRescheduleBookedSlots();
 			return;
 		}
 
@@ -859,9 +1192,34 @@ function exposeApi() {
 	};
 }
 
+// { 'YYYY-MM-DD': 'Christmas Day' } -- weekdays the clinic is closed, so the
+// reschedule calendar can't propose one. The server refuses them regardless.
+let closedDates = {};
+
+async function loadClosedDates() {
+	try {
+		const response = await fetch('/api/appointments/appointment.php', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: 'closed_dates' })
+		});
+		const result = await response.json();
+		if (result.success && Array.isArray(result.data)) {
+			closedDates = Object.fromEntries(result.data.map((day) => [day.date, day.name]));
+		}
+	} catch {
+		// Weekends still gray out; the server refuses a closed date anyway.
+	}
+}
+
+function escapeAttr(value) {
+	return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function init() {
 	ui.modalOverlay.hidden = true;
 	document.body.style.overflow = '';
+	void loadClosedDates();
 	setupCalendar();
 	setupEvents();
 	if (window.VetAPI?.getAppointments) {

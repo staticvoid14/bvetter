@@ -1,30 +1,36 @@
-/**
- * VBetter – Vet API Layer
+﻿/**
+ * BVetter – Vet API Layer
  * /vet/js/vet-api.js
  * ─────────────────────────────────────────────────────────────
  * Centralises every fetch() call used by the vet-side pages.
  * All functions are async and return { ok, data, error }.
- *
- * BACKEND INTEGRATION
- * Change BASE_URL to your server's base URL when the backend
- * is ready.  Every function already calls the correct endpoint
- * so you only need to flip the URL and remove the mock returns.
  * ─────────────────────────────────────────────────────────────
  */
 
 'use strict';
 
-const BASE_URL = '/api';   // [BACKEND] e.g. 'https://api.vbetter.ph'
-const BACKEND_URL = '/bvetter/api';
+const BASE_URL = '/api';
+const BACKEND_URL = '/api';
 const LOST_FOUND_URL = `${BACKEND_URL}/lost-found/lost_and_found.php`;
 const MASS_VACCINATION_URL = `${BACKEND_URL}/mass-vaccination/events.php`;
 const CHATBOT_URL = `${BACKEND_URL}/chatbot/chatbot.php`;
 const ANNOUNCEMENTS_URL = `${BACKEND_URL}/announcements/announcements.php`;
+const NOTIFICATIONS_URL = `${BACKEND_URL}/notifications/notifications.php`;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
+/* Authorization only -- no Content-Type, because these calls send FormData and
+   the browser must set its own multipart boundary. Owner/staff actions on
+   appointment.php, program.php and lost_and_found.php authenticate with the
+   bearer token; the user_id in the body is not identity. */
+function formAuthHeaders() {
+    const session = JSON.parse(localStorage.getItem('vbetter_session') || 'null');
+    const token = session?.token || localStorage.getItem('bvetter_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function getAuthHeaders() {
-    const session = JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
+    const session = JSON.parse(localStorage.getItem('vbetter_session') || 'null');
     return {
         'Content-Type': 'application/json',
         ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {})
@@ -39,9 +45,13 @@ async function apiFetch(endpoint, options = {}) {
         });
 
         if (response.status === 401) {
-            // Token expired → log out
-            sessionStorage.removeItem('vbetter_session');
-            window.location.href = '/public/pages/login.html';
+            // Token expired → log out. All three keys, not just the session:
+            // they outlive the tab now, so a leftover bvetter_token would keep
+            // being sent on the next request after this "logout".
+            localStorage.removeItem('vbetter_session');
+            localStorage.removeItem('bvetter_token');
+            localStorage.removeItem('bvetter_user');
+            window.location.href = '../../public/pages/login.html';
             return { ok: false, error: 'Unauthorised' };
         }
 
@@ -81,6 +91,7 @@ async function getAppointments(filters = {}) {
     try {
         const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
             method: 'POST',
+            headers: formAuthHeaders(),
             body: formData
         });
         const result = await response.json();
@@ -92,7 +103,7 @@ async function getAppointments(filters = {}) {
 
 function sessionValue() {
     try {
-        return JSON.parse(sessionStorage.getItem('vbetter_session') || 'null');
+        return JSON.parse(localStorage.getItem('vbetter_session') || 'null');
     } catch {
         return null;
     }
@@ -118,8 +129,13 @@ function lostFoundForm(action, data = {}) {
 
 async function lostFoundFetch(action, data = {}) {
     try {
+        const session = JSON.parse(localStorage.getItem('vbetter_session') || 'null');
+        const token = session?.token || localStorage.getItem('bvetter_token');
         const response = await fetch(LOST_FOUND_URL, {
             method: 'POST',
+            // Authorization only -- no Content-Type, FormData sets its own
+            // multipart boundary. requireRole() reads this header, not the body.
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: lostFoundForm(action, data)
         });
         const result = await response.json();
@@ -139,26 +155,35 @@ async function updateAppointmentStatus(id, status) {
     try {
         const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
             method: 'POST',
+            headers: formAuthHeaders(),
             body: formData
         });
         const result = await response.json();
-        return { ok: result.success, data: { id, status }, error: result.success ? null : result.message };
+        // declined: other requests for the same time that confirming this one
+        // turned down (appointment.php's declineOtherRequestsForSlot()).
+        return {
+            ok: result.success,
+            data: { id, status, declined: result.declined || [], message: result.message },
+            error: result.success ? null : result.message
+        };
     } catch (error) {
         return { ok: false, data: null, error: error.message };
     }
 }
 
-/** PATCH /api/vet/appointments/:id/reschedule */
-async function rescheduleAppointment(id, preferredDate, timeSlot) {
+/** Propose a new time. Takes effect only once the pet owner accepts it. */
+async function rescheduleAppointment(id, preferredDate, timeSlot, reason = '') {
     const formData = new FormData();
     formData.append('action', 'reschedule');
     formData.append('appointment_id', id);
     formData.append('preferred_date', preferredDate);
     formData.append('time_slot', timeSlot);
+    if (reason) formData.append('reason', reason);
 
     try {
         const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
             method: 'POST',
+            headers: formAuthHeaders(),
             body: formData
         });
         const result = await response.json();
@@ -166,6 +191,164 @@ async function rescheduleAppointment(id, preferredDate, timeSlot) {
     } catch (error) {
         return { ok: false, data: null, error: error.message };
     }
+}
+
+/** POST /api/vet/appointments (action: booked_slots) */
+async function getBookedSlots({ veterinarian_id, preferred_date, exclude_id } = {}) {
+    const formData = new FormData();
+    formData.append('action', 'booked_slots');
+    if (veterinarian_id) formData.append('veterinarian_id', veterinarian_id);
+    formData.append('preferred_date', preferred_date || '');
+    if (exclude_id) formData.append('exclude_id', exclude_id);
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
+            method: 'POST',
+            headers: formAuthHeaders(),
+            body: formData
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.booked || [], error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+
+/** GET /api/vet/appointments/visit-types */
+async function getVisitTypes() {
+    const formData = new FormData();
+    formData.append('action', 'visit_types');
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
+            method: 'POST',
+            headers: formAuthHeaders(),
+            body: formData
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+
+/** POST /api/vet/appointments/visit-types */
+async function addVisitType(name) {
+    const formData = new FormData();
+    formData.append('action', 'add_visit_type');
+    formData.append('name', name);
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
+            method: 'POST',
+            headers: formAuthHeaders(),
+            body: formData
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || null, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: null, error: error.message };
+    }
+}
+
+/** DELETE /api/vet/appointments/visit-types/:id */
+async function removeVisitType(id) {
+    const formData = new FormData();
+    formData.append('action', 'remove_visit_type');
+    formData.append('id', id);
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
+            method: 'POST',
+            headers: formAuthHeaders(),
+            body: formData
+        });
+        const result = await response.json();
+        return { ok: result.success, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, error: error.message };
+    }
+}
+
+/* ══════════════════════════════════════════
+   CASTRATION & SPAY PROGRAM
+   ══════════════════════════════════════════ */
+
+async function cspRequest(action, params = {}) {
+    const formData = new FormData();
+    formData.append('action', action);
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) formData.append(key, value);
+    });
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/castration-spay/program.php`, {
+            method: 'POST',
+            headers: formAuthHeaders(),
+            body: formData
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, message: error.message };
+    }
+}
+
+async function getCspDashboardStats() {
+    const result = await cspRequest('dashboard_stats');
+    return { ok: result.success, data: result.data || {}, error: result.success ? null : result.message };
+}
+
+async function getCspPrograms() {
+    const result = await cspRequest('list_programs');
+    return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+}
+
+async function createCspProgram(payload) {
+    const result = await cspRequest('create_program', payload);
+    return { ok: result.success, data: result, error: result.success ? null : result.message };
+}
+
+async function updateCspProgram(payload) {
+    const result = await cspRequest('update_program', payload);
+    return { ok: result.success, error: result.success ? null : result.message };
+}
+
+async function getCspRegistrations(filters = {}) {
+    const result = await cspRequest('list_registrations', filters);
+    return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+}
+
+async function assignCspRegistrations(programId, registrationIds) {
+    const result = await cspRequest('assign_registrations', {
+        program_id: programId,
+        registration_ids: JSON.stringify(registrationIds)
+    });
+    return { ok: result.success, data: result, error: result.success ? null : result.message };
+}
+
+async function unassignCspRegistration(registrationId) {
+    const result = await cspRequest('unassign', { registration_id: registrationId });
+    return { ok: result.success, error: result.success ? null : result.message };
+}
+
+async function notifyCspProgram(programId) {
+    const result = await cspRequest('notify_program', { program_id: programId });
+    return { ok: result.success, message: result.message, error: result.success ? null : result.message };
+}
+
+async function cancelCspRegistration(registrationId) {
+    const result = await cspRequest('cancel', { registration_id: registrationId });
+    return { ok: result.success, error: result.success ? null : result.message };
+}
+
+async function deleteCspRegistration(registrationId) {
+    const result = await cspRequest('delete_registration', { registration_id: registrationId });
+    return { ok: result.success, error: result.success ? null : result.message };
+}
+
+async function deleteCspProgram(programId) {
+    const result = await cspRequest('delete_program', { program_id: programId });
+    return { ok: result.success, error: result.success ? null : result.message };
 }
 
 /** DELETE /api/vet/appointments/:id */
@@ -177,6 +360,7 @@ async function deleteAppointment(id) {
     try {
         const response = await fetch(`${BACKEND_URL}/appointments/appointment.php`, {
             method: 'POST',
+            headers: formAuthHeaders(),
             body: formData
         });
         const result = await response.json();
@@ -191,27 +375,21 @@ async function deleteAppointment(id) {
 /** GET /api/vet/patients */
 async function getPatients(filters = {}) {
     const params = new URLSearchParams(filters).toString();
-    // [BACKEND] return apiFetch(`/vet/patients?${params}`);
     return { ok: true, data: [] };
 }
 
 /** GET /api/vet/patients/:id */
 async function getPatientById(id) {
-    // [BACKEND] return apiFetch(`/vet/patients/${id}`);
     return { ok: true, data: null };
 }
 
 /** POST /api/vet/patients */
 async function createPatient(payload) {
-    // [BACKEND]
-    // return apiFetch('/vet/patients', { method: 'POST', body: JSON.stringify(payload) });
     return { ok: true, data: { ...payload, id: `P-${Date.now()}` } };
 }
 
 /** PATCH /api/vet/patients/:id */
 async function updatePatient(id, payload) {
-    // [BACKEND]
-    // return apiFetch(`/vet/patients/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
     return { ok: true, data: { id, ...payload } };
 }
 
@@ -238,8 +416,8 @@ function getReportExportUrl(filters = {}, format = 'pdf') {
 /* ── Disease Analytics ───────────────────────────────────── */
 
 /** GET /api/vet/disease-analytics */
-async function getDiseaseAnalytics(disease = 'all', period = 'year') {
-    const params = new URLSearchParams({ scope: 'disease_analytics', disease, period }).toString();
+async function getDiseaseAnalytics(disease = 'all', period = 'year', dataView = 'historical', currentMonth = '') {
+    const params = new URLSearchParams({ scope: 'disease_analytics', disease, period, data_view: dataView, current_month: currentMonth }).toString();
     try {
         const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?${params}`, { cache: 'no-store' });
         const result = await response.json();
@@ -303,41 +481,31 @@ async function rejectLostFoundSighting(id, reviewNotes = '') {
 
 /** GET /api/vet/chatbot/inquiry-rules */
 async function getInquiryRules() {
-    // [BACKEND] return apiFetch('/vet/chatbot/inquiry-rules');
     return { ok: true, data: [] };
 }
 
 /** POST /api/vet/chatbot/inquiry-rules */
 async function createInquiryRule(payload) {
-    // [BACKEND]
-    // return apiFetch('/vet/chatbot/inquiry-rules', { method: 'POST', body: JSON.stringify(payload) });
     return { ok: true, data: { ...payload, id: Date.now() } };
 }
 
 /** PATCH /api/vet/chatbot/inquiry-rules/:id */
 async function updateInquiryRule(id, payload) {
-    // [BACKEND]
-    // return apiFetch(`/vet/chatbot/inquiry-rules/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
     return { ok: true, data: { id, ...payload } };
 }
 
 /** DELETE /api/vet/chatbot/inquiry-rules/:id */
 async function deleteInquiryRule(id) {
-    // [BACKEND]
-    // return apiFetch(`/vet/chatbot/inquiry-rules/${id}`, { method: 'DELETE' });
     return { ok: true, data: { deleted: id } };
 }
 
 /** GET /api/vet/chatbot/consultation-rules */
 async function getConsultationRules() {
-    // [BACKEND] return apiFetch('/vet/chatbot/consultation-rules');
     return { ok: true, data: [] };
 }
 
 /** POST /api/vet/chatbot/consultation-rules */
 async function createConsultationRule(payload) {
-    // [BACKEND]
-    // return apiFetch('/vet/chatbot/consultation-rules', { method: 'POST', body: JSON.stringify(payload) });
     return { ok: true, data: { ...payload, id: Date.now() } };
 }
 
@@ -462,16 +630,28 @@ async function submitVaccinationReport(id, payload) {
     }
 }
 
-async function getDiseaseRiskPrediction(barangays, currentCasesByBarangay = {}) {
-    barangays = barangays || [];
+/**
+ * POST dashboard.php?scope=disease_risk_prediction
+ *
+ * `disease` and `period` scope the forecast. Leaving them out makes Python route
+ * to the all-disease model, so a caller filtering by disease must pass them or
+ * it silently gets back a series for the wrong question. They were missing here
+ * originally, and disease-analytics.js compensated by overwriting this function
+ * at load time with its own four-argument copy — that patch is gone and this is
+ * now the only implementation.
+ */
+async function getDiseaseRiskPrediction(barangays, currentCasesByBarangay = {}, disease = '', period = 'year', steps = 3) {
     try {
         const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?scope=disease_risk_prediction`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
             body:    JSON.stringify({
-                barangays: barangays,
-                current_cases_by_barangay: currentCasesByBarangay || {}
+                barangays:                 barangays || [],
+                current_cases_by_barangay: currentCasesByBarangay || {},
+                disease:                   disease || '',
+                period:                    period  || 'year',
+                steps:                     steps
             })
         });
         const result = await response.json();
@@ -480,10 +660,10 @@ async function getDiseaseRiskPrediction(barangays, currentCasesByBarangay = {}) 
         return { ok: false, data: [], error: error.message };
     }
 }
-async function getMassVaccinationDataset() {
+async function getMassVaccinationDataset(dataView = 'historical') {
     try {
         const response = await fetch(
-            `${BACKEND_URL}/dashboard/dashboard.php?scope=mass_vaccination_dataset`
+            `${BACKEND_URL}/dashboard/dashboard.php?scope=mass_vaccination_dataset&data_view=${encodeURIComponent(dataView)}`
         );
         const result = await response.json();
         return {
@@ -514,6 +694,65 @@ async function getVaccinationForecast(steps) {
     }
 }
 
+/* ── Notifications ──────────────────────────────────────── */
+/** POST notifications.php { action: 'list' } — returns the caller's own rows,
+ *  identified from their session rather than a posted role. */
+async function getStaffNotifications() {
+    try {
+        const response = await fetch(NOTIFICATIONS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'list' })
+        });
+        const result = await response.json();
+        return { ok: result.success, data: result.data || [], error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, data: [], error: error.message };
+    }
+}
+
+async function markNotificationRead(id) {
+    try {
+        const response = await fetch(NOTIFICATIONS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'mark_read', id })
+        });
+        const result = await response.json();
+        return { ok: result.success, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, error: error.message };
+    }
+}
+
+async function markAllNotificationsRead() {
+    try {
+        const response = await fetch(NOTIFICATIONS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'mark_all_read' })
+        });
+        const result = await response.json();
+        return { ok: result.success, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, error: error.message };
+    }
+}
+
+async function dismissNotification(id) {
+    try {
+        const response = await fetch(NOTIFICATIONS_URL, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ action: 'dismiss', id })
+        });
+        const result = await response.json();
+        return { ok: result.success, error: result.success ? null : result.message };
+    } catch (error) {
+        return { ok: false, error: error.message };
+    }
+}
+
 async function getRFModelInfo() {
     try {
         const response = await fetch(`${BACKEND_URL}/dashboard/dashboard.php?scope=rf_model_info`);
@@ -535,6 +774,21 @@ window.VetAPI = {
     updateAppointmentStatus,
     rescheduleAppointment,
     deleteAppointment,
+    getBookedSlots,
+    getVisitTypes,
+    addVisitType,
+    removeVisitType,
+    getCspDashboardStats,
+    getCspPrograms,
+    createCspProgram,
+    updateCspProgram,
+    getCspRegistrations,
+    assignCspRegistrations,
+    unassignCspRegistration,
+    notifyCspProgram,
+    cancelCspRegistration,
+    deleteCspRegistration,
+    deleteCspProgram,
     getPatients,
     getPatientById,
     createPatient,
@@ -564,5 +818,9 @@ window.VetAPI = {
     getVaccinationForecast,
     getDiseaseRiskPrediction,
     getMassVaccinationDataset,
-    getRFModelInfo
+    getRFModelInfo,
+    getStaffNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    dismissNotification
 };

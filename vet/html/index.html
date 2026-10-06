@@ -3,12 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VBetter | Dashboard</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter | Dashboard</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800;900&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="/bvetter/shared/css/sidebar.css">
-    <link rel="stylesheet" href="/bvetter/vet/css/index.css?v=20260713-1">
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../vet/css/index.css?v=20260928-mobile">
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
 </head>
 
@@ -16,49 +23,52 @@
     <div class="main-holder">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo"><img src="/bvetter/vet/images/logo.png" alt="VBetter Logo"></div>
+                <div class="logo"><img src="../../vet/images/logo.png" alt="BVetter Logo"></div>
             </div>
             <nav class="sidebar-nav">
-                <a href="/bvetter/vet/html/index.html" class="nav-item" title="Dashboard">
-                    <img src="/bvetter/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                <a href="../../vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="../../shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
                     <span class="nav-label">Dashboard</span>
                 </a>
-                <a href="/bvetter/vet/html/appointment.html" class="nav-item" title="Appointments">
-                    <img src="/bvetter/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                <a href="../../vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="../../shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
                     <span class="nav-label">Appointment Management</span>
                 </a>
-                <a href="/bvetter/vet/html/patient-records.html" class="nav-item" title="Patient Records">
-                    <img src="/bvetter/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                <a href="../../vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="../../shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
                     <span class="nav-label">Patient Records</span>
                 </a>
-                <a href="/bvetter/vet/html/report.html" class="nav-item" title="Reports">
-                    <img src="/bvetter/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                <a href="../../vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="../../shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
                     <span class="nav-label">Report</span>
                 </a>
-                <a href="/bvetter/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
-                    <img src="/bvetter/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                <a href="../../vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="../../shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
                     <span class="nav-label">Disease Analytics</span>
                 </a>
-                <a href="/bvetter/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
-                    <img src="/bvetter/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                <a href="../../vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="../../shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
                     <span class="nav-label">Lost And Found</span>
                 </a>
-                <a href="/bvetter/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
-                    <img src="/bvetter/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                <a href="../../vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="../../shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
                     <span class="nav-label">Chatbot Management</span>
                 </a>
-                <a href="/bvetter/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
-                    <img src="/bvetter/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                <a href="../../vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                     <span class="nav-label">Mass Vaccination</span>
                 </a>
-                <!-- ADMIN-ONLY section: sidebar.js hides these for vet role -->
+                <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                    <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                    <span class="nav-label">Support Tickets</span>
+                </a>
                 <div class="nav-section-label" data-roles="admin">Administration</div>
-                <a href="/bvetter/admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                <a href="../../admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
                     <span class="nav-label">Account Management</span>
                 </a>
-                <a href="/bvetter/admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                <a href="../../admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
                     <span class="nav-label">Website Management</span>
                 </a>
             </nav>
@@ -66,7 +76,6 @@
         </aside>
 
         <div class="mainContent">
-            <!-- TOP HEADER -->
             <div class="topHeader">
                 <div class="header-identity">
                     <div class="identity-avatar" id="headerAvatar">—</div>
@@ -79,10 +88,11 @@
                     <div class="iconheader">
                         <button class="icon-btn" id="notification-icon-btn" type="button" aria-label="Open notifications">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                            <span class="notif-dot" hidden></span>
                         </button>
-                        <button class="icon-btn" type="button" aria-label="Settings">
+                        <a class="icon-btn" href="../../vet/html/profile.html#security" aria-label="Settings">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                        </button>
+                        </a>
                         <button class="icon-btn" id="about-help-btn" type="button" aria-label="About us and help">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
@@ -102,32 +112,30 @@
             </div>
 
             <div id="dashboard-content">
-                <!-- GREETING -->
                 <div class="Greetings">
                     <div class="greet-left">
                         <div class="vet-badge">Veterinarian</div>
-                        <h1 id="greeting-name">Good Day, Dr. Igaya!</h1>
+                        <h1 id="greeting-name">Good Day!</h1>
                         <p class="greet-sub">Clinic overview — appointments, patient records, and vaccination status.</p>
                     </div>
                     <div class="greet-right">
                         <div class="greet-stat">
-                            <span class="greet-stat-val">1,284</span>
+                            <span class="greet-stat-val">--</span>
                             <span class="greet-stat-lbl">Total Appointments</span>
                         </div>
                         <div class="greet-divider"></div>
                         <div class="greet-stat">
-                            <span class="greet-stat-val">42</span>
+                            <span class="greet-stat-val">--</span>
                             <span class="greet-stat-lbl">Pending</span>
                         </div>
                         <div class="greet-divider"></div>
                         <div class="greet-stat">
-                            <span class="greet-stat-val">94%</span>
+                            <span class="greet-stat-val">--</span>
                             <span class="greet-stat-lbl">Vacc. Rate</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- KPI CARDS -->
                 <div class="KPI">
                     <div class="kpi-card">
                         <p class="kpi-label">Total Appointments</p>
@@ -158,11 +166,9 @@
                     </div>
                 </div>
 
-                <!-- MAIN CONTENT GRID -->
                 <div class="content-grid">
                     <div class="left-content">
 
-                        <!-- Patient Volume Chart -->
                         <div class="card">
                             <div class="card-header">
                                 <div>
@@ -179,7 +185,6 @@
                             </div>
                         </div>
 
-                        <!-- Disease Cases Chart -->
                         <div class="card">
                             <div class="card-header">
                                 <div>
@@ -196,47 +201,29 @@
                             <div class="chart-container">
                                 <canvas id="diseaseChart"></canvas>
                             </div>
+                            <p class="chart-note" id="diseaseForecastNote" hidden></p>
                         </div>
 
-                        <!-- Vaccine Cards -->
                         <div class="vaccine-section">
                             <div class="vaccine-card">
-                                <p class="card-label">Animals Vaccinated</p>
+                                <p class="card-label">Animals Vaccinated (Anti-Rabies)</p>
                                 <div class="chart-container vaccine-chart-container">
                                     <canvas id="vaccinatedChart"></canvas>
                                 </div>
                                 <div class="vaccine-legend">
-                                    <span class="legend-item"><span class="dot green"></span>Rabies</span>
-                                    <span class="legend-item"><span class="dot gray"></span>Parvo</span>
+                                    <span class="legend-item"><span class="dot green"></span>Dogs</span>
+                                    <span class="legend-item"><span class="dot gray"></span>Cats</span>
                                 </div>
                             </div>
 
                             <div class="vaccine-demand-card">
-                                <p class="card-label">Estimated Vaccine Demand (Next 30 Days)</p>
-                                <div class="vaccine-items">
-                                    <div class="vaccine-item">
-                                        <p class="vaccine-item-label">Rabies</p>
-                                        <h4 class="vaccine-item-value">450</h4>
-                                        <p class="vaccine-item-required">Units Required</p>
-                                    </div>
-                                    <div class="vaccine-item">
-                                        <p class="vaccine-item-label">Parvo</p>
-                                        <h4 class="vaccine-item-value">280</h4>
-                                        <p class="vaccine-item-required">Units Required</p>
-                                    </div>
-                                    <div class="vaccine-item">
-                                        <p class="vaccine-item-label">Distemper</p>
-                                        <h4 class="vaccine-item-value">195</h4>
-                                        <p class="vaccine-item-required">Units Required</p>
-                                    </div>
-                                </div>
-                                <div class="alert-box">
-                                    <p><strong>Inventory Alert:</strong> Rabies stock is 12% below projected demand. Reorder suggested.</p>
+                                <p class="card-label">Monthly Vaccination Trend (Last 12 Months)</p>
+                                <div class="chart-container vaccine-chart-container">
+                                    <canvas id="vaccinationTrendChart"></canvas>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Chatbot Insights -->
                         <div class="card insights-card">
                             <div class="insights-header">
                                 <h3 class="card-title">Chatbot Insights: Most Asked Symptoms</h3>
@@ -276,10 +263,8 @@
                         </div>
                     </div>
 
-                    <!-- RIGHT SIDE -->
                     <div class="right-content">
 
-                        <!-- Calendar -->
                         <div class="card calendar-card">
                             <div class="calendar-header">
                                 <h3>April 2026</h3>
@@ -291,7 +276,6 @@
                             <div id="calendar"></div>
                         </div>
 
-                        <!-- Today's Timeline -->
                         <div class="card timeline-card">
                             <div class="timeline-header">
                                 <h3>Today's Timeline</h3>
@@ -326,7 +310,6 @@
                             <button class="btn btn-add-appointment">+ Add Appointment</button>
                         </div>
 
-                        <!-- Next Event -->
                         <div class="card event-card">
                             <p class="event-label">NEXT MAJOR EVENT</p>
                             <h3 class="event-title">Annual Anti-Rabies Mass Vaccination</h3>
@@ -334,7 +317,6 @@
                             <button class="btn btn-manage-event">Manage Event</button>
                         </div>
 
-                        <!-- Recent Patient -->
                         <div class="card patient-card">
                             <div class="patient-header">
                                 <h3 class="card-title">Recent Patient Appointment</h3>
@@ -361,14 +343,13 @@
         </div>
     </div>
 
-    <!-- Dashboard modal root -->
     <div id="dashboard-modal-root" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/bvetter/shared/js/auth.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
     <script>VBetterAuth.requireAuth(['vet']);</script>
-    <script src="/bvetter/shared/js/sidebar.js"></script>
-    <script src="/bvetter/vet/js/vet-api.js"></script>
-    <script src="/bvetter/vet/js/index.js?v=20260713-1"></script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../vet/js/vet-api.js?v=20260819-idor"></script>
+    <script src="../../vet/js/index.js?v=20260825-announce"></script>
 </body>
 </html>

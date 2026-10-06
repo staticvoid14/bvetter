@@ -90,11 +90,54 @@ function bv_xlsx_sheet_path($zip, $sheetName)
 
     foreach ($rels->Relationship as $rel) {
         if ((string) $rel['Id'] === $relationshipId) {
-            $target = (string) $rel['Target'];
-            return 'xl/' . ltrim($target, '/');
+            return bv_xlsx_resolve_part((string) $rel['Target']);
         }
     }
     return null;
+}
+
+/**
+ * Turns a workbook relationship Target into a path inside the .xlsx zip.
+ *
+ * Two forms are legal in the OPC spec and both occur in the wild:
+ *
+ *   worksheets/sheet1.xml    relative to the workbook part, i.e. to xl/
+ *   /xl/worksheets/sheet1.xml   absolute from the package root
+ *
+ * Excel writes the first. openpyxl, LibreOffice, pandas.to_excel and Google
+ * Sheets exports write the second. This used to unconditionally prepend 'xl/',
+ * which turned the absolute form into 'xl/xl/worksheets/sheet1.xml' -- a path
+ * that does not exist, so the sheet silently parsed as zero rows.
+ *
+ * That was invisible while the only workbook ever read was the Excel-authored
+ * one bundled with the repo. It stopped being invisible the moment a clinic
+ * could upload a file: a perfectly valid workbook exported from anything other
+ * than Excel was rejected with "No consultation rows found in that file".
+ */
+function bv_xlsx_resolve_part($target)
+{
+    $target = trim((string) $target);
+    if ($target === '') return null;
+    // Absolute: already package-root-relative, just drop the leading slash.
+    if ($target[0] === '/') return ltrim($target, '/');
+    // Relative: resolved against the workbook part's folder, which is xl/.
+    return 'xl/' . $target;
+}
+
+/** Every sheet name in the workbook, in tab order. */
+function bv_xlsx_sheet_names($zip)
+{
+    $workbookXml = $zip->getFromName('xl/workbook.xml');
+    if ($workbookXml === false) return [];
+    $workbook = simplexml_load_string($workbookXml);
+    if (!$workbook) return [];
+
+    $workbook->registerXPathNamespace('main', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+    $names = [];
+    foreach ($workbook->xpath('//main:sheets/main:sheet') as $sheet) {
+        $names[] = (string) $sheet['name'];
+    }
+    return $names;
 }
 
 function bv_xlsx_cell_value($cell, $sharedStrings)
@@ -119,70 +162,170 @@ function bv_xlsx_rows($sheetName, $headerRowNumber)
     $cacheKey = $sheetName . ':' . $headerRowNumber;
     if (isset($cache[$cacheKey])) return $cache[$cacheKey];
 
-    $path = bv_dataset_path();
-    if (!file_exists($path) || !class_exists('ZipArchive')) {
-        $cache[$cacheKey] = [];
-        return [];
-    }
-
-    $zip = new ZipArchive();
-    if ($zip->open($path) !== true) return [];
-
-    $sheetPath = bv_xlsx_sheet_path($zip, $sheetName);
-    if (!$sheetPath) {
-        $zip->close();
-        return [];
-    }
-
-    $sheetXml = $zip->getFromName($sheetPath);
-    $sharedStrings = bv_xlsx_shared_strings($zip);
-    $zip->close();
-    if ($sheetXml === false) return [];
-
-    $sheet = simplexml_load_string($sheetXml);
-    if (!$sheet) return [];
-    $sheet->registerXPathNamespace('main', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
-
-    $headers = [];
-    $rows = [];
-    foreach ($sheet->sheetData->row as $row) {
-        $rowNumber = (int) $row['r'];
-        $values = [];
-        foreach ($row->c as $cell) {
-            $ref = (string) $cell['r'];
-            preg_match('/^[A-Z]+/', $ref, $matches);
-            $index = bv_col_letters_to_index($matches[0] ?? 'A');
-            $values[$index] = bv_xlsx_cell_value($cell, $sharedStrings);
-        }
-
-        if ($rowNumber === $headerRowNumber) {
-            ksort($values);
-            $headers = array_map(function ($value) {
-                return strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', bv_clean($value)));
-            }, $values);
-            continue;
-        }
-
-        if ($rowNumber <= $headerRowNumber || !$headers) continue;
-
-        $record = [];
-        foreach ($headers as $index => $header) {
-            if ($header === '') continue;
-            $record[$header] = $values[$index] ?? '';
-        }
-        if (count(array_filter($record, fn($value) => bv_clean($value) !== '')) > 0) {
-            $rows[] = $record;
-        }
-    }
-
+    $rows = bv_xlsx_rows_from_path(bv_dataset_path(), $sheetName, $headerRowNumber);
     $cache[$cacheKey] = $rows;
     return $rows;
 }
 
+/**
+ * Header-normalising XLSX reader for an arbitrary file, so an uploaded workbook
+ * is parsed by exactly the same code that reads the bundled one — one parser,
+ * one set of quirks, no chance of the two disagreeing about what a column means.
+ *
+ * $headerRowNumber may be null to auto-detect the header row, which is what
+ * uploads use: the bundled workbook happens to put headers on row 3, but a
+ * clinic export need not, and failing over a blank spacer row would be a
+ * miserable error message to debug.
+ *
+ * $requiredHeaders additionally lets the reader pick the right SHEET: when the
+ * named sheet is absent, every sheet is tried and the first one carrying all
+ * the required headers wins. That way a workbook whose tab was renamed still
+ * imports.
+ */
+function bv_xlsx_rows_from_path($path, $sheetName, $headerRowNumber = null, $requiredHeaders = [])
+{
+    if (!file_exists($path) || !class_exists('ZipArchive')) return [];
+
+    $zip = new ZipArchive();
+    if ($zip->open($path) !== true) return [];
+
+    $candidates = [];
+    if ($sheetName !== null) {
+        $named = bv_xlsx_sheet_path($zip, $sheetName);
+        if ($named) $candidates[] = $named;
+    }
+    if (!$candidates) {
+        foreach (bv_xlsx_sheet_names($zip) as $name) {
+            $candidate = bv_xlsx_sheet_path($zip, $name);
+            if ($candidate) $candidates[] = $candidate;
+        }
+    }
+    if (!$candidates) {
+        $zip->close();
+        return [];
+    }
+
+    $sharedStrings = bv_xlsx_shared_strings($zip);
+    $rows = [];
+
+    foreach ($candidates as $candidate) {
+        $sheetXml = $zip->getFromName($candidate);
+        if ($sheetXml === false) continue;
+        $sheet = simplexml_load_string($sheetXml);
+        if (!$sheet) continue;
+        $sheet->registerXPathNamespace('main', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+
+        // TWO PASSES OVER THE SAME PARSED XML, not one pass into a PHP buffer.
+        // Buffering every row's cell values so the header could be located
+        // afterwards meant holding the raw values AND the built records at once:
+        // measured 20 MB against the streaming original's 12 MB on
+        // Consult_Diagnosis_3Y. SimpleXML already holds the document, so walking
+        // sheetData twice is free, and only one row of cell values is ever live.
+        $headerRow = null;
+        $headers   = [];
+        foreach ($sheet->sheetData->row as $row) {
+            $rowNumber = (int) $row['r'];
+            if ($headerRowNumber !== null && $rowNumber !== $headerRowNumber) continue;
+
+            $values = bv_xlsx_row_values($row, $sharedStrings);
+            ksort($values);
+            $labels = array_map(fn($value) => bv_normalize_header($value), $values);
+
+            if ($headerRowNumber !== null) {
+                $headerRow = $rowNumber;
+                $headers   = $labels;
+                break;
+            }
+            // Auto-detect: the first row carrying the columns we need. Falls back
+            // to 'year', matching read_excel_sheet()'s probe in
+            // api/analytics/arima_service.py so both runtimes agree where data starts.
+            $needles = $requiredHeaders ?: ['year'];
+            if (!array_diff($needles, array_values($labels))) {
+                $headerRow = $rowNumber;
+                $headers   = $labels;
+                break;
+            }
+        }
+        if ($headerRow === null || !$headers) continue;
+
+        // Wrong sheet for this data: keep looking rather than returning its rows.
+        if ($requiredHeaders && array_diff($requiredHeaders, array_values($headers))) continue;
+
+        foreach ($sheet->sheetData->row as $row) {
+            $rowNumber = (int) $row['r'];
+            if ($rowNumber <= $headerRow) continue;
+
+            $values = bv_xlsx_row_values($row, $sharedStrings);
+            $record = [];
+            foreach ($headers as $index => $header) {
+                if ($header === '') continue;
+                $record[$header] = $values[$index] ?? '';
+            }
+            if (count(array_filter($record, fn($value) => bv_clean($value) !== '')) > 0) {
+                $rows[] = $record;
+            }
+        }
+        break;
+    }
+
+    $zip->close();
+    return $rows;
+}
+
+/** One row's cells as [columnIndex => value]. */
+function bv_xlsx_row_values($row, $sharedStrings)
+{
+    $values = [];
+    foreach ($row->c as $cell) {
+        $ref = (string) $cell['r'];
+        preg_match('/^[A-Z]+/', $ref, $matches);
+        $values[bv_col_letters_to_index($matches[0] ?? 'A')] = bv_xlsx_cell_value($cell, $sharedStrings);
+    }
+    return $values;
+}
+
+/** The column-name normalisation every reader here shares: "Month No." -> month_no. */
+function bv_normalize_header($value)
+{
+    return strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', bv_clean($value)));
+}
+
+/**
+ * Rows for a dataset sheet.
+ *
+ * Consult_Diagnosis_3Y is served ONLY from the database, from the clinic's
+ * active uploaded dataset version (see api/includes/dataset_versions.php). The
+ * switch lives here, inside the reader, so every call site that reads this
+ * sheet gets the same rows and none of them can drift apart.
+ *
+ * With no active version it returns no rows. It used to fall back to the
+ * bundled workbook's sheet, but that is a different dataset that reuses the
+ * same consultation ids (4,986 consultations against the clinic's 2,349 for
+ * 2023-2025, and no shared id describes the same visit). The fallback therefore
+ * put every chart, report and forecast on records the results were never
+ * computed from, with nothing on screen to say so. An empty dataset is at least
+ * visibly empty.
+ *
+ * Every other sheet still comes from the workbook.
+ */
 function bv_sheet_rows($sheetName)
 {
+    if ($sheetName === 'Consult_Diagnosis_3Y') {
+        // Resolved once per request. `false` means "not looked up yet".
+        static $activeRows = false;
+        if ($activeRows === false) {
+            // Required lazily rather than at file scope: dataset_versions.php
+            // requires this file back, and at load time that cycle would leave
+            // half of one of them undefined.
+            require_once __DIR__ . '/dataset_versions.php';
+            $activeRows = bv_active_consult_rows() ?? [];
+        }
+        return $activeRows;
+    }
+
     $headerRows = [
         'Dashboard' => 4,
+        'Barangay_Masterlist' => 3,
         'Barangay_Disease_Monthly' => 3,
         'Prediction_Ready_Aggregated' => 3,
         'Consult_Diagnosis_3Y' => 3,
@@ -265,6 +408,16 @@ function bv_first_non_empty($row, $keys, $fallback = '')
     return $fallback;
 }
 
+/**
+ * "1 case" / "2 cases" -- KPI subsets are user-facing sentences, and a hard
+ * "{$n} cases" reads as broken software the first time $n is 1.
+ */
+function bv_pluralize($count, $singular, $plural = null)
+{
+    $count = (int) $count;
+    return $count . ' ' . ($count === 1 ? $singular : ($plural ?? $singular . 's'));
+}
+
 function bv_count_by($rows, $key)
 {
     $counts = [];
@@ -301,6 +454,7 @@ function bv_table_exists($pdo, $table)
         $stmt->execute([':table_name' => $table]);
         return (bool) $stmt->fetchColumn();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return false;
     }
 }
@@ -312,6 +466,7 @@ function bv_column_exists($pdo, $table, $column)
         $stmt->execute([':column_name' => $column]);
         return (bool) $stmt->fetchColumn();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return false;
     }
 }
@@ -320,4 +475,105 @@ function bv_latest_dataset_year()
 {
     $years = array_map(fn($row) => (int) ($row['year'] ?? 0), bv_sheet_rows('Dashboard'));
     return max($years ?: [(int) date('Y')]);
+}
+
+/**
+ * The latest year present in the CONSULTATION data specifically.
+ *
+ * WHY THIS IS SEPARATE FROM bv_latest_dataset_year(). That one reads the
+ * Dashboard sheet, which is right for the views that also read the workbook --
+ * annual_dashboard(), the rabies panel, mass vaccination -- because those need
+ * the latest year their OWN sheet carries.
+ *
+ * The disease views do not. Consult_Diagnosis_3Y is the one sheet an upload
+ * replaces (see bv_sheet_rows()), so once a clinic uploads, its years and the
+ * bundled Dashboard sheet's years are no longer the same set. Pinning the
+ * disease case counts to the Dashboard year meant an upload covering any other
+ * year got filtered away to nothing: the "Actual Cases" chart went empty and
+ * still titled itself with the workbook's year, while the Python forecast --
+ * which derives its period from the uploaded rows -- kept rendering normally.
+ *
+ * Falls back to bv_latest_dataset_year() when the consultation source is empty,
+ * so a fresh install with no upload behaves exactly as it did before.
+ */
+function bv_latest_consult_year()
+{
+    $years = array_filter(array_map(
+        fn($row) => (int) ($row['year'] ?? 0),
+        bv_sheet_rows('Consult_Diagnosis_3Y')
+    ));
+    return $years ? max($years) : bv_latest_dataset_year();
+}
+
+/**
+ * How the latest year should be NAMED, given how much of it the data covers.
+ *
+ * "Full Year 2026" over seven encoded months is a claim the chart used to make
+ * while sitting beside three complete years, inviting a comparison the numbers
+ * cannot support. Any clinic that uploads mid-year hits this, not just a demo.
+ *
+ * Reports the span AND the count rather than a bare "partial": a vet reading
+ * "Jan-Jul 2026 (7 of 12 months)" knows both what is in the figure and how much
+ * is missing from it.
+ *
+ * Reads the same cached rows every other caller uses, so naming the period
+ * costs no extra query or file parse.
+ */
+function bv_consult_year_label($year)
+{
+    $months = bv_consult_year_months($year);
+
+    // No rows at all falls back to the old wording rather than inventing a
+    // span: an empty year is a different problem, and mislabelling it here
+    // would hide it.
+    if (!$months || count($months) >= 12) return 'Full Year ' . (int) $year;
+
+    $names = [1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',  5 => 'May',  6 => 'Jun',
+              7 => 'Jul', 8 => 'Aug', 9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec'];
+    $first = $names[$months[0]];
+    $last  = $names[end($months)];
+
+    return sprintf('%s %d (%d of 12 months)',
+        $first === $last ? $first : $first . '-' . $last,
+        (int) $year, count($months));
+}
+
+/**
+ * Which calendar months of $year the consultation data actually holds, ascending.
+ *
+ * Separate from the label because two callers need the COUNT rather than the
+ * wording: the label itself, and the pace comparison that tells a reader what a
+ * part-year total is on track to become. Both must agree about how much of the
+ * year is encoded, so both read it from here.
+ */
+function bv_consult_year_months($year)
+{
+    $year   = (int) $year;
+    $months = [];
+    foreach (bv_sheet_rows('Consult_Diagnosis_3Y') as $row) {
+        if ((int) ($row['year'] ?? 0) !== $year) continue;
+        $month = (int) ($row['month_no'] ?? 0);
+        if ($month >= 1 && $month <= 12) $months[$month] = true;
+    }
+    ksort($months);
+    return array_keys($months);
+}
+
+/**
+ * The last month of $year the consultation data actually reaches, which is what
+ * "Monthly" means on Disease Analytics.
+ *
+ * Callers used to derive this with a max-scan seeded at 12. Twelve is already
+ * the largest month there is, so the scan could never move it: on any workbook
+ * whose latest year stops short of December -- every mid-year upload, which the
+ * Manage Dataset flow exists to accept -- "Monthly" filtered to a December that
+ * held no rows and the Actual chart came back empty while Yearly was fine.
+ *
+ * Falls back to 12 only when the year holds nothing at all, so an empty year
+ * behaves as it did before rather than silently becoming January.
+ */
+function bv_consult_latest_month($year)
+{
+    $months = bv_consult_year_months($year);
+    return $months ? (int) end($months) : 12;
 }

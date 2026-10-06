@@ -3,11 +3,18 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>VBetter – Security & Access Control</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter – Security & Access Control</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="../../shared/css/sidebar.css"/>
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile"/>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -64,6 +71,12 @@
             width: calc(100% - var(--sidebar-width-expanded) - var(--sidebar-main-gap) - var(--shell-gap));
         }
 
+        /* .sec-main is only as tall as the screen, and flex items shrink to
+           fit by default. The session card clips its overflow, so it was
+           the one that gave way: cut to a single row on a laptop and to
+           nothing at all on a phone. */
+        .sec-main > * { flex-shrink: 0; }
+
         /* ── BREADCRUMB ── */
         .sec-breadcrumb {
             display: flex;
@@ -108,10 +121,13 @@
 
         .sec-page-title-icon:hover { color: var(--primary-blue); }
 
-        /* ── TWO-COL TOP ROW ── */
+        /* ── TOP ROW (2FA / Password Policy / Account Lifespan / Session Timeout) ──
+           Two columns, not three. There are four cards: on a 3-column grid the
+           fourth dropped onto its own row at a third of the width, which read as
+           a layout fault rather than a deliberate row. 4 into 2 is a clean 2x2. */
         .sec-top-row {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(2, 1fr);
             gap: 18px;
         }
 
@@ -329,6 +345,19 @@
 
         .sec-btn-terminate:hover { background: #FFF5F5; }
 
+        .sec-session-table-wrap {
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        .sec-session-table-wrap::-webkit-scrollbar { width: 8px; }
+        .sec-session-table-wrap::-webkit-scrollbar-track { background: transparent; }
+        .sec-session-table-wrap::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        .sec-session-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
         .sec-session-table {
             width: 100%;
             border-collapse: collapse;
@@ -344,6 +373,9 @@
             text-align: left;
             background: var(--bg-page);
             border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 1;
         }
 
         .sec-session-table td {
@@ -355,6 +387,48 @@
 
         .sec-session-table tbody tr:last-child td { border-bottom: none; }
         .sec-session-table tbody tr:hover { background: #f8fafd; }
+
+        .sec-session-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .sec-session-showing {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .sec-session-pagination { display: flex; gap: 8px; align-items: center; }
+
+        .sec-page-btn {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 7px 18px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Manrope', sans-serif;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .sec-page-btn:hover:not(:disabled) { background: var(--bg-page); }
+        .sec-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .sec-page-next {
+            color: var(--primary-blue);
+            border-color: var(--primary-blue);
+            background: #f0f6ff;
+        }
+
+        .sec-page-next:hover:not(:disabled) { background: #ddeeff; }
 
         /* Device cell */
         .sec-device-cell { display: flex; align-items: center; gap: 12px; }
@@ -406,18 +480,158 @@
 
         .sec-btn-end-session:hover { opacity: 0.7; }
 
+        /* ── MODALS ── */
+        .sec-modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15,23,42,0.55);
+            padding: 20px;
+        }
+
+        .sec-modal-overlay.open { display: flex; }
+
+        .sec-modal {
+            background: var(--bg-white);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            width: 100%;
+            max-width: 440px;
+            padding: 26px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .sec-modal-title { font-size: 17px; font-weight: 800; color: var(--text-primary); }
+
+        .sec-modal-sub { font-size: 12.5px; color: var(--text-tertiary); font-weight: 500; margin-top: 2px; }
+
+        .sec-method-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            border: 1.5px solid var(--secondary-light-green);
+            background: rgba(0,185,40,0.05);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+        }
+
+        .sec-method-row .sec-method-name { font-size: 13.5px; font-weight: 800; color: var(--text-primary); display: block; }
+        .sec-method-row .sec-method-desc { font-size: 12px; color: var(--text-secondary); font-weight: 500; margin-top: 3px; line-height: 1.5; }
+
+        .sec-modal-status {
+            font-size: 12.5px;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            display: none;
+        }
+
+        .sec-modal-status.ok    { display: block; background: rgba(0,185,40,0.10); color: #1B6D24; }
+        .sec-modal-status.error { display: block; background: rgba(147,0,10,0.08); color: var(--accent-red); }
+
+        .sec-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+        .sec-btn-secondary {
+            background: var(--bg-page);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 11px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: 'Manrope', sans-serif;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .sec-btn-secondary:hover { background: var(--border); }
+
+        .sec-btn-primary {
+            background: var(--primary-dark);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 11px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: 'Manrope', sans-serif;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .sec-btn-primary:hover { background: #003A72; }
+        .sec-btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+        .sec-field { display: flex; flex-direction: column; gap: 6px; }
+
+        .sec-field-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+        }
+
+        .sec-field input[type="number"] {
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'Manrope', sans-serif;
+            color: var(--text-primary);
+            width: 110px;
+        }
+
+        .sec-field input[type="number"]:focus { outline: none; border-color: var(--primary-blue); }
+
+        .sec-checkbox-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sec-checkbox-row:last-child { border-bottom: none; }
+
+        .sec-checkbox-row label { font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+
+        .sec-checkbox-row input { width: 17px; height: 17px; accent-color: var(--secondary-light-green); cursor: pointer; }
+
+        /* No 1240px rule needed any more — the base grid is already two columns. */
+
         @media (max-width: 960px) {
+            /* Below 768px the sidebar leaves position:fixed and rejoins the
+               flex flow (see shared/css/sidebar.css) — without this, body's
+               default flex-direction:row crams it into one row with
+               .sec-main instead of stacking them. */
+            body { flex-direction: column; }
             .sec-main { margin-left: 0; width: 100%; padding: 20px; }
             .sec-top-row { grid-template-columns: 1fr; }
         }
+
+        @media (max-width: 768px) {
+            .sec-main { padding: 16px; }
+            .sec-session-header { flex-wrap: wrap; gap: 10px; }
+            /* Sessions are cards here (shared/css/table-cards.css); let
+               them flow with the page instead of scrolling in a box. */
+            .sec-session-table-wrap { max-height: none; padding: 12px; }
+        }
     </style>
+    <link rel="stylesheet" href="../../shared/css/table-cards.css?v=20260928-mobile">
 </head>
 <body>
 
     <aside class="sidebar" role="navigation" aria-label="Main navigation">
         <div class="sidebar-header">
             <div class="logo">
-                <img src="../../shared/images/logo.png" alt="VBetter" onerror="this.parentElement.textContent='V'">
+                <img src="../../shared/images/logo.png" alt="BVetter" onerror="this.parentElement.textContent='V'">
             </div>
         </div>
         <nav class="sidebar-nav">
@@ -453,6 +667,10 @@
                 <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                 <span class="nav-label">Mass Vaccination</span>
             </a>
+            <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                <span class="nav-label">Support Tickets</span>
+            </a>
             <div class="nav-section-label" data-roles="admin">Administration</div>
             <a href="account-management.html" class="nav-item active" title="Account Management" data-roles="admin">
                 <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
@@ -468,14 +686,12 @@
 
     <main class="sec-main">
 
-        <!-- Breadcrumb -->
         <nav class="sec-breadcrumb">
             <a href="account-management.html">Account Management</a>
             <span class="sec-breadcrumb-sep">›</span>
             <span class="sec-breadcrumb-current">Manage Security</span>
         </nav>
 
-        <!-- Page title -->
         <div style="display:flex;align-items:center;gap:12px;">
             <a href="account-management.html" class="sec-page-title-icon" title="Back">
                 <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -485,10 +701,8 @@
             <h1 class="sec-page-title">Security &amp; Access Control</h1>
         </div>
 
-        <!-- TOP ROW: 2FA + Password Policy -->
         <div class="sec-top-row">
 
-            <!-- 2FA Card -->
             <div class="sec-card">
                 <div class="sec-card-header">
                     <div class="sec-card-title-row">
@@ -504,23 +718,21 @@
                         </div>
                     </div>
 
-                    <!-- Toggle -->
                     <label class="sec-toggle" title="Toggle 2FA">
-                        <input type="checkbox" id="toggle-2fa" checked>
+                        <input type="checkbox" id="toggle-2fa">
                         <span class="sec-toggle-track"></span>
                         <span class="sec-toggle-thumb"></span>
                     </label>
                 </div>
 
-                <div class="sec-2fa-meta">
-                    <strong>Authenticated via Microsoft Authenticator</strong>
-                    <span>Last used: Today at 08:42 AM from IP 192.168.1.45</span>
+                <div class="sec-2fa-meta" id="twofa-meta">
+                    <strong>Loading&hellip;</strong>
+                    <span></span>
                 </div>
 
-                <button class="sec-btn-configure" type="button">Configure 2FA Methods</button>
+                <button class="sec-btn-configure" type="button" id="configure-2fa-btn">Configure 2FA Methods</button>
             </div>
 
-            <!-- Password Policy Card -->
             <div class="sec-card">
                 <div class="sec-card-header">
                     <div class="sec-card-title-row">
@@ -535,36 +747,81 @@
                             <span class="sec-card-sub">Requirements for all clinic staff accounts.</span>
                         </div>
                     </div>
-                    <button class="sec-card-edit-btn" type="button" title="Edit policy">
+                    <button class="sec-card-edit-btn" type="button" title="Edit policy" id="edit-policy-btn">
                         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
                     </button>
                 </div>
 
-                <div>
+                <div id="policy-rows">
                     <div class="sec-policy-row">
-                        <span class="sec-policy-label">Minimum Length</span>
-                        <span class="sec-policy-value">12 Characters</span>
-                    </div>
-                    <div class="sec-policy-row">
-                        <span class="sec-policy-label">Require Special Characters</span>
-                        <span class="sec-policy-value">
-                            <span class="sec-check-green">
-                                <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                            </span>
-                        </span>
-                    </div>
-                    <div class="sec-policy-row">
-                        <span class="sec-policy-label">Password Expiry</span>
-                        <span class="sec-policy-value">90 Days</span>
+                        <span class="sec-policy-label">Loading&hellip;</span>
                     </div>
                 </div>
             </div>
 
+            <div class="sec-card">
+                <div class="sec-card-header">
+                    <div class="sec-card-title-row">
+                        <div class="sec-card-icon">
+                            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 3"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <span class="sec-card-label">Account Lifespan</span>
+                            <span class="sec-card-sub">Auto-block accounts that go quiet for too long.</span>
+                        </div>
+                    </div>
+
+                    <label class="sec-toggle" title="Toggle inactivity auto-lockout">
+                        <input type="checkbox" id="toggle-inactivity-lockout" aria-label="Toggle inactivity auto-lockout">
+                        <span class="sec-toggle-track"></span>
+                        <span class="sec-toggle-thumb"></span>
+                    </label>
+                </div>
+
+                <div class="sec-2fa-meta" id="inactivity-meta">
+                    <strong>Loading&hellip;</strong>
+                    <span></span>
+                </div>
+
+                <button class="sec-btn-configure" type="button" id="configure-inactivity-btn">Set Lockout Duration</button>
+            </div>
+
+            <div class="sec-card">
+                <!-- sec-card-header / sec-card-title-row, matching the other three
+                     cards. This card used sec-card-head / sec-card-left, which are
+                     styled nowhere — so its icon and title stacked vertically
+                     instead of sitting inline like every other card. -->
+                <div class="sec-card-header">
+                    <div class="sec-card-title-row">
+                        <div class="sec-card-icon">
+                            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2">
+                                <rect x="3" y="4" width="18" height="14" rx="2"/>
+                                <path stroke-linecap="round" d="M8 21h8M12 18v3"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v3l2 2"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <span class="sec-card-label">Session Timeout</span>
+                            <span class="sec-card-sub">Sign users out after a period with no activity.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sec-2fa-meta" id="session-timeout-meta">
+                    <strong>Loading&hellip;</strong>
+                    <span></span>
+                </div>
+
+                <button class="sec-btn-configure" type="button" id="configure-session-timeout-btn">Set Timeout</button>
+            </div>
+
         </div>
 
-        <!-- SESSION MANAGEMENT -->
         <div class="sec-session-card">
             <div class="sec-session-header">
                 <div>
@@ -574,33 +831,161 @@
                 <button class="sec-btn-terminate" type="button" id="terminate-all-btn">TERMINATE ALL</button>
             </div>
 
-            <table class="sec-session-table">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>Device / Browser</th>
-                        <th>Location</th>
-                        <th>Last Activity</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="session-table-body">
-                    <!-- Populated by JS -->
-                </tbody>
-            </table>
+            <div class="sec-session-table-wrap">
+                <table class="sec-session-table" data-cards>
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Device / Browser</th>
+                            <th title="Approximate — based on the device's IP address, not GPS. Philippine ISPs often register an IP block to a regional hub city rather than the subscriber's actual city.">Location (Approx.)</th>
+                            <th>Last Activity</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="session-table-body">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="sec-session-footer">
+                <span class="sec-session-showing" id="session-showing-label">Showing 0 of 0 sessions</span>
+                <div class="sec-session-pagination">
+                    <button class="sec-page-btn" id="session-prev-page" type="button">Previous</button>
+                    <button class="sec-page-btn sec-page-next" id="session-next-page" type="button">Next</button>
+                </div>
+            </div>
         </div>
 
     </main>
 
-    <script src="../../shared/js/auth.js"></script>
+    <div class="sec-modal-overlay" id="twofa-modal">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-labelledby="twofa-modal-title">
+            <div>
+                <div class="sec-modal-title" id="twofa-modal-title">Configure 2FA Methods</div>
+                <div class="sec-modal-sub" id="twofa-modal-state">Loading&hellip;</div>
+            </div>
+
+            <div class="sec-method-row">
+                <span class="sec-check-green" style="margin-top:2px;">
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <div>
+                    <span class="sec-method-name">Email OTP (Active Method)</span>
+                    <span class="sec-method-desc">
+                        When an admin signs in with the correct password, a 6-digit
+                        code is emailed to their registered address. The code expires after
+                        10 minutes and allows 5 attempts. Veterinarian and pet owner accounts
+                        are not affected.
+                    </span>
+                </div>
+            </div>
+
+            <div class="sec-modal-status" id="twofa-test-status"></div>
+
+            <div class="sec-modal-actions">
+                <button class="sec-btn-secondary" type="button" id="twofa-modal-close">Close</button>
+                <button class="sec-btn-primary" type="button" id="twofa-test-btn">Send Me a Test Code</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sec-modal-overlay" id="policy-modal">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-labelledby="policy-modal-title">
+            <div>
+                <div class="sec-modal-title" id="policy-modal-title">Edit Password Policy</div>
+                <div class="sec-modal-sub">Applies whenever a password is next set (registration, reset, account creation, password change). Existing passwords keep working, but anyone signing in with one that falls short of this policy is asked to update it before continuing.</div>
+            </div>
+
+            <div class="sec-field">
+                <span class="sec-field-label">Minimum Length</span>
+                <input type="number" id="policy-min-length" min="12" max="64" step="1">
+            </div>
+
+            <div>
+                <div class="sec-checkbox-row">
+                    <label for="policy-special">Require Special Character</label>
+                    <input type="checkbox" id="policy-special" checked disabled>
+                </div>
+                <div class="sec-checkbox-row">
+                    <label for="policy-number">Require Number</label>
+                    <input type="checkbox" id="policy-number" checked disabled>
+                </div>
+                <div class="sec-checkbox-row">
+                    <label for="policy-uppercase">Require Uppercase Letter</label>
+                    <input type="checkbox" id="policy-uppercase" checked disabled>
+                </div>
+                <div class="sec-checkbox-row">
+                    <label for="policy-lowercase">Require Lowercase Letter</label>
+                    <input type="checkbox" id="policy-lowercase" checked disabled>
+                </div>
+            </div>
+
+            <div class="sec-modal-sub" style="margin-top:-4px;">
+                The four character requirements and the 12-character minimum are the enforced floor &mdash; they can be raised here but not switched off. Passwords are also rejected if they are a common word in disguise (Password123!, W3lcome!) or contain the account holder's own name or email.
+            </div>
+
+            <div class="sec-modal-status" id="policy-status"></div>
+
+            <div class="sec-modal-actions">
+                <button class="sec-btn-secondary" type="button" id="policy-modal-close">Cancel</button>
+                <button class="sec-btn-primary" type="button" id="policy-save-btn">Save Policy</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sec-modal-overlay" id="inactivity-modal">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-labelledby="inactivity-modal-title">
+            <div>
+                <div class="sec-modal-title" id="inactivity-modal-title">Account Lifespan</div>
+                <div class="sec-modal-sub">Accounts with no login for this many days are blocked automatically, across every role. Enable the toggle on the security page to turn this on.</div>
+            </div>
+
+            <div class="sec-field">
+                <span class="sec-field-label">Block After (Days)</span>
+                <input type="number" id="inactivity-days" min="1" max="3650" step="1">
+            </div>
+
+            <div class="sec-modal-status" id="inactivity-status"></div>
+
+            <div class="sec-modal-actions">
+                <button class="sec-btn-secondary" type="button" id="inactivity-modal-close">Cancel</button>
+                <button class="sec-btn-primary" type="button" id="inactivity-save-btn">Save Duration</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sec-modal-overlay" id="session-timeout-modal">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-labelledby="session-timeout-modal-title">
+            <div>
+                <div class="sec-modal-title" id="session-timeout-modal-title">Session Timeout</div>
+                <div class="sec-modal-sub">Signed-in users are warned two minutes before the limit and signed out when it is reached. Only real activity &mdash; typing, clicking, scrolling &mdash; counts; a page left open on screen does not keep a session alive. Takes effect immediately for everyone currently signed in.</div>
+            </div>
+
+            <div class="sec-field">
+                <span class="sec-field-label">Sign Out After (Minutes Of Inactivity)</span>
+                <input type="number" id="session-timeout-minutes" min="5" max="480" step="5">
+            </div>
+
+            <div class="sec-modal-status" id="session-timeout-status"></div>
+
+            <div class="sec-modal-actions">
+                <button class="sec-btn-secondary" type="button" id="session-timeout-modal-close">Cancel</button>
+                <button class="sec-btn-primary" type="button" id="session-timeout-save-btn">Save Timeout</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
     <script>VBetterAuth.requireAuth(['admin']);</script>
-    <script src="../../shared/js/sidebar.js"></script>
-    <script src="../../public/js/api.js"></script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../public/js/api.js?v=20260818-notif"></script>
     <script>
     'use strict';
 
     let activeSessions = [];
+    const SESSION_PAGE_SIZE = 5;
+    let sessionCurrentPage = 1;
 
     function deviceIcon(deviceLabel) {
         const label = (deviceLabel || '').toLowerCase();
@@ -609,9 +994,11 @@
         return `<svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
     }
 
-    function timeAgo(dateStr) {
-        if (!dateStr) return 'Unknown';
-        const diffMs = Date.now() - new Date(dateStr.replace(' ', 'T')).getTime();
+    // Takes epoch seconds (server-computed) — immune to the server-vs-browser
+    // timezone mismatch that made fresh sessions show as "8 hours ago".
+    function timeAgo(epochSeconds) {
+        if (!epochSeconds) return 'Unknown';
+        const diffMs = Date.now() - epochSeconds * 1000;
         const mins = Math.floor(diffMs / 60000);
         if (mins < 1) return 'Just now';
         if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
@@ -639,30 +1026,51 @@
 
     function renderSessions() {
         const tbody = document.getElementById('session-table-body');
+        const showingLabel = document.getElementById('session-showing-label');
+        const prevBtn = document.getElementById('session-prev-page');
+        const nextBtn = document.getElementById('session-next-page');
         if (!tbody) return;
 
         if (!activeSessions.length) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:36px;color:#8A94A6;font-size:13px;">No active sessions.</td></tr>';
+            if (showingLabel) showingLabel.textContent = 'Showing 0 of 0 sessions';
+            if (prevBtn) prevBtn.disabled = true;
+            if (nextBtn) nextBtn.disabled = true;
             return;
         }
 
-        tbody.innerHTML = activeSessions.map(s => `
+        const totalPages = Math.max(1, Math.ceil(activeSessions.length / SESSION_PAGE_SIZE));
+        sessionCurrentPage = Math.min(sessionCurrentPage, totalPages);
+        const start = (sessionCurrentPage - 1) * SESSION_PAGE_SIZE;
+        const pageSessions = activeSessions.slice(start, start + SESSION_PAGE_SIZE);
+
+        if (showingLabel) {
+            showingLabel.textContent = `Showing ${start + 1}–${Math.min(start + SESSION_PAGE_SIZE, activeSessions.length)} of ${activeSessions.length} sessions`;
+        }
+
+        // Every value below originates from a user (the display name and
+        // email come from registration; the device label and IP from the
+        // request that created the session), and this table renders them
+        // into an ADMINISTRATOR's browser — so an unescaped name here is a
+        // path from the public signup form to admin account takeover.
+        const esc = window.vbEscapeHtml;
+        tbody.innerHTML = pageSessions.map(s => `
             <tr data-id="${s.id}">
                 <td>
-                    <span class="sec-device-name">${s.userName || 'Unknown user'}</span>
-                    <span class="sec-device-sub">${ROLE_LABELS[s.userRole] || s.userRole || ''} &bull; ${s.userEmail || ''}</span>
+                    <span class="sec-device-name">${esc(s.userName || 'Unknown user')}</span>
+                    <span class="sec-device-sub">${esc(ROLE_LABELS[s.userRole] || s.userRole || '')} &bull; ${esc(s.userEmail || '')}</span>
                 </td>
                 <td>
                     <div class="sec-device-cell">
                         <div class="sec-device-icon">${deviceIcon(s.device)}</div>
                         <div>
-                            <span class="sec-device-name">${s.device}</span>
-                            <span class="sec-device-sub">${s.ip || ''}</span>
+                            <span class="sec-device-name">${esc(s.device)}</span>
+                            <span class="sec-device-sub">${esc(s.ip || '')}</span>
                         </div>
                     </div>
                 </td>
-                <td style="font-size:13px;font-weight:600;color:var(--text-secondary);">${s.location}</td>
-                <td style="font-size:13px;color:var(--text-tertiary);font-weight:500;">${timeAgo(s.lastActivity)}</td>
+                <td style="font-size:13px;font-weight:600;color:var(--text-secondary);">${esc(s.location)}</td>
+                <td style="font-size:13px;color:var(--text-tertiary);font-weight:500;">${timeAgo(s.lastActivityEpoch)}</td>
                 <td>
                     <span class="sec-session-status ${s.isCurrent ? 'current' : 'standby'}">
                         <span class="sec-session-dot"></span>
@@ -677,43 +1085,382 @@
                 </td>
             </tr>
         `).join('');
+
+        if (prevBtn) prevBtn.disabled = sessionCurrentPage <= 1;
+        if (nextBtn) nextBtn.disabled = sessionCurrentPage >= totalPages;
     }
 
+    document.getElementById('session-prev-page')?.addEventListener('click', () => {
+        if (sessionCurrentPage > 1) { sessionCurrentPage--; renderSessions(); }
+    });
+    document.getElementById('session-next-page')?.addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(activeSessions.length / SESSION_PAGE_SIZE));
+        if (sessionCurrentPage < totalPages) { sessionCurrentPage++; renderSessions(); }
+    });
+
     async function endSession(id) {
-        if (!confirm('End this session? That device will be signed out.')) return;
+        if (!(await vbConfirm('End this session? That device will be signed out.', 'End Session'))) return;
         const result = await api.adminEndSession(id).catch(() => ({ success: false }));
         if (!result.success) {
-            alert(result.message || 'Could not end this session.');
+            await vbAlert(result.message || 'Could not end this session.');
             return;
         }
         await loadSessions();
     }
 
     document.getElementById('terminate-all-btn')?.addEventListener('click', async () => {
-        if (!confirm('Terminate ALL other sessions, for every user account, system-wide? Everyone but you will be signed out.')) return;
+        if (!(await vbConfirm('Terminate ALL other sessions, for every user account, system-wide? Everyone but you will be signed out.', 'Terminate All'))) return;
         const result = await api.adminEndOtherSessions().catch(() => ({ success: false }));
         if (!result.success) {
-            alert(result.message || 'Could not terminate other sessions.');
+            await vbAlert(result.message || 'Could not terminate other sessions.');
             return;
         }
         await loadSessions();
     });
 
-    document.getElementById('toggle-2fa')?.addEventListener('change', function () {
-        const meta = document.querySelector('.sec-2fa-meta');
-        const btn  = document.querySelector('.sec-btn-configure');
-        if (this.checked) {
-            meta.style.opacity = '1';
-            btn.style.opacity  = '1';
-            btn.disabled = false;
-        } else {
-            meta.style.opacity = '0.4';
-            btn.style.opacity  = '0.4';
-            btn.disabled = true;
+    /* ── SECURITY SETTINGS (2FA + password policy) ─────────────── */
+
+    let securitySettings = null;
+
+    function renderTwoFactorCard() {
+        const meta   = document.getElementById('twofa-meta');
+        const toggle = document.getElementById('toggle-2fa');
+        const btn    = document.getElementById('configure-2fa-btn');
+        if (!securitySettings || !meta) return;
+
+        const on = securitySettings.twoFactorEnabled;
+        toggle.checked = on;
+        meta.style.opacity = on ? '1' : '0.4';
+        btn.style.opacity  = on ? '1' : '0.4';
+
+        const lastUsed = securitySettings.twoFactorLastUsedEpoch
+            ? 'Last code verified: ' + timeAgo(securitySettings.twoFactorLastUsedEpoch)
+            : 'No login codes verified yet';
+
+        meta.innerHTML = on
+            ? `<strong>Email OTP &mdash; required for admin logins</strong>
+               <span>${lastUsed}</span>`
+            : `<strong>Two-factor authentication is turned off</strong>
+               <span>Admins sign in with email and password only</span>`;
+
+        const modalState = document.getElementById('twofa-modal-state');
+        if (modalState) {
+            modalState.textContent = on
+                ? 'Enabled — codes are emailed to admins at every login.'
+                : 'Currently disabled — enable the toggle on the security page to enforce it.';
         }
+    }
+
+    function renderPolicyCard() {
+        const container = document.getElementById('policy-rows');
+        if (!securitySettings || !container) return;
+
+        const p = securitySettings.policy;
+        const check = `<span class="sec-check-green">
+            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+        </span>`;
+        const dash = '<span style="color:var(--text-tertiary);font-weight:700;">&mdash;</span>';
+
+        container.innerHTML = `
+            <div class="sec-policy-row">
+                <span class="sec-policy-label">Minimum Length</span>
+                <span class="sec-policy-value">${p.minLength} Characters</span>
+            </div>
+            <div class="sec-policy-row">
+                <span class="sec-policy-label">Require Special Characters</span>
+                <span class="sec-policy-value">${p.requireSpecial ? check : dash}</span>
+            </div>
+            <div class="sec-policy-row">
+                <span class="sec-policy-label">Require Numbers</span>
+                <span class="sec-policy-value">${p.requireNumber ? check : dash}</span>
+            </div>
+            <div class="sec-policy-row">
+                <span class="sec-policy-label">Require Uppercase Letters</span>
+                <span class="sec-policy-value">${p.requireUppercase ? check : dash}</span>
+            </div>
+        `;
+    }
+
+    function renderInactivityCard() {
+        const meta   = document.getElementById('inactivity-meta');
+        const toggle = document.getElementById('toggle-inactivity-lockout');
+        if (!securitySettings || !meta) return;
+
+        const lifespan = securitySettings.inactivityLockout;
+        toggle.checked = lifespan.enabled;
+
+        meta.innerHTML = lifespan.enabled
+            ? `<strong>Auto-lockout is on</strong>
+               <span>Accounts with no login for ${lifespan.days} day${lifespan.days === 1 ? '' : 's'} are blocked automatically</span>`
+            : `<strong>Auto-lockout is off</strong>
+               <span>Accounts never get blocked for inactivity, no matter how long they've been idle</span>`;
+    }
+
+    function renderSessionTimeoutCard() {
+        const meta = document.getElementById('session-timeout-meta');
+        if (!securitySettings || !meta) return;
+
+        const mins = securitySettings.sessionIdle.minutes;
+        const label = mins % 60 === 0 && mins >= 60
+            ? `${mins / 60} hour${mins === 60 ? '' : 's'}`
+            : `${mins} minute${mins === 1 ? '' : 's'}`;
+
+        meta.innerHTML = `<strong>Sessions end after ${label} of inactivity</strong>
+               <span>Users are warned two minutes before, and signed out automatically &mdash; no refresh needed</span>`;
+    }
+
+    async function loadSecuritySettings() {
+        const result = await api.getSecuritySettings().catch(() => ({ success: false }));
+        if (!result.success) {
+            const meta = document.getElementById('twofa-meta');
+            if (meta) meta.innerHTML = '<strong>Could not load security settings.</strong><span></span>';
+            return;
+        }
+        securitySettings = result.data;
+        renderTwoFactorCard();
+        renderPolicyCard();
+        renderInactivityCard();
+        renderSessionTimeoutCard();
+    }
+
+    /* Both switches confirm in BOTH directions now. Turning one off drops a
+       protection, which was already guarded; turning one on is just as
+       consequential and was not — enabling 2FA starts emailing a code to every
+       admin at every sign-in, so anyone whose address on file is stale is
+       locked out, and enabling auto-lockout can block dormant accounts on the
+       next sweep. A toggle is a one-click control, and one click was the whole
+       distance to either outcome. */
+    document.getElementById('toggle-2fa')?.addEventListener('change', async function () {
+        const wanted = this.checked;
+        const question = wanted
+            ? 'Require two-factor authentication for ALL admin logins? Every admin will be emailed a 6-digit code at every sign-in.'
+            : 'Turn off two-factor authentication for ALL admin logins?';
+        if (!(await vbConfirm(question, wanted ? 'Turn On' : 'Turn Off'))) {
+            this.checked = !wanted;
+            return;
+        }
+
+        const result = await api.updateTwoFactor(wanted).catch(() => ({ success: false }));
+        if (!result.success) {
+            await vbAlert(result.message || 'Could not update the 2FA setting.');
+            this.checked = !wanted;
+            return;
+        }
+        securitySettings = result.data;
+        renderTwoFactorCard();
+    });
+
+    document.getElementById('toggle-inactivity-lockout')?.addEventListener('change', async function () {
+        const wanted = this.checked;
+        const days = securitySettings?.inactivityLockout?.days || 90;
+        const question = wanted
+            ? `Turn on inactivity auto-lockout? Accounts with no sign-in for ${days} days will be blocked automatically.`
+            : 'Turn off inactivity auto-lockout? Accounts already blocked by it stay blocked until manually restored.';
+        if (!(await vbConfirm(question, wanted ? 'Turn On' : 'Turn Off'))) {
+            this.checked = !wanted;
+            return;
+        }
+
+        const result = await api.updateInactivityLockout({ enabled: wanted, days }).catch(() => ({ success: false }));
+        if (!result.success) {
+            await vbAlert(result.message || 'Could not update the inactivity lockout setting.');
+            this.checked = !wanted;
+            return;
+        }
+        securitySettings = result.data;
+        renderInactivityCard();
+    });
+
+    /* ── Account Lifespan modal ── */
+    const inactivityModal = document.getElementById('inactivity-modal');
+
+    document.getElementById('configure-inactivity-btn')?.addEventListener('click', () => {
+        if (!securitySettings) return;
+        document.getElementById('inactivity-days').value = securitySettings.inactivityLockout.days;
+        const status = document.getElementById('inactivity-status');
+        status.className = 'sec-modal-status';
+        status.textContent = '';
+        inactivityModal.classList.add('open');
+    });
+
+    document.getElementById('inactivity-modal-close')?.addEventListener('click', () => inactivityModal.classList.remove('open'));
+
+    document.getElementById('inactivity-save-btn')?.addEventListener('click', async function () {
+        const status = document.getElementById('inactivity-status');
+        const days = parseInt(document.getElementById('inactivity-days').value, 10);
+
+        if (!Number.isInteger(days) || days < 1 || days > 3650) {
+            status.className = 'sec-modal-status error';
+            status.textContent = 'Duration must be between 1 and 3650 days.';
+            return;
+        }
+
+        this.disabled = true;
+        const result = await api.updateInactivityLockout({
+            enabled: securitySettings.inactivityLockout.enabled,
+            days,
+        }).catch(() => ({ success: false }));
+        this.disabled = false;
+
+        if (!result.success) {
+            status.className = 'sec-modal-status error';
+            status.textContent = result.message || 'Could not save the lockout duration.';
+            return;
+        }
+
+        securitySettings = result.data;
+        renderInactivityCard();
+        inactivityModal.classList.remove('open');
+    });
+
+    /* ── Session Timeout modal ── */
+    const sessionTimeoutModal = document.getElementById('session-timeout-modal');
+
+    document.getElementById('configure-session-timeout-btn')?.addEventListener('click', () => {
+        if (!securitySettings) return;
+        const idle = securitySettings.sessionIdle;
+        const input = document.getElementById('session-timeout-minutes');
+        input.value = idle.minutes;
+        input.min = idle.minMinutes;
+        input.max = idle.maxMinutes;
+        const status = document.getElementById('session-timeout-status');
+        status.className = 'sec-modal-status';
+        status.textContent = '';
+        sessionTimeoutModal.classList.add('open');
+    });
+
+    document.getElementById('session-timeout-modal-close')?.addEventListener('click', () => sessionTimeoutModal.classList.remove('open'));
+
+    document.getElementById('session-timeout-save-btn')?.addEventListener('click', async function () {
+        const status  = document.getElementById('session-timeout-status');
+        const idle    = securitySettings.sessionIdle;
+        const minutes = parseInt(document.getElementById('session-timeout-minutes').value, 10);
+
+        if (!Number.isInteger(minutes) || minutes < idle.minMinutes || minutes > idle.maxMinutes) {
+            status.className = 'sec-modal-status error';
+            status.textContent = `Timeout must be between ${idle.minMinutes} and ${idle.maxMinutes} minutes.`;
+            return;
+        }
+
+        this.disabled = true;
+        const result = await api.updateSessionTimeout(minutes).catch(() => ({ success: false }));
+        this.disabled = false;
+
+        if (!result.success) {
+            status.className = 'sec-modal-status error';
+            status.textContent = result.message || 'Could not save the session timeout.';
+            return;
+        }
+
+        securitySettings = result.data;
+        renderSessionTimeoutCard();
+        sessionTimeoutModal.classList.remove('open');
+    });
+
+    /* ── 2FA config modal ── */
+    const twofaModal = document.getElementById('twofa-modal');
+
+    document.getElementById('configure-2fa-btn')?.addEventListener('click', () => {
+        const status = document.getElementById('twofa-test-status');
+        status.className = 'sec-modal-status';
+        status.textContent = '';
+        twofaModal.classList.add('open');
+    });
+
+    document.getElementById('twofa-modal-close')?.addEventListener('click', () => twofaModal.classList.remove('open'));
+
+    document.getElementById('twofa-test-btn')?.addEventListener('click', async function () {
+        const status = this.parentElement.parentElement.querySelector('#twofa-test-status');
+        this.disabled = true;
+        this.textContent = 'Sending…';
+
+        const result = await api.sendTestTwoFactorCode().catch(() => ({ success: false }));
+
+        status.className = 'sec-modal-status ' + (result.success ? 'ok' : 'error');
+        status.textContent = result.success
+            ? (result.message || 'Test code sent — check your inbox.')
+            : (result.message || 'Could not send the test email.');
+
+        this.disabled = false;
+        this.textContent = 'Send Me a Test Code';
+    });
+
+    /* ── Password policy modal ── */
+    const policyModal = document.getElementById('policy-modal');
+
+    document.getElementById('edit-policy-btn')?.addEventListener('click', () => {
+        if (!securitySettings) return;
+        const p = securitySettings.policy;
+        const lengthInput = document.getElementById('policy-min-length');
+        lengthInput.value = p.minLength;
+        lengthInput.min = p.floorMinLength;
+        lengthInput.max = p.maxLength;
+        // Character requirements are the enforced floor, so they render on
+        // and locked; the server ignores them on save regardless.
+        ['policy-special', 'policy-number', 'policy-uppercase', 'policy-lowercase'].forEach(id => {
+            const box = document.getElementById(id);
+            if (box) { box.checked = true; box.disabled = true; }
+        });
+        const status = document.getElementById('policy-status');
+        status.className = 'sec-modal-status';
+        status.textContent = '';
+        policyModal.classList.add('open');
+    });
+
+    document.getElementById('policy-modal-close')?.addEventListener('click', () => policyModal.classList.remove('open'));
+
+    document.getElementById('policy-save-btn')?.addEventListener('click', async function () {
+        const status = document.getElementById('policy-status');
+        const p = securitySettings.policy;
+        const minLength = parseInt(document.getElementById('policy-min-length').value, 10);
+
+        if (!Number.isInteger(minLength) || minLength < p.floorMinLength || minLength > p.maxLength) {
+            status.className = 'sec-modal-status error';
+            status.textContent = `Minimum length must be between ${p.floorMinLength} and ${p.maxLength}.`;
+            return;
+        }
+
+        this.disabled = true;
+        const result = await api.updatePasswordPolicy({
+            minLength,
+            requireSpecial: true,
+            requireNumber: true,
+            requireUppercase: true,
+        }).catch(() => ({ success: false }));
+        this.disabled = false;
+
+        if (!result.success) {
+            status.className = 'sec-modal-status error';
+            status.textContent = result.message || 'Could not save the policy.';
+            return;
+        }
+
+        securitySettings = result.data;
+        renderPolicyCard();
+        policyModal.classList.remove('open');
+    });
+
+    // Click outside a modal closes it
+    [twofaModal, policyModal, inactivityModal, sessionTimeoutModal].forEach(overlay => {
+        overlay?.addEventListener('click', (event) => {
+            if (event.target === overlay) overlay.classList.remove('open');
+        });
     });
 
     loadSessions();
+    loadSecuritySettings();
+
+    /* Keep the session table live. It used to load once, so a new sign-in or
+       a session that had since gone idle only appeared after a manual page
+       refresh. Skipped while the tab is hidden to avoid pointless polling,
+       and re-run on focus so switching back to this tab shows current state. */
+    setInterval(() => {
+        if (document.visibilityState === 'visible') loadSessions();
+    }, 15000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') loadSessions();
+    });
     </script>
+    <script src="../../shared/js/table-cards.js?v=20260928-mobile"></script>
 </body>
-</html>
+</html>

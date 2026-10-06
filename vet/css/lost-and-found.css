@@ -672,6 +672,15 @@ body {
 	flex-shrink: 0;
 }
 
+.matches-toggle-row {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.matches-view-toggle {
+	font-size: 0.8rem;
+}
+
 .match-card {
 	border-radius: var(--lf-radius);
 	border: 1px solid var(--lf-border);
@@ -767,6 +776,7 @@ body {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 6px;
+	align-items: center;
 }
 
 .reason-chip {
@@ -777,6 +787,41 @@ body {
 	background: var(--lf-green-soft);
 	color: var(--lf-green-dark);
 	border: 1px solid #c8eec8;
+}
+
+/* Fills the .match-pair middle slot for a directly-linked lost report (sighting.reportId)
+   in place of the confidence gauge — there's no score to show, just the fact that the
+   finder pointed at this specific report. */
+.link-indicator {
+	width: 68px;
+	height: 68px;
+	border-radius: 50%;
+	justify-self: center;
+	background: #eef2ff;
+	border: 2px solid #c7d5f5;
+	display: grid;
+	place-items: center;
+	color: var(--lf-brand);
+}
+
+.link-indicator svg {
+	width: 26px;
+	height: 26px;
+}
+
+.comparison-secondary {
+	margin-top: 14px;
+	padding-top: 14px;
+	border-top: 1px dashed var(--lf-border);
+}
+
+.comparison-secondary-title {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--lf-muted);
+	margin-bottom: 8px;
 }
 
 .match-actions {
@@ -1101,6 +1146,17 @@ body {
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
 }
 
+/* Rejected — same red/× styling as Lost, used for a rejected report's status pill */
+.lf-pill-rejected {
+	background: #FEE2E2;
+	color: #991B1B;
+	border: 1px solid #FCA5A5;
+}
+.lf-pill-rejected::before {
+	background-color: #B91C1C;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4 4l4 4M8 4l-4 4' stroke='white' stroke-width='1.8' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
+}
+
 .lf-modal-overlay {
 	position: fixed;
 	inset: 0;
@@ -1121,7 +1177,8 @@ body {
 .lf-modal {
 	width: min(700px, 100%);
 	max-height: 94vh;
-	overflow: auto;
+	overflow-y: auto;
+	overflow-x: hidden;
 	border-radius: 18px;
 	background: #ffffff;
 	position: relative;
@@ -1131,6 +1188,167 @@ body {
 /* Report view-details modal is wider to match the public-site detail layout it mirrors. */
 .lf-modal:has(.details-modal-box) {
 	width: min(760px, 100%);
+}
+
+/* =============================================
+   CLICK-TO-EXPAND PHOTOS (lightbox) — same pattern as the public site
+   ============================================= */
+.lf-img-expand-wrap {
+	position: relative;
+	display: block;
+	cursor: zoom-in;
+}
+
+.lf-expand-badge {
+	position: absolute;
+	bottom: 6px;
+	right: 6px;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.55);
+	color: #ffffff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	padding: 0;
+	z-index: 2;
+	transition: background 0.15s;
+}
+
+.lf-img-expand-wrap:hover .lf-expand-badge,
+.lf-expand-badge:hover {
+	background: rgba(0, 0, 0, 0.75);
+}
+
+.lf-img-expand-wrap.small .lf-expand-badge {
+	width: 16px;
+	height: 16px;
+	bottom: 2px;
+	right: 2px;
+}
+
+.lf-img-expand-wrap.small .lf-expand-badge svg {
+	width: 9px;
+	height: 9px;
+}
+
+.lf-expand-badge-lg {
+	position: absolute;
+	bottom: 14px;
+	right: 14px;
+	width: 34px;
+	height: 34px;
+	cursor: zoom-in;
+}
+
+.lf-lightbox-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.85);
+	/* Above .lf-modal-overlay (2000) so it can open from inside any modal on this page. */
+	z-index: 2100;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+
+.lf-lightbox-overlay[hidden] {
+	display: none !important;
+}
+
+.lf-lightbox-img {
+	max-width: 100%;
+	max-height: 90vh;
+	border-radius: 8px;
+	object-fit: contain;
+	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.lf-lightbox-close {
+	position: absolute;
+	top: 18px;
+	right: 20px;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.15);
+	border: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.lf-lightbox-close:hover {
+	background: rgba(255, 255, 255, 0.3);
+}
+
+/* =============================================
+   EMBEDDED MATCH CARDS (inside a report's own detail modal)
+   ============================================= */
+.lf-matches-hint {
+	font-size: 11.5px;
+	color: var(--lf-muted);
+	margin: -4px 0 4px;
+	line-height: 1.5;
+}
+
+/* =============================================
+   MATCH DETAIL MODAL (click an embedded match card, or a card in the
+   dedicated Potential Matches tab, from within a report's own modal)
+   ============================================= */
+.match-detail-modal {
+	padding: 20px 22px 22px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.match-detail-title {
+	font-size: 16px;
+	font-weight: 800;
+	color: var(--lf-ink);
+	margin-bottom: 2px;
+}
+
+.match-detail-subtitle {
+	font-size: 12px;
+	color: var(--lf-muted);
+}
+
+.match-detail-viewing-tag {
+	display: inline-block;
+	margin-top: 6px;
+	padding: 2px 9px;
+	border-radius: 20px;
+	font-size: 9px;
+	font-weight: 800;
+	letter-spacing: 0.3px;
+	text-transform: uppercase;
+	background: #E3ECFB;
+	color: var(--lf-brand, #1463aa);
+}
+
+.match-detail-contact-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+}
+
+.match-detail-contact-card h5 {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+	color: var(--lf-muted);
+	margin-bottom: 6px;
+}
+
+@media (max-width: 640px) {
+	.match-detail-contact-grid { grid-template-columns: 1fr; }
 }
 
 .modal-close {
@@ -1154,34 +1372,6 @@ body {
 }
 
 .modal-close:hover { background: #F1F5F9; color: #0F172A; }
-
-.modal-layout {
-	display: grid;
-	grid-template-columns: 320px 1fr;
-}
-
-/* Grid items default to min-width:auto, which lets long/unbreakable content
-   force the 1fr column wider than the modal and produce a horizontal scrollbar.
-   min-width:0 lets the column shrink and wrap normally instead. */
-.modal-layout > * {
-	min-width: 0;
-}
-
-.modal-media {
-	background: #F1F5F9;
-	min-height: 640px;
-	padding: 12px;
-	display: grid;
-	grid-template-rows: 320px 1fr;
-	gap: 10px;
-}
-
-.modal-media img {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-	border-radius: 12px;
-}
 
 .map-mock {
 	border-radius: 10px;
@@ -1346,43 +1536,6 @@ body {
 	border: 3px solid #d7ebff;
 }
 
-.modal-content {
-	padding: 28px;
-	display: grid;
-	gap: 22px;
-	min-width: 0;
-}
-
-.modal-head h2 {
-	font-size: 1.5rem;
-	font-weight: 800;
-	color: var(--lf-ink);
-	letter-spacing: -0.01em;
-}
-
-.modal-head p {
-	color: #5a7089;
-	font-size: 0.8rem;
-	margin-top: 3px;
-}
-
-.section-title {
-	text-transform: uppercase;
-	font-size: 0.7rem;
-	letter-spacing: 0.09em;
-	color: var(--lf-green-dark);
-	font-weight: 600;
-	margin-top: 6px;
-	padding-top: 18px;
-	border-top: 1px solid var(--lf-border);
-}
-
-.section-title:first-of-type {
-	margin-top: 0;
-	padding-top: 0;
-	border-top: none;
-}
-
 .modal-grid {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
@@ -1450,31 +1603,24 @@ body {
 	letter-spacing: 0.02em;
 }
 
+.uploader > div {
+	min-width: 0;
+}
+
 .uploader strong {
 	font-size: 13.5px;
 	font-weight: 700;
 	color: var(--lf-ink);
 	line-height: 1.6;
+	overflow-wrap: break-word;
+	word-break: break-word;
 }
 
 .uploader small {
 	font-size: 11.5px;
 	color: var(--lf-muted);
-}
-
-.modal-footer {
-	margin-top: 6px;
-	border-top: 1px solid #E2E8F0;
-	padding: 14px 18px;
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: 10px;
-}
-
-.modal-footer-actions {
-	display: flex;
-	gap: 8px;
+	overflow-wrap: break-word;
+	word-break: break-word;
 }
 
 /* ================================================ */
@@ -2017,10 +2163,6 @@ body {
 	min-width: 0;
 }
 
-.modal-footer .btn {
-	min-width: 120px;
-}
-
 @media (max-width: 1280px) {
 	.lf-stats {
 		grid-template-columns: repeat(3, 1fr);
@@ -2134,15 +2276,6 @@ body {
 		flex-direction: row;
 		align-items: center;
 		justify-content: flex-start;
-	}
-
-	.modal-layout {
-		grid-template-columns: 1fr;
-	}
-
-	.modal-media {
-		grid-template-rows: 260px 220px;
-		min-height: unset;
 	}
 
 	.modal-grid {
@@ -2323,6 +2456,14 @@ body {
 .vet-lf-modal .upload-hint {
 	font-size: 10px;
 	color:     #9ba3ae;
+}
+
+.vet-lf-modal .char-counter {
+	display:    block;
+	text-align: right;
+	font-size:  10px;
+	color:      #9ba3ae;
+	margin-top: -6px;
 }
 
 /* ── Form layout ── */

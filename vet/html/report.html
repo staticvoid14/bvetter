@@ -4,63 +4,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VBetter | Reports</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter | Reports</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="/bvetter/shared/css/sidebar.css">
-    <link rel="stylesheet" href="/bvetter/vet/css/report.css?v=20260713-1">
-    <!-- <script src="/bvetter/shared/js/sidebar.js" defer></script>
-    <script src="/bvetter/vet/js/report.js" defer></script> -->
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../vet/css/report.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../../shared/css/table-cards.css?v=20260928-mobile">
 </head>
 
 <body>
     <div class="main-holder">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo"><img src="/bvetter/vet/images/logo.png" alt="VBetter Logo"></div>
+                <div class="logo"><img src="../../vet/images/logo.png" alt="BVetter Logo"></div>
             </div>
             <nav class="sidebar-nav">
-                <a href="/bvetter/vet/html/index.html" class="nav-item" title="Dashboard">
-                    <img src="/bvetter/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+                <a href="../../vet/html/index.html" class="nav-item" title="Dashboard">
+                    <img src="../../shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
                     <span class="nav-label">Dashboard</span>
                 </a>
-                <a href="/bvetter/vet/html/appointment.html" class="nav-item" title="Appointments">
-                    <img src="/bvetter/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+                <a href="../../vet/html/appointment.html" class="nav-item" title="Appointments">
+                    <img src="../../shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
                     <span class="nav-label">Appointment Management</span>
                 </a>
-                <a href="/bvetter/vet/html/patient-records.html" class="nav-item" title="Patient Records">
-                    <img src="/bvetter/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+                <a href="../../vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                    <img src="../../shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
                     <span class="nav-label">Patient Records</span>
                 </a>
-                <a href="/bvetter/vet/html/report.html" class="nav-item" title="Reports">
-                    <img src="/bvetter/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+                <a href="../../vet/html/report.html" class="nav-item" title="Reports">
+                    <img src="../../shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
                     <span class="nav-label">Report</span>
                 </a>
-                <a href="/bvetter/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
-                    <img src="/bvetter/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+                <a href="../../vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                    <img src="../../shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
                     <span class="nav-label">Disease Analytics</span>
                 </a>
-                <a href="/bvetter/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
-                    <img src="/bvetter/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+                <a href="../../vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                    <img src="../../shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
                     <span class="nav-label">Lost And Found</span>
                 </a>
-                <a href="/bvetter/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
-                    <img src="/bvetter/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+                <a href="../../vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                    <img src="../../shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
                     <span class="nav-label">Chatbot Management</span>
                 </a>
-                <a href="/bvetter/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
-                    <img src="/bvetter/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+                <a href="../../vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                    <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                     <span class="nav-label">Mass Vaccination</span>
                 </a>
-                <!-- ADMIN-ONLY section: sidebar.js hides these for vet role -->
+                <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                    <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                    <span class="nav-label">Support Tickets</span>
+                </a>
                 <div class="nav-section-label" data-roles="admin">Administration</div>
-                <a href="/bvetter/admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+                <a href="../../admin/pages/account-management.html" class="nav-item" title="Account Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
                     <span class="nav-label">Account Management</span>
                 </a>
-                <a href="/bvetter/admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
-                    <img src="/bvetter/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+                <a href="../../admin/pages/website-management.html" class="nav-item" title="Website Management" data-roles="admin">
+                    <img src="../../shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
                     <span class="nav-label">Website Management</span>
                 </a>
             </nav>
@@ -77,7 +86,6 @@
                         </div>
                     </header>
 
-                    <!-- KPI cards -->
                     <section class="metric-grid" aria-label="Report summary metrics">
     <article class="metric-card">
         <div class="metric-head">
@@ -91,7 +99,7 @@
     </article>
     <article class="metric-card">
         <div class="metric-head">
-            <span id="title-center" class="metric-label">Most Common Disease</span>
+            <span id="title-center" class="metric-label">Most Reported Species</span>
             <span class="metric-icon">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
             </span>
@@ -111,13 +119,12 @@
     </article>
 </section>
 
-                    <!-- Toolbar -->
                     <section class="toolbar" aria-label="Report controls">
                         <div class="toolbar-group">
                             <div class="filter-wrap">
                                 <button type="button" class="toolbar-btn toolbar-btn-light" id="filter-button"
                                     aria-expanded="false" aria-controls="filter-popover">
-                                    <img src="/bvetter/vet/images/filter.svg" alt="Filter">
+                                    <img src="../../vet/images/filter.svg" alt="Filter">
                                     Filter
                                 </button>
                                 <div class="filter-popover" id="filter-popover" hidden>
@@ -145,7 +152,7 @@
                             <div class="filter-wrap">
                                 <button type="button" class="toolbar-btn toolbar-btn-light" id="sort-button"
                                     aria-expanded="false" aria-controls="sort-popover">
-                                    <img src="/bvetter/vet/images/sort.svg" alt="Sort">
+                                    <img src="../../vet/images/sort.svg" alt="Sort">
                                     Sort
                                 </button>
                                 <div class="filter-popover" id="sort-popover" hidden>
@@ -169,16 +176,15 @@
                         </div>
                         <div class="toolbar-group toolbar-group-end">
                             <button type="button" class="toolbar-btn toolbar-btn-primary" id="export-button">
-                                <img src="/bvetter/vet/images/save.svg" alt="Export">
+                                <img src="../../vet/images/save.svg" alt="Export">
                                 Export
                             </button>
                         </div>
                     </section>
 
-                    <!-- Table -->
                     <section class="report-table-card" aria-label="Patient report table">
                         <div class="table-wrap">
-                            <table class="report-table">
+                            <table class="report-table" data-cards>
                                 <thead>
                                     <tr>
                                         <th>Patient ID</th>
@@ -202,7 +208,6 @@
                 </section>
             </div>
 
-            <!-- Export modal -->
             <div class="modal-overlay" id="export-modal-overlay" hidden>
                 <section class="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
                     <button type="button" class="modal-close" id="export-close" aria-label="Close export modal">
@@ -251,12 +256,13 @@
         </main>
     </div>
 
-    <script src="/bvetter/shared/js/auth.js"></script>
-    <!-- <script>VBetterAuth.requireAuth(['vet']);</script> -->
-    <script src="/bvetter/shared/js/sidebar.js"></script>
-    <script src="/bvetter/vet/js/vet-api.js"></script>
-    <script src="/bvetter/vet/js/report.js?v=20260713-1"></script>
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+    <script>VBetterAuth.requireAuth(['vet']);</script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../vet/js/vet-api.js?v=20260819-idor"></script>
+    <script src="../../vet/js/report.js"></script>
 
+    <script src="../../shared/js/table-cards.js?v=20260928-mobile"></script>
 </body>
 
 </html>

@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — notification-settings.css
+   BVetter — notification-settings.css
    Page: Notification preferences — channels table + quiet hours.
    Depends: variables.css (must load first in HTML)
 
@@ -79,7 +79,7 @@ body {
 
 .table-head-row {
   display: grid;
-  grid-template-columns: 1fr 90px 90px 90px;
+  grid-template-columns: 1fr 90px 90px;
   padding: 0 0 10px;
   border-bottom: 1px solid var(--border-light);
   margin-bottom: 0;
@@ -104,7 +104,7 @@ body {
 
 .table-row {
   display: grid;
-  grid-template-columns: 1fr 90px 90px 90px;
+  grid-template-columns: 1fr 90px 90px;
   align-items: center;
   padding: 18px 0;
   border-bottom: 1px solid var(--bg-input);
@@ -286,22 +286,39 @@ body {
   flex-shrink: 0;
 }
 
-.hist-dot-icon {
+/* The glyph is inline SVG drawn with stroke="currentColor", reusing nav.js's
+   NOTIF_ICONS set so a history row and the same notification in the bell show
+   the same picture. Sized by a descendant selector and coloured by the wrapper,
+   which is exactly how .notif-badge in components.css drives the bell — the
+   wrapper therefore has to set `color`, not just a background, or the stroke
+   falls back to inherited body text and the status colour is lost. */
+.hist-dot-wrap svg {
   width: 16px;
   height: 16px;
-  object-fit: contain;
 }
 
 .green-dot {
   background: var(--color-green-pale);
+  color: var(--color-green-dark);
 }
 
 .blue-dot {
   background: #E8EEF8;
+  color: var(--color-navy);
 }
 
 .red-dot {
   background: var(--color-red-pale);
+  color: var(--color-red);
+}
+
+/* Covers loading, empty and failed-to-load alike. All three are one short line
+   in the same place, so the card never collapses to nothing while it waits. */
+.hist-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 16px 0;
+  text-align: center;
 }
 
 .hist-content {
@@ -346,8 +363,58 @@ body {
 .quiet-card-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.quiet-card-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Quiet Hours enable switch */
+.quiet-toggle {
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.quiet-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.quiet-toggle-track {
+  display: block;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  position: relative;
+  transition: background 0.15s;
+}
+
+.quiet-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.quiet-toggle input:checked + .quiet-toggle-track {
+  background: var(--color-green);
+}
+
+.quiet-toggle input:checked + .quiet-toggle-track .quiet-toggle-thumb {
+  transform: translateX(18px);
 }
 
 .quiet-icon-wrap {
@@ -404,6 +471,8 @@ body {
   font-weight: 800;
   color: #fff;
 }
+
+.quiet-disabled .quiet-schedule-value { color: rgba(255, 255, 255, 0.45); }
 
 .btn-configure {
   width: 100%;
@@ -823,7 +892,7 @@ body {
      room to keep breathing instead of forcing the fixed 380px
      Quiet Hours column into a squeeze first. */
   .table-head-row,
-  .table-row { grid-template-columns: 1fr 64px 64px 64px; }
+  .table-row { grid-template-columns: 1fr 64px 64px; }
 
   .bottom-row { grid-template-columns: 1fr; }
 }
@@ -839,7 +908,7 @@ body {
   .notif-card { padding: 18px 16px 6px; }
 
   .table-head-row,
-  .table-row { grid-template-columns: 1fr 42px 42px 42px; }
+  .table-row { grid-template-columns: 1fr 42px 42px; }
 
   .th-channel { font-size: 8px; }
 

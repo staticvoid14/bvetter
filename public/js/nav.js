@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — Public Nav JS
+   BVetter — Public Nav JS
    File: public/js/nav.js
    Depends: ../../shared/js/auth.js (loaded first)
 
@@ -11,9 +11,9 @@
 
    Functions:
    - toggleUserMenu()        — opens/closes user dropdown
-   - openNotificationModal() — builds + opens the live notification modal
-   - dismiss-notif click     — removes one notification, persisted per
-                               owner in localStorage so it stays hidden
+   - openNotificationModal() — opens the notification modal, fed by
+                               api/notifications/notifications.php
+   - dismiss-notif click     — soft-deletes one notification server-side
    - toggleMobileNav()       — opens/closes mobile nav-links menu
    NOTE: logout() and loginAs() live in auth.js
    ============================================= */
@@ -25,6 +25,20 @@ function toggleUserMenu() {
   if (panel) panel.classList.remove('open');
 }
 
+/* True when this page is embedded in Website Management's Quick Preview.
+   The panel promises a "Pet Owner" view, so the nav must render as a visitor
+   sees it: Login/Sign Up, and the full owner menu intact. Without this the
+   admin's own session leaks in - their name and "Administrator" in the pill,
+   and stripOwnerOnlyNav() deleting the very links the preview exists to show. */
+function inSitePreview() {
+  if (window.self === window.top) return false;
+  try {
+    return window.top.location.origin === window.location.origin;
+  } catch (e) {
+    return false;   // cross-origin framing - not our preview
+  }
+}
+
 /* =============================================
    NAV USER PILL — fills in the real logged-in
    name/role/avatar over the placeholder markup.
@@ -32,13 +46,17 @@ function toggleUserMenu() {
    no longer depend on landing.js being present.
    ============================================= */
 function hydrateNavUser() {
-  const user = typeof getCurrentUser === 'function' ? getCurrentUser() : null;
+  const user = inSitePreview()
+    ? null
+    : (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
   const navGuest = document.getElementById('navGuest');
   const navAuth = document.getElementById('navAuth');
 
   if (navGuest) navGuest.style.display = user ? 'none' : 'flex';
   if (navAuth) navAuth.style.display = user ? 'flex' : 'none';
   if (!user) return;
+
+  if (user.role !== 'owner') stripOwnerOnlyNav(user.role);
 
   const nameEl = document.querySelector('.nav-user-name');
   const roleEl = document.querySelector('.nav-user-role');
@@ -48,7 +66,106 @@ function hydrateNavUser() {
   if (avatarEl && user.avatarUrl) avatarEl.src = user.avatarUrl;
 }
 
+/* =============================================
+   NON-OWNER NAV — this nav is owner-shaped: every
+   link in it (Book An Appointment, My Pets, Lost And
+   Found, and the whole account dropdown) leads to a
+   page guarded by requireAuth(['owner']).
+
+   Entry-point pages call requireOwnerOrGuest() and
+   bounce staff before they ever render, but the legal
+   pages (privacy-policy, terms-of-service) stay open to
+   everyone on purpose — a vet may need to read the
+   clinic's own terms, and nothing in the vet portal
+   links there, so a bounce would make them unreachable.
+
+   On those pages, strip the links a vet/admin cannot
+   follow instead of letting them click into a redirect.
+   ============================================= */
+function dashboardHref(role) {
+  return role === 'admin' ? '../../admin/pages/index.html' : '../../vet/html/index.html';
+}
+
+function stripOwnerOnlyNav(role) {
+  const OWNER_ONLY = [
+    'book-appointment.html', 'lost-found.html', 'my-pets.html', 'my-claims.html',
+    'account-profile.html', 'account-settings.html', 'notification-settings.html',
+    'my-tickets.html'
+  ];
+
+  document.querySelectorAll('.nav-links a, .nav-user-dropdown a').forEach((link) => {
+    const href = (link.getAttribute('href') || '').split('/').pop();
+    if (!OWNER_ONLY.includes(href)) return;
+    // Drop the whole <li> in the top nav; the bare <a> in the dropdown.
+    (link.closest('li') || link).remove();
+  });
+
+  // "Home" means landing.html, which now bounces staff via
+  // requireOwnerOrGuest(). Point it at their own dashboard so the link
+  // goes straight there instead of arriving via a redirect.
+  const home = document.querySelector('.nav-links a[href$="landing.html"]');
+  if (home) {
+    home.setAttribute('href', dashboardHref(role));
+    home.textContent = 'Dashboard';
+  }
+
+  // Owner notification rows only — staff read theirs in their own portal.
+  const bell = document.getElementById('notification-icon-btn');
+  if (bell) bell.style.display = 'none';
+
+  // The dropdown is down to just Log Out now; give them the way home.
+  const dropdown = document.getElementById('userDropdown');
+  const divider = dropdown && dropdown.querySelector('.dropdown-divider');
+  if (dropdown && divider) {
+    const link = document.createElement('a');
+    link.className = 'dropdown-item';
+    link.href = dashboardHref(role);
+    link.textContent = role === 'admin' ? 'Admin Dashboard' : 'Vet Dashboard';
+    dropdown.insertBefore(link, divider);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', hydrateNavUser);
+
+/* =============================================
+   LIGHTWEIGHT POLLING — keeps a page's own data
+   fresh without a manual reload. Loaded here (not a
+   separate file) since nav.js is already included on
+   every page that needs it, before the page's own JS.
+
+   Pauses while the tab is hidden (nothing to refresh
+   if nobody's looking), re-checks immediately when the
+   tab regains focus (same pattern as the session-check
+   polling in shared/js/auth.js), and never lets two
+   ticks overlap if a fetch is slow.
+
+   loadFn is called as loadFn({ silent: true }) so each
+   page's loader can skip its own "Loading..." flash and
+   skip the re-render entirely when the fetched data is
+   unchanged — callers opt into that by checking options.silent.
+   ============================================= */
+function startPolling(loadFn, intervalMs = 15000) {
+  let inFlight = false;
+
+  async function tick() {
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+    try {
+      await loadFn({ silent: true });
+    } catch {
+      // Network hiccup — try again next tick.
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  const intervalId = setInterval(tick, intervalMs);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) tick();
+  });
+
+  return { stop: () => clearInterval(intervalId) };
+}
 
 /* Close dropdown when clicking outside */
 document.addEventListener('click', function (e) {
@@ -60,10 +177,8 @@ document.addEventListener('click', function (e) {
 });
 
 /* =============================================
-   NOTIFICATION BELL — live dropdown modal
-   Pulls the pet owner's own appointments, claims,
-   and lost & found reports to summarize status
-   changes, instead of redirecting to settings.
+   NOTIFICATION BELL — dropdown modal over the
+   owner's own notification rows.
    ============================================= */
 
 function escapeHtmlNav(value) {
@@ -74,6 +189,35 @@ function escapeHtmlNav(value) {
     '"': '&quot;',
     "'": '&#039;'
   }[char]));
+}
+
+/* Category glyph (light, thin-stroke, currentColor) + status color mapping —
+   one icon set shared by all three notification bells in the app. Color
+   signals status (positive/negative/neutral); the glyph signals category. */
+const NOTIF_ICONS = {
+  appointment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8.5 15.5l2 2 4-4"/></svg>',
+  lostfound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><line x1="20" y1="20" x2="14.5" y2="14.5"/></svg>',
+  match: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>',
+  vaccination: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+  general: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
+};
+
+/* Keyed off the row's `type`. This used to parse the synthetic id prefixes
+   ('appt-', 'claim-', 'match-') the browser invented when it built the feed
+   itself; ids are database keys now and carry no meaning. */
+function notifCategoryFromType(type) {
+  if (String(type).indexOf('appointment') === 0) return 'appointment';
+  if (type === 'lost_found_match') return 'match';
+  if (String(type).indexOf('lost_found') === 0) return 'lostfound';
+  if (type === 'csp_registration') return 'vaccination';
+  return 'general';
+}
+
+function notifStatusFromTitle(title) {
+  const t = (title || '').toLowerCase();
+  if (t.includes('reject') || t.includes('cancel')) return 'negative';
+  if (t.includes('confirmed') || t.includes('approve') || t.includes('resolve') || t.includes('upcoming') || t.includes('claimed')) return 'positive';
+  return 'neutral';
 }
 
 function formatNotifDate(value) {
@@ -101,196 +245,82 @@ function closeNotifModal() {
   }
 }
 
-function getCurrentOwnerId() {
-  const session = typeof getCurrentUser === 'function' ? getCurrentUser() : null;
-  return session?.userId || session?.id || 0;
+/* ── Notification feed ────────────────────────────────────────
+   Owner notifications are database rows, fetched from
+   api/notifications/notifications.php like every other role's.
+
+   They used to be synthesized here on every open: six API calls
+   (appointments, claims, reports, matches, incoming claims) stitched into
+   a list, with read and dismissed state kept in localStorage under
+   `vbetter_read_notifs_<ownerId>`. That made "read" per-browser rather
+   than per-person, lost it whenever storage was cleared, and reset the
+   bell dot whenever the owner id resolved to 0 because the session
+   had not hydrated yet. The rows are written at event time now, so this
+   only has to read them. ── */
+
+async function buildOwnerNotifications(limit) {
+  if (typeof api === 'undefined' || !api.getNotifications) return [];
+
+  const result = await api.getNotifications(limit || 30).catch(() => null);
+  if (!result || !result.success) return [];
+
+  return (result.data || []).map((row) => ({
+    id: row.id,
+    /* Carried through because the Recent Activity cards on account-profile.html
+       categorise on it. They used to read a prefix off a synthetic id ('appt-',
+       'claim-', 'report-') that this function built itself; since notifications
+       became real per-user rows, `id` is the table's auto-increment INT and the
+       category only exists in `type`. */
+    type: row.type,
+    title: row.title,
+    detail: row.message,
+    time: formatNotifDate(row.created_at) || 'Just now',
+    sortTime: Date.parse(row.created_at) || 0,
+    read: row.is_read
+  }));
 }
 
-function getDismissedNotifIds(ownerId) {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(`vbetter_dismissed_notifs_${ownerId}`) || '[]'));
-  } catch {
-    return new Set();
-  }
-}
-
-function addDismissedNotifId(ownerId, id) {
-  const ids = getDismissedNotifIds(ownerId);
-  ids.add(id);
-  localStorage.setItem(`vbetter_dismissed_notifs_${ownerId}`, JSON.stringify([...ids]));
-}
-
-function getReadNotifIds(ownerId) {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(`vbetter_read_notifs_${ownerId}`) || '[]'));
-  } catch {
-    return new Set();
-  }
-}
-
-function addReadNotifId(ownerId, id) {
-  const ids = getReadNotifIds(ownerId);
-  ids.add(id);
-  localStorage.setItem(`vbetter_read_notifs_${ownerId}`, JSON.stringify([...ids]));
-}
-
-function markAllNotifRead(ownerId, ids) {
-  const readIds = getReadNotifIds(ownerId);
-  ids.forEach((id) => readIds.add(id));
-  localStorage.setItem(`vbetter_read_notifs_${ownerId}`, JSON.stringify([...readIds]));
-}
-
-async function buildOwnerNotifications() {
-  const ownerId = getCurrentOwnerId();
-  const dismissed = getDismissedNotifIds(ownerId);
-  const read = getReadNotifIds(ownerId);
-  const notifications = [];
-
-  try {
-    const formData = new FormData();
-    formData.append('action', 'list');
-    formData.append('owner_id', ownerId);
-    const apptRes = await fetch('/bvetter/api/appointments/appointment.php', {
-      method: 'POST',
-      body: formData
-    }).then((r) => r.json());
-
-    (apptRes?.data || [])
-      .filter((appt) => ['pending', 'confirmed'].includes(appt.status))
-      .slice(0, 3)
-      .forEach((appt) => {
-        const id = `appt-${appt.id}`;
-        notifications.push({
-          id,
-          title: appt.status === 'pending' ? 'Appointment Awaiting Confirmation' : 'Upcoming Appointment',
-          detail: `${appt.pet?.name || appt.patient || 'Your pet'} — ${formatNotifDate(appt.preferred_date)}${appt.time_slot ? ` at ${appt.time_slot}` : ''}`,
-          time: formatNotifDate(appt.created_at || appt.preferred_date) || 'Just now',
-          read: read.has(id)
-        });
-      });
-  } catch (error) {
-    /* appointment lookup failed — skip silently */
-  }
-
-  try {
-    const claimsRes = await lostFoundRequest('list_claims', {});
-    (claimsRes?.data || [])
-      .filter((claim) => claim.status !== 'pending')
-      .slice(0, 3)
-      .forEach((claim) => {
-        const id = `claim-${claim.id}`;
-        const label = claim.status === 'approved' ? 'Claim Approved' : claim.status === 'rejected' ? 'Claim Rejected' : 'Claim Resolved';
-        notifications.push({
-          id,
-          title: label,
-          detail: `Your claim for ${claim.pet_name || 'a pet'}${claim.report_case ? ` (${claim.report_case})` : ''} was ${claim.status}.`,
-          time: formatNotifDate(claim.reviewed_at || claim.updated_at || claim.created_at) || 'Just now',
-          read: read.has(id)
-        });
-      });
-  } catch (error) {
-    /* claims lookup failed — skip silently */
-  }
-
-  let myReports = [];
-  try {
-    const reportsRes = await lostFoundRequest('list', { status: 'all', owner_id: ownerId });
-    myReports = reportsRes?.data || [];
-    myReports
-      .filter((report) => ['active', 'rejected', 'resolved'].includes(report.status))
-      .slice(0, 3)
-      .forEach((report) => {
-        const id = `report-${report.id}`;
-        const label = report.status === 'active' ? 'Report Approved' : report.status === 'rejected' ? 'Report Rejected' : 'Report Resolved';
-        notifications.push({
-          id,
-          title: label,
-          detail: `Your ${(report.type || '').toLowerCase()} report for ${report.petName || 'a pet'} is now ${report.status}.`,
-          time: formatNotifDate(report.resolved_at || report.updated_at || report.created_at) || 'Just now',
-          read: read.has(id)
-        });
-      });
-  } catch (error) {
-    /* report lookup failed — skip silently */
-  }
-
-  try {
-    const myLostReports = myReports.filter((report) => (report.type || '').toLowerCase() === 'lost' && report.status === 'active');
-    const matchResults = await Promise.all(
-      myLostReports.map((report) => lostFoundRequest('matches', { report_id: report.id }).catch(() => null))
-    );
-    matchResults
-      .flatMap((result, idx) => (result?.data || []).map((match) => ({ match, report: myLostReports[idx] })))
-      .filter(({ match }) => match.status === 'suggested')
-      .slice(0, 3)
-      .forEach(({ match, report }) => {
-        const id = `match-${match.id}`;
-        notifications.push({
-          id,
-          title: 'New Potential Match Found',
-          detail: `A possible match (${match.confidence}% confidence) was found for ${report.petName || report.title || 'your lost pet'}.`,
-          time: formatNotifDate(match.createdAt) || 'Just now',
-          read: read.has(id)
-        });
-      });
-  } catch (error) {
-    /* matches lookup failed — skip silently */
-  }
-
-  try {
-    const incomingClaimsRes = await lostFoundRequest('list_claims', { report_owner_id: ownerId });
-    (incomingClaimsRes?.data || [])
-      .filter((claim) => claim.status === 'pending')
-      .slice(0, 3)
-      .forEach((claim) => {
-        const id = `claim-in-${claim.id}`;
-        notifications.push({
-          id,
-          title: 'New Claim on Your Found Report',
-          detail: `Someone submitted a claim for ${claim.pet_name || 'a pet'}${claim.report_case ? ` (${claim.report_case})` : ''}.`,
-          time: formatNotifDate(claim.created_at) || 'Just now',
-          read: read.has(id)
-        });
-      });
-    (incomingClaimsRes?.data || [])
-      .filter((claim) => ['approved', 'resolved'].includes(claim.status))
-      .slice(0, 3)
-      .forEach((claim) => {
-        const id = `claim-out-${claim.id}`;
-        notifications.push({
-          id,
-          title: 'Your Found Pet Was Claimed',
-          detail: `${claim.claimant_name || 'A claimant'} was approved for ${claim.pet_name || 'the pet'}${claim.report_case ? ` (${claim.report_case})` : ''} you posted.`,
-          time: formatNotifDate(claim.reviewed_at || claim.updated_at || claim.created_at) || 'Just now',
-          read: read.has(id)
-        });
-      });
-  } catch (error) {
-    /* incoming claims lookup failed — skip silently */
-  }
-
-  const visible = notifications.filter((item) => !dismissed.has(item.id));
-
-  if (!visible.length) {
-    visible.push({
-      id: 'empty',
-      title: 'No New Notifications',
-      detail: 'You are all caught up. Check back later for updates.',
-      time: 'Just checked',
-      read: true
-    });
-  }
-
-  return visible;
-}
+const NOTIF_PAGE_SIZE = 5;
+let notifListExpanded = false;
+/* Tracked so the global dismiss-click listener (outside this closure) can
+   mutate the same array the open modal is rendering from, and trigger a
+   redraw that respects the current cap/expanded state. */
+let currentNotifItems = [];
+let redrawNotifList = null;
 
 function renderNotificationItems(root, items) {
   const list = root.querySelector('.dash-notification-list');
   if (!list) return;
-  list.innerHTML = items
-    .map(
-      (item) => `
+
+  currentNotifItems = items;
+
+  function draw() {
+    if (!items.length) {
+      items.push({
+        id: 'empty',
+        title: 'No New Notifications',
+        detail: 'You are all caught up. Check back later for updates.',
+        time: 'Just checked',
+        read: true
+      });
+    }
+
+    const header = root.querySelector('.dash-modal-header h2');
+    if (header) {
+      const unreadCount = items.filter((item) => !item.read && item.id !== 'empty').length;
+      header.textContent = `Notification${unreadCount ? ` (${unreadCount})` : ''}`;
+    }
+
+    const visible = notifListExpanded ? items : items.slice(0, NOTIF_PAGE_SIZE);
+    const remaining = items.length - visible.length;
+
+    list.innerHTML = visible
+      .map((item) => {
+        const category = item.id === 'empty' ? 'general' : notifCategoryFromType(item.type);
+        const status = item.id === 'empty' ? 'neutral' : notifStatusFromTitle(item.title);
+        return `
         <article class="dash-notification-item ${item.read ? 'read' : 'unread'}" data-notif-id="${escapeHtmlNav(item.id)}">
+          <div class="notif-badge notif-badge--${status}">${NOTIF_ICONS[category]}</div>
           <div class="dash-notification-item-body">
             <h4>${escapeHtmlNav(item.title)}</h4>
             <p>${escapeHtmlNav(item.detail)}</p>
@@ -298,36 +328,91 @@ function renderNotificationItems(root, items) {
           </div>
           ${item.id === 'empty' ? '' : `<button type="button" class="notif-item-delete" data-action="dismiss-notif" aria-label="Dismiss notification">&times;</button>`}
         </article>
-      `
-    )
-    .join('');
+      `;
+      })
+      .join('') + (remaining > 0 ? `<button type="button" class="notif-show-more-btn" id="notif-show-more-btn">Show ${remaining} more</button>` : '');
 
-  const header = root.querySelector('.dash-modal-header h2');
-  if (header) {
-    const unreadCount = items.filter((item) => !item.read && item.id !== 'empty').length;
-    header.textContent = `Notification${unreadCount ? ` (${unreadCount})` : ''}`;
+    const showMoreBtn = list.querySelector('#notif-show-more-btn');
+    if (showMoreBtn) {
+      showMoreBtn.addEventListener('click', () => {
+        notifListExpanded = true;
+        draw();
+      });
+    }
+
+    list.querySelectorAll('.dash-notification-item').forEach((element) => {
+      element.addEventListener('click', async () => {
+        const id = element.dataset.notifId;
+        if (!id || id === 'empty') return;
+        // dataset values are strings; row ids are numbers.
+        const entry = items.find((notif) => String(notif.id) === id);
+        if (!entry || entry.read) return;
+
+        entry.read = true;
+        syncNotifDotFromItems(items);
+        draw();
+
+        // Put it back if the server did not accept it, rather than leaving
+        // the item looking read until a refresh contradicts it.
+        const result = await api.markNotificationRead(entry.id).catch(() => null);
+        if (!result || !result.success) {
+          entry.read = false;
+          syncNotifDotFromItems(items);
+          draw();
+        }
+      });
+    });
   }
 
-  list.querySelectorAll('.dash-notification-item').forEach((element) => {
-    element.addEventListener('click', () => {
-      const id = element.dataset.notifId;
-      if (!id || id === 'empty') return;
-      addReadNotifId(getCurrentOwnerId(), id);
-      element.classList.remove('unread');
-      element.classList.add('read');
-      const header2 = root.querySelector('.dash-modal-header h2');
-      if (header2) {
-        const unreadCount = list.querySelectorAll('.dash-notification-item.unread').length;
-        header2.textContent = `Notification${unreadCount ? ` (${unreadCount})` : ''}`;
-      }
-    });
-  });
+  redrawNotifList = draw;
+  draw();
 }
 
-/* Dismiss a single notification: hide it going forward via localStorage,
-   since notifications are rebuilt live from appointments/claims/reports
-   on every open rather than stored server-side. */
-document.addEventListener('click', function (e) {
+/* ── Notification bell dot ────────────────────────────────────
+   One indexed COUNT against the caller's own rows. This used to run the
+   full six-endpoint aggregation just to work out whether the dot should
+   show, which is why it needed a sessionStorage cache with a TTL — and
+   why a cache written before the session hydrated could leave the dot
+   wrong for a minute. Neither the cache nor its staleness window is
+   needed now. ── */
+
+function getNotifDotElements() {
+  return Array.from(document.querySelectorAll('.nav-notif-dot'));
+}
+
+function setNotifDotVisible(hasUnread) {
+  getNotifDotElements().forEach((dot) => { dot.hidden = !hasUnread; });
+}
+
+function syncNotifDotFromItems(items) {
+  setNotifDotVisible(items.some((item) => !item.read && item.id !== 'empty'));
+}
+
+async function refreshNotifDot() {
+  if (!getNotifDotElements().length) return;
+  if (typeof api === 'undefined' || !api.getUnreadNotificationCount) return;
+
+  const user = inSitePreview()
+    ? null
+    : (typeof getCurrentUser === 'function' ? getCurrentUser() : null);
+  if (!user) {
+    setNotifDotVisible(false);
+    return;
+  }
+
+  const result = await api.getUnreadNotificationCount().catch(() => null);
+  if (!result || !result.success) return;
+
+  setNotifDotVisible(result.unread_count > 0);
+}
+
+document.addEventListener('DOMContentLoaded', refreshNotifDot);
+document.addEventListener('DOMContentLoaded', () => startPolling(refreshNotifDot, 20000));
+
+/* Dismiss a single notification. Soft-deleted server-side (dismissed_at) on
+   the caller's own row only — safe now that rows belong to one recipient,
+   where it would once have hidden the notification from everybody. */
+document.addEventListener('click', async function (e) {
   const btn = e.target.closest('[data-action="dismiss-notif"]');
   if (!btn) return;
   e.preventDefault();
@@ -337,26 +422,20 @@ document.addEventListener('click', function (e) {
   if (!item) return;
 
   const id = item.dataset.notifId;
-  if (id) addDismissedNotifId(getCurrentOwnerId(), id);
-  item.remove();
+  if (!id || id === 'empty') return;
 
-  const list = document.querySelector('.dash-notification-list');
-  if (list && !list.querySelector('.dash-notification-item')) {
-    list.innerHTML = `
-      <article class="dash-notification-item read">
-        <div class="dash-notification-item-body">
-          <h4>No New Notifications</h4>
-          <p>You are all caught up. Check back later for updates.</p>
-          <small>Just checked</small>
-        </div>
-      </article>
-    `;
-  }
+  const idx = currentNotifItems.findIndex((entry) => String(entry.id) === id);
+  if (idx === -1) return;
+  const [removed] = currentNotifItems.splice(idx, 1);
 
-  const header = document.querySelector('.dash-modal-header h2');
-  if (header && list) {
-    const unreadCount = list.querySelectorAll('.dash-notification-item.unread').length;
-    header.textContent = `Notification${unreadCount ? ` (${unreadCount})` : ''}`;
+  if (redrawNotifList) redrawNotifList();
+  syncNotifDotFromItems(currentNotifItems);
+
+  const result = await api.dismissNotification(removed.id).catch(() => null);
+  if (!result || !result.success) {
+    currentNotifItems.splice(idx, 0, removed);
+    if (redrawNotifList) redrawNotifList();
+    syncNotifDotFromItems(currentNotifItems);
   }
 });
 
@@ -390,20 +469,23 @@ async function openNotificationModal() {
     button.addEventListener('click', closeNotifModal);
   });
 
+  notifListExpanded = false;
   const items = await buildOwnerNotifications();
   if (!root.hidden) renderNotificationItems(root, items);
+  syncNotifDotFromItems(items);
 
   const markAllBtn = document.getElementById('mark-all-read-btn');
   if (markAllBtn) {
-    markAllBtn.addEventListener('click', () => {
-      const ids = items.filter((item) => item.id !== 'empty').map((item) => item.id);
-      markAllNotifRead(getCurrentOwnerId(), ids);
-      root.querySelectorAll('.dash-notification-item').forEach((element) => {
-        element.classList.remove('unread');
-        element.classList.add('read');
-      });
-      const header = root.querySelector('.dash-modal-header h2');
-      if (header) header.textContent = 'Notification';
+    markAllBtn.addEventListener('click', async () => {
+      // Confirm the write landed before showing everything as read. The
+      // admin bell used to do the opposite and hid a write that had been
+      // failing every single time.
+      const result = await api.markAllNotificationsRead().catch(() => null);
+      if (!result || !result.success) return;
+
+      items.forEach((item) => { item.read = true; });
+      if (redrawNotifList) redrawNotifList();
+      syncNotifDotFromItems(items);
     });
   }
 }

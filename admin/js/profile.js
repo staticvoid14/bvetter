@@ -1,7 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
-	const PROFILE_API = "/bvetter/api/users/profile.php";
-	const SESSION_API = "/bvetter/api/users/sessions.php";
-	const session = window.VBetterAuth?.getSession?.() || JSON.parse(sessionStorage.getItem("vbetter_session") || "null");
+	const PROFILE_API = "/api/users/profile.php";
+	// Was /api/users/sessions.php, which has never existed — so the Security
+	// card's session list and its Revoke button silently failed on every load.
+	// api/auth/session.php is the real endpoint; note it reads $_POST, so these
+	// calls must send FormData, not a JSON body (see public/js/api.js).
+	const SESSION_API = "/api/auth/session.php";
+	const session = window.VBetterAuth?.getSession?.() || JSON.parse(localStorage.getItem("vbetter_session") || "null");
 	const userId = session?.userId || session?.id || 0;
 
 	const profileForm = document.getElementById("profile-form");
@@ -14,10 +18,21 @@ document.addEventListener("DOMContentLoaded", () => {
 		message.dataset.type = type;
 	}
 
+	// api/users/profile.php now authenticates with the bearer token and ignores
+	// any user_id in the body, so this request must carry the token or it 401s.
+	function authHeaders() {
+		// Both are written at login; vet-api.js reads session.token, public/js
+		// reads bvetter_token. Accept either so neither convention can break it.
+		const token = session?.token || localStorage.getItem("bvetter_token");
+		return token
+			? { "Content-Type": "application/json", "Authorization": "Bearer " + token }
+			: { "Content-Type": "application/json" };
+	}
+
 	async function profileRequest(action, payload = {}) {
 		const response = await fetch(PROFILE_API, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: authHeaders(),
 			body: JSON.stringify({ action, user_id: userId, ...payload })
 		});
 		const result = await response.json();
@@ -33,12 +48,23 @@ document.addEventListener("DOMContentLoaded", () => {
 		const avatar = document.getElementById("profile-avatar");
 		if (initialsEl) initialsEl.textContent = displayName.charAt(0).toUpperCase();
 
+		// Exactly one of the two is ever visible. The old version only ever
+		// turned things ON — it showed the photo without hiding the initials —
+		// so once the empty-src error handler had revealed the initials, both
+		// circles rendered at once.
+		function showAvatar(usePhoto) {
+			if (avatar) avatar.hidden = !usePhoto;
+			if (initialsEl) initialsEl.hidden = usePhoto;
+		}
+
 		if (avatar && profile.avatarUrl) {
+			// Bound here rather than inline in the HTML: an inline onerror fires
+			// against the placeholder src too, before this code ever runs.
+			avatar.onerror = () => { avatar.onerror = null; showAvatar(false); };
 			avatar.src = profile.avatarUrl;
-			avatar.style.display = "block";
-		} else if (avatar) {
-			avatar.style.display = "none";
-			if (initialsEl) initialsEl.style.display = "flex";
+			showAvatar(true);
+		} else {
+			showAvatar(false);
 		}
 
 		if (profileForm) {
@@ -48,11 +74,17 @@ document.addEventListener("DOMContentLoaded", () => {
 			profileForm.elements.role.value     = profile.roleLabel || profile.role || "System Administrator";
 		}
 
+		// KPI strip. profileStats() in api/users/profile.php fills these only for
+		// role 'admin'; the em-dash stays for anyone else rather than showing a
+		// zero that would read as a real measurement.
 		const el = (id) => document.getElementById(id);
-		if (el("stat-total-accounts")) el("stat-total-accounts").textContent = profile.stats?.totalAccounts ?? "—";
-		if (el("stat-active-users"))   el("stat-active-users").textContent   = profile.stats?.activeUsers   ?? "—";
-		if (el("stat-site-updates"))   el("stat-site-updates").textContent   = profile.stats?.siteUpdates   ?? "—";
-		if (el("stat-uptime"))         el("stat-uptime").textContent         = profile.stats?.uptime        ?? "99.9%";
+		const setStat = (id, value) => {
+			const node = el(id);
+			if (node) node.textContent = Number.isFinite(value) ? value.toLocaleString() : "—";
+		};
+		setStat("stat-total-accounts", profile.stats?.totalAccounts);
+		setStat("stat-active-users",   profile.stats?.activeUsers);
+		setStat("stat-site-updates",   profile.stats?.siteUpdates);
 		if (el("stat-accounts-note") && profile.stats?.accountsNote) el("stat-accounts-note").textContent = profile.stats.accountsNote;
 		if (el("stat-users-note")    && profile.stats?.usersNote)    el("stat-users-note").textContent    = profile.stats.usersNote;
 
@@ -60,48 +92,92 @@ document.addEventListener("DOMContentLoaded", () => {
 		const pwEl = el("pw-last-changed");
 		if (pwEl) {
 			if (profile.security?.passwordChangedAt) {
-				const d = new Date(profile.security.passwordChangedAt);
-				const days = Math.floor((Date.now() - d) / 86400000);
-				pwEl.textContent = days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+				// MySQL hands back "Y-m-d H:i:s"; Safari refuses that without the T.
+				const d = new Date(String(profile.security.passwordChangedAt).replace(" ", "T"));
+				const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+				pwEl.textContent = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 			} else {
-				pwEl.textContent = "—";
+				// NULL means there genuinely is no record — the column only began
+				// being stamped on 2026-08-22. Saying so beats a bare dash.
+				pwEl.textContent = "never";
 			}
 		}
 
-		/* 2FA status pill */
+		/* 2FA status pill.
+		   tfaEnabled is the EFFECTIVE state. An admin is challenged at login when
+		   the site-wide switch is on even if they never opted in personally (see
+		   requiresTwoFactor in api/config/login_flow.php), so reporting only the
+		   personal flag told those admins "Not Enabled" while they were in fact
+		   being asked for a code at every sign-in. */
 		const tfaPill = el("tfa-status-pill");
+		const tfaBtn = el("tfa-manage-btn");
+		const tfaBtnLabel = el("tfa-manage-label");
 		if (tfaPill) {
 			const enabled = Boolean(profile.security?.tfaEnabled);
-			tfaPill.textContent = enabled ? "Enabled" : "Not Enabled";
+			tfaPill.textContent = profile.security?.tfaByPolicy
+				? "Enabled · site policy"
+				: enabled ? "Enabled" : "Not Enabled";
 			tfaPill.className = `sec-status-pill sec-status-pill--${enabled ? "on" : "off"}`;
+		}
+		if (tfaBtn) {
+			// The personal switch cannot turn 2FA off while site policy forces it,
+			// so a "Turn Off" button would be a lie — point at the page that does
+			// own that setting instead.
+			tfaBtn.dataset.mode = profile.security?.tfaByPolicy ? "policy" : "personal";
+			tfaBtn.dataset.enabled = profile.security?.tfaPersonal ? "1" : "0";
+			if (tfaBtnLabel) {
+				tfaBtnLabel.textContent = profile.security?.tfaByPolicy
+					? "Security Settings"
+					: profile.security?.tfaPersonal ? "Turn Off" : "Turn On";
+			}
 		}
 
 		if (notificationForm) {
+			// Default ON: absent/undefined must not read as "switched off", or a
+			// first save would silently opt the admin out of everything.
 			const n = notificationForm.elements;
-			if (n.newAccountRegistrations) n.newAccountRegistrations.checked = Boolean(profile.notifications?.newAccountRegistrations);
-			if (n.systemAlerts)            n.systemAlerts.checked            = Boolean(profile.notifications?.systemAlerts);
-			if (n.contentUpdates)          n.contentUpdates.checked          = Boolean(profile.notifications?.contentUpdates);
-			if (n.weeklySummary)           n.weeklySummary.checked           = Boolean(profile.notifications?.weeklySummary);
-			if (n.securityAlerts)          n.securityAlerts.checked          = profile.notifications?.securityAlerts !== false;
+			if (n.staffAppointmentAlerts) n.staffAppointmentAlerts.checked = profile.notifications?.staffAppointmentAlerts !== false;
+			if (n.staffLostFoundAlerts)   n.staffLostFoundAlerts.checked   = profile.notifications?.staffLostFoundAlerts   !== false;
+			if (n.staffTicketAlerts)      n.staffTicketAlerts.checked      = profile.notifications?.staffTicketAlerts      !== false;
+			if (n.staffCspAlerts)         n.staffCspAlerts.checked         = profile.notifications?.staffCspAlerts         !== false;
+			if (n.quietHoursEnabled)      n.quietHoursEnabled.checked      = Boolean(profile.notifications?.quietHoursEnabled);
+			if (n.quietHoursStart)        n.quietHoursStart.value          = profile.notifications?.quietHoursStart || "22:00";
+			if (n.quietHoursEnd)          n.quietHoursEnd.value            = profile.notifications?.quietHoursEnd || "07:00";
 		}
 	}
 
-	/* ── Sessions ── */
+	/* ── Sessions ──
+	   api/auth/session.php authenticates purely from the bearer token and reads
+	   its action out of $_POST, so these go as FormData with no Content-Type of
+	   our own — letting the browser set the multipart boundary. Sending JSON
+	   here leaves $_POST empty and the endpoint answers "Unknown action". */
+	function sessionRequest(action) {
+		const token = session?.token || localStorage.getItem("bvetter_token");
+		const body = new FormData();
+		body.append("action", action);
+		return fetch(SESSION_API, {
+			method: "POST",
+			headers: token ? { "Authorization": "Bearer " + token } : {},
+			body
+		});
+	}
+
 	async function loadSessions() {
 		const countDesc = document.getElementById("session-count-desc");
 		const list = document.getElementById("signin-list");
 
-		function deviceIcon(ua = "") {
-			const isMobile = /mobile|android|iphone|ipad/i.test(ua);
+		function deviceIcon(label = "") {
+			const isMobile = /mobile|android|iphone|ipad/i.test(label);
 			return isMobile
 				? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`
 				: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
 		}
 
-		function timeAgo(iso) {
-			if (!iso) return "—";
-			const diff = Date.now() - new Date(iso).getTime();
-			const m = Math.floor(diff / 60000);
+		// Epoch seconds from the server, not a parsed DATETIME string — the raw
+		// string would be read as browser-local time and skew every "x ago".
+		function timeAgo(epochSeconds) {
+			if (!epochSeconds) return "unknown";
+			const m = Math.floor((Date.now() / 1000 - epochSeconds) / 60);
 			if (m < 1) return "just now";
 			if (m < 60) return `${m}m ago`;
 			const h = Math.floor(m / 60);
@@ -109,18 +185,31 @@ document.addEventListener("DOMContentLoaded", () => {
 			return `${Math.floor(h / 24)}d ago`;
 		}
 
+		// Trims the last octet of IPv4 and the last group of IPv6. The previous
+		// regex only matched IPv4, so a v6 address was printed in full.
+		function maskIp(ip) {
+			if (!ip) return "";
+			if (ip.includes(":")) return ip.replace(/[0-9a-f]*$/i, "xxxx");
+			return ip.replace(/\.\d+$/, ".xxx");
+		}
+
+		function escapeHtml(value) {
+			return String(value ?? "").replace(/[&<>"']/g, (c) =>
+				({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+		}
+
 		try {
-			const resp = await fetch(SESSION_API, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ action: "list", user_id: userId })
-			});
+			const resp = await sessionRequest("list");
 			const result = await resp.json();
+			if (!resp.ok || !result.success) throw new Error(result.message || "Session list failed.");
 			const sessions = result.data || [];
 
+			// The list is the caller's own sessions, current one included, so
+			// "other" devices is one fewer than the row count.
+			const others = sessions.filter((s) => !s.isCurrent).length;
 			if (countDesc) {
-				countDesc.textContent = sessions.length
-					? `${sessions.length} active session${sessions.length > 1 ? "s" : ""} across devices`
+				countDesc.textContent = others
+					? `${others} other active session${others > 1 ? "s" : ""} across devices`
 					: "No other active sessions";
 			}
 
@@ -130,24 +219,23 @@ document.addEventListener("DOMContentLoaded", () => {
 				return;
 			}
 
-			list.innerHTML = sessions.slice(0, 5).map((s, i) => {
-				const isCurrent = i === 0 || s.isCurrent;
-				const ua = s.userAgent || "";
-				const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : ua.includes("Edge") ? "Edge" : "Browser";
-				const os = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iPhone" : "Device";
-				const ip = s.ip ? s.ip.replace(/\.\d+$/, ".xxx") : "—";
-				const location = s.location || "";
-				const meta = [ip, location, timeAgo(s.lastActive || s.createdAt)].filter(Boolean).join(" · ");
+			list.innerHTML = sessions.slice(0, 5).map((s) => {
+				// device_label is already "Chrome on Windows" — the old code
+				// re-derived that by sniffing a userAgent field this endpoint
+				// does not return, so every row read "Browser on Device".
+				const device = s.device || "Unknown device";
+				const meta = [maskIp(s.ip), s.location, timeAgo(s.lastActivityEpoch)]
+					.filter(Boolean).join(" · ");
 				const okIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 				return `
 				<div class="signin-row">
-					<div class="signin-icon">${deviceIcon(ua)}</div>
+					<div class="signin-icon">${deviceIcon(device)}</div>
 					<div class="signin-body">
 						<div class="signin-device">
-							${browser} on ${os}
-							${isCurrent ? '<span class="signin-current-badge">Current</span>' : ""}
+							${escapeHtml(device)}
+							${s.isCurrent ? '<span class="signin-current-badge">Current</span>' : ""}
 						</div>
-						<div class="signin-meta">${meta}</div>
+						<div class="signin-meta">${escapeHtml(meta)}</div>
 					</div>
 					<div class="signin-status signin-status--ok">${okIcon}</div>
 				</div>`;
@@ -179,7 +267,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			const profile = await profileRequest("update", payload);
 			fillProfile(profile);
 			const next = { ...session, name: profile.fullName, email: profile.email, phone: profile.phone };
-			sessionStorage.setItem("vbetter_session", JSON.stringify(next));
+			localStorage.setItem("vbetter_session", JSON.stringify(next));
 			setMessage("Profile saved.", "success");
 		} catch (error) {
 			setMessage(error.message, "error");
@@ -191,11 +279,13 @@ document.addEventListener("DOMContentLoaded", () => {
 		const n = notificationForm.elements;
 		try {
 			const profile = await profileRequest("preferences", {
-				newAccountRegistrations: n.newAccountRegistrations?.checked ?? false,
-				systemAlerts:            n.systemAlerts?.checked            ?? false,
-				contentUpdates:          n.contentUpdates?.checked          ?? false,
-				weeklySummary:           n.weeklySummary?.checked           ?? false,
-				securityAlerts:          n.securityAlerts?.checked          ?? true
+				staffAppointmentAlerts: n.staffAppointmentAlerts?.checked ?? true,
+				staffLostFoundAlerts:   n.staffLostFoundAlerts?.checked   ?? true,
+				staffTicketAlerts:      n.staffTicketAlerts?.checked      ?? true,
+				staffCspAlerts:         n.staffCspAlerts?.checked         ?? true,
+				quietHoursEnabled:      n.quietHoursEnabled?.checked      ?? false,
+				quietHoursStart:        n.quietHoursStart?.value          || "22:00",
+				quietHoursEnd:          n.quietHoursEnd?.value            || "07:00"
 			});
 			fillProfile(profile);
 			setMessage("Notification preferences saved.", "success");
@@ -216,6 +306,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	function openPasswordModal() {
 		pwForm?.reset();
+		// reset() changes values without an input event, so the strength bar
+		// and match line would keep describing the last password typed.
+		pwForm?.querySelectorAll('input[type="password"]').forEach((input) => input.dispatchEvent(new Event("input")));
 		setPwMessage("");
 		if (pwOverlay) pwOverlay.hidden = false;
 		document.getElementById("pw-current")?.focus();
@@ -224,6 +317,122 @@ document.addEventListener("DOMContentLoaded", () => {
 	function closePasswordModal() {
 		if (pwOverlay) pwOverlay.hidden = true;
 	}
+
+	/* Hand Over Account -- see api/admin/handover.php. */
+	const HANDOVER_API = "/api/admin/handover.php";
+	const hoOverlay = document.getElementById("handoverOverlay");
+	const hoForm = document.getElementById("handover-form");
+
+	async function handoverRequest(action, payload = {}) {
+		const response = await fetch(HANDOVER_API, {
+			method: "POST",
+			headers: authHeaders(),
+			body: JSON.stringify({ action, ...payload })
+		});
+		const result = await response.json();
+		if (!response.ok || !result.success) throw new Error(result.message || "Handover request failed.");
+		return result;
+	}
+
+	function setHoMessage(text, type = "info") {
+		const el = document.getElementById("handoverMessage");
+		if (!el) return;
+		el.textContent = text;
+		el.dataset.type = type;
+	}
+
+	function formatShortDate(value) {
+		const date = new Date(String(value).replace(" ", "T"));
+		return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+	}
+
+	// "Account holders: Maria Santos (until Sep 25, 2026) → Juan Cruz", so
+	// earlier approvals on this account can be read as the right person's.
+	async function loadHandoverHistory() {
+		const el = document.getElementById("handover-holders");
+		if (!el) return;
+		try {
+			const { data } = await handoverRequest("history");
+			if (!Array.isArray(data) || data.length < 2) { el.textContent = ""; return; }
+			el.textContent = "Account holders: " + data.map((holder) => holder.until
+				? `${holder.name} (until ${formatShortDate(holder.until)})`
+				: `${holder.name} (current)`).join(" → ");
+		} catch {
+			el.textContent = "";
+		}
+	}
+
+	function openHandover() {
+		hoForm?.reset();
+		hoForm?.querySelectorAll('input[type="password"]').forEach((input) => input.dispatchEvent(new Event("input")));
+		setHoMessage("");
+		if (hoOverlay) hoOverlay.hidden = false;
+		document.getElementById("ho-name")?.focus();
+	}
+
+	function closeHandover() {
+		if (hoOverlay) hoOverlay.hidden = true;
+	}
+
+	document.getElementById("handover-btn")?.addEventListener("click", openHandover);
+	document.getElementById("handoverClose")?.addEventListener("click", closeHandover);
+	document.getElementById("handoverCancel")?.addEventListener("click", closeHandover);
+	hoOverlay?.addEventListener("click", (event) => {
+		if (event.target === hoOverlay) closeHandover();
+	});
+
+	document.getElementById("ho-send-code")?.addEventListener("click", async (event) => {
+		const button = event.currentTarget;
+		const email = hoForm.elements.newEmail.value.trim();
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setHoMessage("Enter the new administrator's email first.", "error");
+		button.disabled = true;
+		try {
+			const result = await handoverRequest("send_code", { new_email: email });
+			setHoMessage(result.message + " Ask the new administrator for it.", "success");
+			document.getElementById("ho-code")?.focus();
+		} catch (error) {
+			setHoMessage(error.message, "error");
+		} finally {
+			button.disabled = false;
+		}
+	});
+
+	hoForm?.addEventListener("submit", async (event) => {
+		event.preventDefault();
+		const f = hoForm.elements;
+		const payload = {
+			new_full_name: f.newFullName.value.trim(),
+			new_email: f.newEmail.value.trim(),
+			code: f.code.value.trim(),
+			new_phone: f.newPhone.value.trim(),
+			new_password: f.newPassword.value,
+			current_password: f.currentPassword.value
+		};
+
+		if (!payload.new_full_name || !payload.new_email || !payload.code) return setHoMessage("Fill in the name, email and the code sent to that email.", "error");
+		const policyError = window.PasswordPolicy ? PasswordPolicy.validate(payload.new_password) : null;
+		if (policyError) return setHoMessage(policyError, "error");
+		if (payload.new_password !== f.confirmPassword.value) return setHoMessage("New password and confirmation do not match.", "error");
+		if (!payload.current_password) return setHoMessage("Enter your current password to confirm it's you.", "error");
+
+		if (!(await vbConfirm(`Hand this administrator account over to ${payload.new_full_name}? You will be signed out and can no longer sign in to it.`, "Yes, hand over"))) return;
+
+		const submitBtn = hoForm.querySelector('button[type="submit"]');
+		submitBtn.disabled = true;
+		try {
+			const result = await handoverRequest("complete", payload);
+			closeHandover();
+			await vbAlert(result.message);
+			// This session was revoked with the rest; clear it locally too.
+			if (typeof clearSession === "function") clearSession();
+			window.location.href = "ops-3bab26d632.html";
+		} catch (error) {
+			setHoMessage(error.message, "error");
+			submitBtn.disabled = false;
+		}
+	});
+
+	void loadHandoverHistory();
 
 	document.getElementById("update-password-btn")?.addEventListener("click", openPasswordModal);
 	document.getElementById("pwModalClose")?.addEventListener("click", closePasswordModal);
@@ -239,7 +448,10 @@ document.addEventListener("DOMContentLoaded", () => {
 		const confirmPassword = pwForm.elements.confirmPassword.value;
 
 		if (!currentPassword) return setPwMessage("Enter your current password.", "error");
-		if (newPassword.length < 8) return setPwMessage("New password must be at least 8 characters.", "error");
+		const policyError = window.PasswordPolicy
+			? PasswordPolicy.validate(newPassword)
+			: (newPassword.length < 12 ? "New password must be at least 12 characters." : null);
+		if (policyError) return setPwMessage(policyError, "error");
 		if (newPassword !== confirmPassword) return setPwMessage("New password and confirmation do not match.", "error");
 
 		const submitBtn = pwForm.querySelector('button[type="submit"]');
@@ -247,7 +459,11 @@ document.addEventListener("DOMContentLoaded", () => {
 		try {
 			await profileRequest("password", { currentPassword, newPassword });
 			closePasswordModal();
+			// Clears any forced-upgrade hold, so navigation is free again.
+			window.VBetterAuth?.clearPasswordUpgrade?.();
 			setMessage("Password updated.", "success");
+			// Refreshes "Last changed", which the server has just stamped.
+			void loadProfile();
 		} catch (error) {
 			setPwMessage(error.message, "error");
 		} finally {
@@ -256,17 +472,47 @@ document.addEventListener("DOMContentLoaded", () => {
 	});
 
 	document.getElementById("revoke-sessions-btn")?.addEventListener("click", async () => {
-		if (!window.confirm("Revoke all other sessions? You will remain signed in on this device.")) return;
+		if (!(await vbConfirm("Revoke all other sessions? You will remain signed in on this device."))) return;
 		try {
-			await fetch(SESSION_API, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ action: "revoke_others", user_id: userId })
-			});
+			// 'end_others' is what api/auth/session.php calls this; the old
+			// 'revoke_others' was never a recognised action anywhere.
+			const resp = await sessionRequest("end_others");
+			const result = await resp.json();
+			if (!resp.ok || !result.success) throw new Error(result.message || "Revoke failed.");
 			setMessage("All other sessions revoked.", "success");
 			void loadSessions();
 		} catch {
 			setMessage("Could not revoke sessions.", "error");
+		}
+	});
+
+	/* Two-factor. Was an unwired button with no id at all. */
+	document.getElementById("tfa-manage-btn")?.addEventListener("click", async (event) => {
+		const btn = event.currentTarget;
+
+		// Site policy owns the setting in this case, and it lives on a different
+		// page — flipping the personal flag here would not change what the admin
+		// experiences at login.
+		if (btn.dataset.mode === "policy") {
+			window.location.href = "manage-security.html";
+			return;
+		}
+
+		const turningOn = btn.dataset.enabled !== "1";
+		const prompt = turningOn
+			? "Turn on two-factor authentication? You'll be emailed a 6-digit code at every sign-in."
+			: "Turn off two-factor authentication? Your account will be protected by password alone.";
+		if (!(await vbConfirm(prompt))) return;
+
+		btn.disabled = true;
+		try {
+			const profile = await profileRequest("two_factor", { enabled: turningOn });
+			fillProfile(profile);
+			setMessage(turningOn ? "Two-factor authentication enabled." : "Two-factor authentication disabled.", "success");
+		} catch (error) {
+			setMessage(error.message, "error");
+		} finally {
+			btn.disabled = false;
 		}
 	});
 

@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => {
+﻿document.addEventListener('DOMContentLoaded', async () => {
     if (window.Chart && Chart.defaults) {
         Chart.defaults.animation = false;
         if (Chart.defaults.transitions?.active?.animation) {
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (path.includes(jsMarker)) return path.slice(0, path.indexOf(jsMarker));
         const pageMarker = '/vet/html/';
         if (path.includes(pageMarker)) return path.slice(0, path.indexOf(pageMarker));
-        return '/bvetter';
+        return '';
     }
 
     const MASS_VACC_API = `${appBasePath()}/api/mass-vaccination/events.php`;
@@ -49,9 +49,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         events:             [],   // from DB (mass_vaccination_events table)  ← LIVE SOURCE
         arimaData:          null, // from Python ARIMA service
         dashboardData:      null, // from PHP vet_dashboard (Excel summary)
-        vaccinationDataset: null, // from PHP mass_vaccination_dataset (Excel monthly)
+        vaccinationDataset: null, // from PHP mass_vaccination_dataset, scoped to state.dataView
+        // Chart 2's history fallback. vaccinationDataset above is re-fetched for
+        // whichever view is selected, so using it there made that chart follow the
+        // Historical/Current dropdown -- the very thing serving the model's fitted
+        // series was meant to stop. This is captured ONCE from the workbook-backed
+        // view and never re-scoped, so the fallback is as view-independent as the
+        // fitted series it stands in for.
+        forecastBaseline:   null,
         eventTablePage:     1,
+        // 'historical' = frozen pre-2025 baseline (Excel + the 2023-2024 rows
+        // already sitting in mass_vaccination_events -- training data either
+        // way). 'current' = live mass_vaccination_events rows dated 2025+.
+        // See MASS_VACC_CURRENT_CUTOFF in dashboard.php for the exact split.
+        dataView:           'historical',
+        // Which workbook year the Historical monthly chart shows. 2024 is the
+        // default because it is the most recent year of REAL campaign data --
+        // 2025 is one annual total allocated across months, so it plots as a
+        // smooth curve rather than the actual peaks and quiet months.
+        historicalYear:     '2024',
     };
+    const MASS_VACC_CUTOFF = new Date('2025-01-01T00:00:00');
 
     // Desktop can comfortably show more rows per page than a phone screen.
     const pageSizeForViewport = () => (window.innerWidth <= 768 ? 5 : 10);
@@ -91,7 +109,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (noteEl)  noteEl.innerHTML  = skeletonBar('75%', '10px');
         });
 
-        ['vaccinatedPerBarangayChart', 'predictedAnimalsChart', 'vaccineTypesChart', 'vaccinesNeededChart'].forEach((id) => {
+        ['vaccinatedPerBarangayChart', 'predictedAnimalsChart', 'vaccinesNeededList'].forEach((id) => {
             const canvas = document.getElementById(id);
             if (!canvas || canvas.dataset.skeletonApplied) return;
             canvas.dataset.skeletonApplied = 'true';
@@ -155,6 +173,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!e.date) return true;
             var d = new Date(e.date + 'T00:00:00');
             if (isNaN(d.getTime())) return true;
+            // Belt-and-suspenders on top of the server-side split (see
+            // MASS_VACC_CURRENT_CUTOFF in dashboard.php): whichever view is
+            // active, an event from the other era never enters a range total.
+            if (state.dataView === 'current'    && d <  MASS_VACC_CUTOFF) return false;
+            if (state.dataView === 'historical' && d >= MASS_VACC_CUTOFF) return false;
             if (range === 'This Month')    return d.getFullYear() === nowYear && d.getMonth() === nowMonth;
             if (range === 'Last 3 Months') {
                 var cutoff = new Date(now); cutoff.setMonth(cutoff.getMonth() - 3);
@@ -162,6 +185,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (range === 'This Year') return d.getFullYear() === nowYear;
             return true;
+        });
+    }
+
+    // All DB events belonging to the active Historical/Current view, with no
+    // range slicing -- used by the KPI cards, which aren't scoped by
+    // range-filter at all.
+    function eventsInView() {
+        return (state.events || []).filter(function(e) {
+            if (!e.date) return true;
+            var d = new Date(e.date + 'T00:00:00');
+            if (isNaN(d.getTime())) return true;
+            return state.dataView === 'current' ? d >= MASS_VACC_CUTOFF : d < MASS_VACC_CUTOFF;
         });
     }
 
@@ -278,17 +313,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // SOURCE: Excel — Combined_Rabies_3Years (monthly vaccination series)
+    // SOURCE: Historical baseline (Excel + pre-2025 DB rows) or live DB rows
+    // dated 2025+, scoped server-side by state.dataView.
     const loadVaccinationDataset = async () => {
         try {
             const fetchFn = window.VetAPI?.getMassVaccinationDataset
-                ? () => window.VetAPI.getMassVaccinationDataset()
-                : () => fetch(`${DASHBOARD_API}?scope=mass_vaccination_dataset`)
+                ? () => window.VetAPI.getMassVaccinationDataset(state.dataView)
+                : () => fetch(`${DASHBOARD_API}?scope=mass_vaccination_dataset&data_view=${encodeURIComponent(state.dataView)}`)
                     .then(r => r.json()).then(r => ({ ok: r.success, data: r.data }));
             const res = await fetchFn();
-            if (res.ok && res.data) state.vaccinationDataset = res.data;
+            if (res.ok && res.data) {
+                state.vaccinationDataset = res.data;
+                // The default view is historical, so this normally captures the
+                // baseline with no extra request.
+                if (state.dataView === 'historical' && !state.forecastBaseline) {
+                    state.forecastBaseline = res.data;
+                }
+            }
         } catch (err) {
             console.warn('Vaccination dataset unavailable:', err);
+        }
+    };
+
+    // Guarantees Chart 2 has a view-independent history fallback even if the page
+    // never loads the historical view (e.g. if the default changes later). No-ops
+    // when loadVaccinationDataset() already captured it, which is the normal path.
+    const loadForecastBaseline = async () => {
+        if (state.forecastBaseline) return;
+        try {
+            const fetchFn = window.VetAPI?.getMassVaccinationDataset
+                ? () => window.VetAPI.getMassVaccinationDataset('historical')
+                : () => fetch(`${DASHBOARD_API}?scope=mass_vaccination_dataset&data_view=historical`)
+                    .then(r => r.json()).then(r => ({ ok: r.success, data: r.data }));
+            const res = await fetchFn();
+            if (res.ok && res.data) state.forecastBaseline = res.data;
+        } catch (err) {
+            console.warn('Forecast baseline unavailable:', err);
         }
     };
 
@@ -317,7 +377,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         select.innerHTML = '<option value="">Select Barangay…</option>'
             + Array.from(barangays).sort().map(b =>
-                `<option value="${b}">${b}</option>`
+                `<option value="${window.vbEscapeHtml(b)}">${window.vbEscapeHtml(b)}</option>`
             ).join('');
     };
 
@@ -328,13 +388,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         const petsEl      = document.querySelector('[data-metric="petsVaccinated"]');
         const barangayEl  = document.querySelector('[data-metric="activeBarangay"]');
 
-        // DB: pending + total events
-        const pending = state.events.filter(e => e.status === 'Pending Report').length;
-        if (pendingEl) pendingEl.textContent = pending;
-        if (totalEl)   totalEl.textContent   = state.events.length || '-';
+        // DB events scoped to the active Historical/Current view -- the pets
+        // and barangay cards read the same split as the charts, not an
+        // all-time mix.
+        const viewEvents = eventsInView();
 
-        // DB first (all-time), then Excel fallback for total vaccinated
-        const dbTotal = state.events.reduce((s, e) => {
+        // Events and Pending Reports are the vet's to-do list, not training
+        // data, so they always count live events whichever Data View is
+        // selected. Scoped to the view, the page's default Historical view
+        // (pre-2025 only) showed "0 -- All caught up" and "No events recorded
+        // yet" directly above a table listing this year's pending event.
+        const liveEvents = (state.events || []).filter(function(e) {
+            var d = e.date ? new Date(e.date + 'T00:00:00') : null;
+            return !d || isNaN(d.getTime()) || d >= MASS_VACC_CUTOFF;
+        });
+        const thisYear = new Date().getFullYear();
+        const eventsThisYear = liveEvents.filter(function(e) {
+            var d = e.date ? new Date(e.date + 'T00:00:00') : null;
+            return d && !isNaN(d.getTime()) && d.getFullYear() === thisYear;
+        });
+
+        // DB: pending (any live event still awaiting its report) + this year's events
+        const pending   = liveEvents.filter(e => e.status === 'Pending Report').length;
+        const pendingThisYear   = eventsThisYear.filter(e => e.status === 'Pending Report').length;
+        const completedThisYear = eventsThisYear.length - pendingThisYear;
+        if (pendingEl) pendingEl.textContent = pending;
+        if (totalEl)   totalEl.textContent   = eventsThisYear.length || '-';
+
+        // These captions were left as permanent loading-skeleton placeholders
+        // before — renderSkeletons() blanks them out, but nothing ever put
+        // real text back in for these three cards.
+        const totalNoteEl = totalEl?.nextElementSibling;
+        if (totalNoteEl) totalNoteEl.textContent = eventsThisYear.length
+            ? `${completedThisYear} completed, ${pendingThisYear} pending`
+            : 'No events recorded yet';
+
+        const pendingNoteEl = pendingEl?.nextElementSibling;
+        if (pendingNoteEl) pendingNoteEl.textContent = pending > 0 ? 'Events awaiting data' : 'All caught up';
+
+        // DB first (scoped to view), then Excel/vaccinationDataset fallback for total vaccinated
+        const dbTotal = viewEvents.reduce((s, e) => {
             var tv = Number(e.totalVaccinated) || 0;
             if (tv === 0 && e.breakdown) {
                 tv = (Number(e.breakdown.dogs) || 0)
@@ -352,11 +445,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     || state.dashboardData?.vaccinated?.total || 0;
                 petsEl.textContent = excelTotal > 0 ? excelTotal.toLocaleString() : '-';
             }
+            // Default caption — overridden below by the ARIMA forecast note when that's available.
+            const petsNoteEl = petsEl.nextElementSibling;
+            if (petsNoteEl) petsNoteEl.textContent = 'Across all barangays';
         }
 
         // DB: most active barangay by vaccinated count
         const barangayTotals = {};
-        state.events.forEach(e => {
+        viewEvents.forEach(e => {
             if (!e.barangay) return;
             var tv = Number(e.totalVaccinated) || 0;
             if (tv === 0 && e.breakdown) {
@@ -369,6 +465,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const topBarangay = Object.keys(barangayTotals)
             .sort((a, b) => barangayTotals[b] - barangayTotals[a])[0];
         if (barangayEl) barangayEl.textContent = topBarangay || '-';
+
+        const barangayNoteEl = barangayEl?.nextElementSibling;
+        if (barangayNoteEl) barangayNoteEl.textContent = topBarangay
+            ? `${barangayTotals[topBarangay].toLocaleString()} pets vaccinated`
+            : 'No completed reports yet';
 
         // ARIMA: update pets vaccinated note
         if (state.arimaData?.total_vaccinated?.forecast && petsEl) {
@@ -426,7 +527,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     const renderArimaCard = () => {
         var existing = document.getElementById('arima-vacc-card');
         if (existing) existing.remove();
-        if (!state.arimaData?.total_vaccinated?.forecast) return;
+
+        // No forecast to show. This used to `return` here, which left the
+        // loading skeleton that renderSkeletons() wrote into the placeholder
+        // sitting there permanently - so an unreachable analytics service was
+        // indistinguishable from a page that never finished loading. Clear it
+        // and say plainly that the forecast is missing.
+        if (!state.arimaData?.total_vaccinated?.forecast) {
+            var emptyHost = document.getElementById('arima-card-placeholder');
+            if (emptyHost) emptyHost.innerHTML = `
+                <section class="card mv-arima-card" id="arima-vacc-card">
+                    <div class="mv-arima-header">
+                        <div>
+                            <span class="mv-arima-badge" style="background:#F1F5F9;color:#64748B;">Forecast Unavailable</span>
+                            <h3 class="mv-arima-title">Vaccine Demand Forecast</h3>
+                            <p class="mv-arima-desc">The analytics service did not return a forecast, so no demand
+                            projection is shown. Vaccination records and the charts below are unaffected. Reload the
+                            page to retry - if it keeps happening, the analytics service needs to be checked.</p>
+                        </div>
+                    </div>
+                </section>`;
+            return;
+        }
 
         var tv   = state.arimaData.total_vaccinated || {};
         var cs   = state.arimaData.clients_served   || {};
@@ -497,18 +619,136 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // ── Charts ────────────────────────────────────────────────────────────
+    // Chart colors — pulled from this page's own --mv-* design tokens rather
+    // than a new palette, so charts stay visually aligned with the rest of
+    // the site. Only "others" has no existing system-hue counterpart (navy
+    // reads too dark/desaturated as a data mark, and warning/danger already
+    // carry status meaning elsewhere on this page) — it's a violet close to
+    // this chart's original color, checked alongside blue+green for
+    // CVD-safe adjacent distinction (see /dataviz skill).
+    const VIZ = {
+        dogs:   '#2f9df0', // --mv-blue
+        cats:   '#108f2a', // --mv-green
+        others: '#4a3aa7', // violet accent (only intentionally new hue)
+        muted:  '#6f8098', // --mv-muted
+        warn:   '#d4bc53'  // --mv-warning
+    };
+
+    // Horizontal bar charts (many barangay rows) size their own scroll
+    // container to fit every row at a readable height, instead of squashing
+    // labels into a fixed box — .chart-scroll (CSS) caps it and scrolls
+    // vertically once it's taller than the card, so the page itself doesn't
+    // grow no matter how many barangays there are.
+    // Shows an explicit "nothing to plot" panel in place of a chart. Used when a
+    // chart genuinely has no data, so it never falls back to a fabricated series
+    // just to keep the canvas populated. Pass an empty message to clear it.
+    const setChartEmptyState = (canvasId, message) => {
+        const canvas = document.getElementById(canvasId);
+        const inner  = canvas?.closest('.chart-scroll-inner') || canvas?.parentElement;
+        if (!canvas || !inner) return;
+        let panel = inner.querySelector('.chart-empty');
+        if (!message) {
+            if (panel) panel.remove();
+            canvas.style.display = '';
+            return;
+        }
+        canvas.style.display = 'none';
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'chart-empty';
+            panel.style.cssText = 'display:flex;align-items:center;justify-content:center;'
+                + 'height:100%;min-height:200px;padding:24px;text-align:center;'
+                + 'font-size:12px;line-height:1.6;color:#64748B;';
+            inner.appendChild(panel);
+        }
+        panel.textContent = message;
+    };
+
+    const sizeHorizontalChart = (canvasId, rowCount, rowHeight) => {
+        const canvas = document.getElementById(canvasId);
+        const inner  = canvas?.closest('.chart-scroll-inner');
+        if (inner) inner.style.height = Math.max(220, rowCount * (rowHeight || 30)) + 'px';
+    };
+
+    // Renders a sorted meter-bar ranking (reuses the .line/.fill component from
+    // the event-detail comparison card) instead of a canvas chart — a visually
+    // distinct way to show "many categories, highest to lowest" so it doesn't
+    // just look like a second copy of the barangay bar chart above it.
+    const renderRankList = (listId, titleId, titleText, titleColor, labels, primaryArr, secondaryArr, showSecondary) => {
+        const titleEl = document.getElementById(titleId);
+        if (titleEl) { titleEl.textContent = titleText; titleEl.style.color = titleColor; }
+
+        const maxVal = Math.max(1, ...primaryArr);
+        const rows = labels
+            .map((name, i) => ({ name, value: primaryArr[i] || 0, done: secondaryArr?.[i] || 0 }))
+            .filter((row) => row.value > 0 || row.done > 0) // skip barangays with nothing to show
+            .sort((a, b) => b.value - a.value)
+            .map((row) => {
+                const pct = Math.max(2, Math.round((row.value / maxVal) * 100));
+                const sub = showSecondary && row.done > 0 ? `<small>${row.done.toLocaleString()} done</small>` : '';
+                return `
+                    <div class="rank-row">
+                        <span class="rank-name" title="${sanitize(row.name)}">${sanitize(row.name)}</span>
+                        <div class="line"><div class="fill fill-blue" style="width:${pct}%"></div></div>
+                        <strong class="rank-value">${row.value.toLocaleString()}${sub}</strong>
+                    </div>`;
+            }).join('');
+
+        const listEl = document.getElementById(listId);
+        if (listEl) listEl.innerHTML = rows;
+    };
+
+    // Draws a dashed "Now" divider where history ends and the forecast begins,
+    // so the trend line's two halves read as distinct at a glance instead of
+    // relying on solid-vs-dashed alone.
+    const nowDividerPlugin = {
+        id: 'nowDivider',
+        afterDraw(chart) {
+            var index = chart.options.plugins?.nowDivider?.index;
+            if (index == null) return;
+            var xScale = chart.scales.x;
+            var area   = chart.chartArea;
+            var x = xScale.getPixelForValue(index);
+            if (!isFinite(x)) return;
+            var ctx = chart.ctx;
+            ctx.save();
+            ctx.strokeStyle = '#CBD5E1';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(x, area.top);
+            ctx.lineTo(x, area.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = '10px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Now', x, area.top - 4);
+            ctx.restore();
+        }
+    };
+
     const buildCharts = (range) => {
         range = range || document.getElementById('range-filter')?.value || 'This Year';
+        // Historical mode has no range sub-filter (a closed 2023-2024 period
+        // isn't "This Month" of anything) -- it always reads the full
+        // Historical-scoped dataset from the server instead of range-slicing
+        // state.events client-side.
+        var isHistoricalView = state.dataView === 'historical';
+        // range only drives client-side event filtering in Current mode (see
+        // isHistoricalView guards below) -- in Historical mode it's purely a
+        // display label, so it's overridden here rather than left showing
+        // whatever the (now hidden) range-filter select last had selected.
+        if (isHistoricalView) range = 'Historical Baseline (2023–2024)';
 
         document.querySelectorAll('.chart-skeleton').forEach((el) => el.remove());
-        ['vaccinatedPerBarangayChart', 'predictedAnimalsChart', 'vaccineTypesChart', 'vaccinesNeededChart'].forEach((id) => {
+        ['vaccinatedPerBarangayChart', 'predictedAnimalsChart', 'vaccinesNeededList'].forEach((id) => {
             const canvas = document.getElementById(id);
             if (canvas) canvas.style.display = '';
         });
 
         // ── Live DB barangay totals for this range (used across multiple charts)
-        var dbBarangayTotals = getDbBarangayTotals(range);
-        var dbGrandTotal     = getDbGrandTotal(range);
+        var dbBarangayTotals = isHistoricalView ? {} : getDbBarangayTotals(range);
+        var dbGrandTotal     = isHistoricalView ? 0  : getDbGrandTotal(range);
         var hasDbData        = Object.keys(dbBarangayTotals).length > 0;
 
         // ── Chart 1: Vaccinated per Barangay
@@ -517,18 +757,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         // source at different time windows, so they must never be added together.
         // PRIMARY:  dbBarangayTotals, scoped to the selected range
         // FALLBACK: by_barangay all-time totals, when the range has no events yet
-        // LAST RESORT: diseaseCasesByBarangay proxy, when there is no DB data at all
+        // NO THIRD SOURCE: this used to fall back to the diseaseCasesByBarangay
+        // proxy, deriving dogs from disease case counts and inventing cats as
+        // actual * 0.4 and others as actual * 0.15. That is fabricated data on a
+        // surveillance chart, and once the seeded 2023-24 events were deleted it
+        // would have silently filled the Historical view with it. An empty chart
+        // that says why is the correct output when there is nothing to plot.
         destroyChart('vaccinatedPerBarangay');
         {
             var labels = [], dogsD = [], catsD = [], otherD = [];
-            var dbDogsD = [], dbCatsD = [], dbOtherD = [];
 
-            if (hasDbData) {
+            // Historical Baseline plots the workbook's own MONTHLY series, not
+            // barangays. The workbook records municipality-wide monthly figures
+            // and carries no per-barangay vaccination breakdown at all, so the
+            // honest thing to show for that period is the real monthly data
+            // rather than an empty card or a per-barangay estimate presented as
+            // if it were measured. Chronological, never sorted by size.
+            var isMonthlySeries = isHistoricalView;
+
+            // The card is titled "per Barangay" in the markup; the historical view
+            // plots months, so the heading has to follow what is actually drawn.
+            var vaccHeading = document.getElementById('vaccChartHeading');
+            if (vaccHeading) {
+                vaccHeading.textContent = isMonthlySeries
+                    ? 'Pets Vaccinated per Month'
+                    : 'Pets Vaccinated per Barangay';
+            }
+
+            if (isMonthlySeries) {
+                var yearPick = state.historicalYear;
+                (state.vaccinationDataset?.by_month || []).filter(r =>
+                    yearPick === 'all' || String(r.year) === String(yearPick)
+                ).forEach(r => {
+                    var monthName = String(r.month || '').slice(0, 3);
+                    var yearShort = String(r.year || '').slice(-2);
+                    labels.push(`${monthName} ${yearShort}`);
+                    dogsD.push(Number(r.dogs_vaccinated) || 0);
+                    catsD.push(Number(r.cats_vaccinated) || 0);
+                    otherD.push(0);
+                });
+
+            } else if (hasDbData) {
                 Object.keys(dbBarangayTotals).forEach(barangay => {
                     labels.push(barangay);
                     var db = dbBarangayTotals[barangay];
                     dogsD.push(db.dogs); catsD.push(db.cats); otherD.push(db.others);
-                    dbDogsD.push(0); dbCatsD.push(0); dbOtherD.push(0);
                 });
 
             } else if (state.vaccinationDataset?.by_barangay?.length) {
@@ -537,500 +810,344 @@ document.addEventListener('DOMContentLoaded', async () => {
                     dogsD.push(r.dogs_vaccinated);
                     catsD.push(r.cats_vaccinated);
                     otherD.push(r.others_vaccinated);
-                    dbDogsD.push(0); dbCatsD.push(0); dbOtherD.push(0);
                 });
 
-            } else if (state.dashboardData?.diseaseCasesByBarangay) {
-                // Disease proxy fallback — no DB events at all
-                state.dashboardData.diseaseCasesByBarangay.forEach(r => {
-                    labels.push(r.barangay);
-                    dogsD.push(r.actual);
-                    catsD.push(Math.round(r.actual * 0.4));
-                    otherD.push(Math.round(r.actual * 0.15));
-                    dbDogsD.push(0); dbCatsD.push(0); dbOtherD.push(0);
-                });
             }
 
-            // Merge Excel historical + live DB per species into clean legend entries.
-            // DB events with no species breakdown go into a separate "Unspecified" bar
-            // rather than being fabricated into dogs/cats/others.
-            var mergedDogs    = labels.map((_, i) => (dogsD[i]  || 0) + (dbDogsD[i]  || 0));
-            var mergedCats    = labels.map((_, i) => (catsD[i]  || 0) + (dbCatsD[i]  || 0));
-            var mergedOther   = labels.map((_, i) => (otherD[i] || 0) + (dbOtherD[i] || 0));
+            // Per-species series, straight from whichever source branch ran above.
+            // DB events with no species breakdown go into a separate "No breakdown
+            // entered" bar rather than being fabricated into dogs/cats/others.
+            var mergedDogs    = labels.map((_, i) => dogsD[i]  || 0);
+            var mergedCats    = labels.map((_, i) => catsD[i]  || 0);
+            var mergedOther   = labels.map((_, i) => otherD[i] || 0);
 
             // Unspecified = DB total minus the breakdown portion (events with no species data)
             var dbTotalsArr   = labels.map((_, i) => {
                 var b = dbBarangayTotals[labels[i]] || {};
-                var breakdownSum = (dbDogsD[i] || 0) + (dbCatsD[i] || 0) + (dbOtherD[i] || 0);
+                var breakdownSum = (mergedDogs[i] || 0) + (mergedCats[i] || 0) + (mergedOther[i] || 0);
                 return Math.max(0, (b.total || 0) - breakdownSum);
             });
             var hasUnspecified = dbTotalsArr.some(v => v > 0);
-            var hasLiveData    = dbDogsD.some(v => v > 0) || dbCatsD.some(v => v > 0)
-                              || dbOtherD.some(v => v > 0) || hasUnspecified;
+            // Tracks whether live DB events fed this chart at all - NOT whether any of
+            // them lacked a species breakdown. This previously read three arrays that
+            // were always 0, so it collapsed into hasUnspecified and the title's live-
+            // record note vanished whenever every event was fully encoded.
+            var hasLiveData    = hasDbData && dbGrandTotal > 0;
+
+            // Drop barangays with nothing to show (zero in every category —
+            // e.g. a placeholder row in the Excel fallback dataset), then sort
+            // the rest by grand total, high → low, so the horizontal chart
+            // below reads as a ranking instead of showing empty labeled rows.
+            // A monthly series must stay in calendar order -- ranking it by size
+            // would scramble the timeline into a meaningless bar list. Zero months
+            // are kept too, because "no campaign that month" is real information.
+            var order = isMonthlySeries
+                ? labels.map((_, i) => i)
+                : labels.map((_, i) => i)
+                    .filter(i => (mergedDogs[i] + mergedCats[i] + mergedOther[i] + dbTotalsArr[i]) > 0)
+                    .sort((a, b) =>
+                        (mergedDogs[b] + mergedCats[b] + mergedOther[b] + dbTotalsArr[b])
+                      - (mergedDogs[a] + mergedCats[a] + mergedOther[a] + dbTotalsArr[a])
+                    );
+            labels      = order.map(i => labels[i]);
+            mergedDogs  = order.map(i => mergedDogs[i]);
+            mergedCats  = order.map(i => mergedCats[i]);
+            mergedOther = order.map(i => mergedOther[i]);
+            dbTotalsArr = order.map(i => dbTotalsArr[i]);
 
             var datasets = [
-                { label: 'Dogs',   data: mergedDogs,  backgroundColor: '#002A58', borderRadius: 5 },
-                { label: 'Cats',   data: mergedCats,  backgroundColor: '#3B82F6', borderRadius: 5 },
-                { label: 'Others', data: mergedOther, backgroundColor: '#7C3AED', borderRadius: 5 },
+                { label: 'Dogs',   data: mergedDogs,  backgroundColor: VIZ.dogs,   borderRadius: 4 },
+                { label: 'Cats',   data: mergedCats,  backgroundColor: VIZ.cats,   borderRadius: 4 },
+                { label: 'Others', data: mergedOther, backgroundColor: VIZ.others, borderRadius: 4 },
             ];
+            // Drop any series that is entirely zero, so the workbook's monthly view
+            // does not carry an "Others" legend entry it has no column for. Guarded:
+            // if that would empty the chart, keep the original set.
+            var nonEmpty = datasets.filter(ds => ds.data.some(v => (Number(v) || 0) > 0));
+            if (nonEmpty.length) datasets = nonEmpty;
+
             // Only add Unspecified dataset when there are events without species breakdown
             if (hasUnspecified) {
                 datasets.push({
-                    label: 'Unspecified (no breakdown entered)',
+                    label: 'No breakdown entered',
                     data: dbTotalsArr,
-                    backgroundColor: '#94A3B8', borderRadius: 5
+                    backgroundColor: VIZ.muted, borderRadius: 4
                 });
             }
 
-            var chart1Title = hasLiveData
-                ? `Vaccinated per Barangay — ${range} (includes ${dbGrandTotal.toLocaleString()} live records)`
-                : `Vaccinated per Barangay — ${range}`;
+            var chart1Title = isMonthlySeries
+                ? `Vaccinated per Month — Baliwag workbook, ${state.historicalYear === 'all' ? 'all years' : state.historicalYear} `
+                  + `(municipality-wide; the workbook has no per-barangay breakdown)`
+                : hasLiveData
+                    ? `Vaccinated per Barangay — ${range} (includes ${dbGrandTotal.toLocaleString()} live records) — highest to lowest`
+                    : `Vaccinated per Barangay — ${range} — highest to lowest`;
 
-            charts['vaccinatedPerBarangay'] = new Chart(
-                document.getElementById('vaccinatedPerBarangayChart'), {
-                type: 'bar',
-                data: { labels, datasets },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                        x: { ticks: { color: '#456084', maxRotation: 45, minRotation: 45, font: { size: 10 } }, grid: { display: false } }
-                    },
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        title: { display: true, text: chart1Title, font: { size: 11 }, color: '#456084' }
-                    }
-                }
-            });
-        }
-
-        // ── Chart 2: Predicted Animals
-        // SOURCE: Python ARIMA service
-        // ANNOTATION: Show actual DB total for selected range alongside forecast
-        // FALLBACK: Excel diseaseCasesByBarangay predicted values
-        destroyChart('predictedAnimals');
-        {
-            var tv   = state.arimaData?.total_vaccinated || {};
-            var dogs = state.arimaData?.dogs_vaccinated  || {};
-            var cats = state.arimaData?.cats_vaccinated  || {};
-
-            if (tv.forecast?.length) {
-                // Chart 2: ARIMA forecast — Total predicted animals per month.
-                // Dogs/Cats detail is already shown in the ARIMA summary card above,
-                // so this chart stays clean with just Total + DB Actual reference.
-                var arimaMonths = tv.months || ['Next Month', 'Month 2', 'Month 3'];
-
-                var c2datasets = [
-                    {
-                        label: 'Predicted Total (Forecast)',
-                        data: tv.forecast || [],
-                        backgroundColor: '#002A58',
-                        borderRadius: 5
-                    }
-                ];
-
-                // DB Actual: shown only for "Next Month" slot as a comparison point
-                if (dbGrandTotal > 0) {
-                    c2datasets.push({
-                        label: `Actual Vaccinated (${range})`,
-                        data: arimaMonths.map((_, i) => i === 0 ? dbGrandTotal : null),
-                        backgroundColor: '#059669',
-                        borderRadius: 5
-                    });
-                }
-
-                var rangeStr = `Likely Range: ${tv.lower_ci?.[0] || 0}–${tv.upper_ci?.[0] || 0}`;
-                var c2Title = dbGrandTotal > 0
-                    ? `Predicted Vaccinations — ${rangeStr} | Actual this period: ${dbGrandTotal.toLocaleString()}`
-                    : `Predicted Vaccinations — ${rangeStr}`;
-
-                charts['predictedAnimals'] = new Chart(
-                    document.getElementById('predictedAnimalsChart'), {
+            // if/else rather than an early return: this is a bare block inside
+            // buildCharts(), so returning here would skip Charts 2 and 3 as well.
+            if (!labels.length) {
+                sizeHorizontalChart('vaccinatedPerBarangayChart', 0, 30);
+                setChartEmptyState('vaccinatedPerBarangayChart', isMonthlySeries
+                    ? 'No monthly vaccination figures were found in the Baliwag workbook.'
+                    : `No vaccination events have been encoded for ${range} yet. `
+                      + 'Barangay bars appear here once an event is recorded and marked completed.');
+            } else {
+                setChartEmptyState('vaccinatedPerBarangayChart', '');
+                sizeHorizontalChart('vaccinatedPerBarangayChart', labels.length, 30);
+                charts['vaccinatedPerBarangay'] = new Chart(
+                    document.getElementById('vaccinatedPerBarangayChart'), {
                     type: 'bar',
-                    data: { labels: arimaMonths, datasets: c2datasets },
+                    data: { labels, datasets },
                     options: {
+                        indexAxis: 'y',
                         responsive: true, maintainAspectRatio: false,
                         scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084' }, grid: { display: false } }
+                            x: { beginAtZero: true, stacked: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
+                            y: { stacked: true, ticks: { color: '#456084', font: { size: 11 } }, grid: { display: false } }
                         },
                         plugins: {
                             legend: { position: 'bottom' },
-                            title: { display: true, text: c2Title, font: { size: 11 }, color: '#456084' }
+                            title: { display: true, text: chart1Title, font: { size: 11 }, color: '#456084' }
                         }
                     }
                 });
-            } else {
-                // ARIMA unavailable — show Excel monthly history + projection + DB actual
-                // Each gets its own dedicated label slot so bars never overlap incorrectly
+            }
+        }
 
-                // Pull last 6 months from Excel; try total_vaccinated first, then dogs+cats sum
-                var rawMonthly = (state.vaccinationDataset?.by_month || []).slice(-6);
+        // ── Chart 2: Predicted Number of Animals to be Vaccinated
+        // This is a trend-over-time story, so it's one continuous line —
+        // solid history, dashed forecast continuation, shaded confidence
+        // band — instead of disconnected bar slots per data source/month.
+        // SOURCE: Excel monthly history (Combined_Rabies_3Years) + Python ARIMA
+        // FALLBACK (ARIMA unreachable): flat 3-month moving average of history
+        destroyChart('predictedAnimals');
+        {
+            var tv = state.arimaData?.total_vaccinated || {};
+
+            // This chart deliberately IGNORES the Historical/Current selector.
+            // Its history used to come from by_month, which follows that selector,
+            // while the forecast came from the analytics service, which does not --
+            // so Current view drew two live months (100, 100) beneath a forecast
+            // fitted on 36 months of workbook data it wasn't showing. The service
+            // now returns the exact series it fitted, so the two halves of this
+            // chart cannot disagree. Chart 1 and the KPI cards still follow the
+            // selector; this one answers "what did the model see, and what does it
+            // predict next", which is the same question in either view.
+            var MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var fittedHistory = state.arimaData?.history || [];
+
+            var historyLabels, historyValues;
+            if (fittedHistory.length) {
+                historyLabels = fittedHistory.map(h => {
+                    var parts = String(h.period || '').split('-');
+                    var monthIdx = (parseInt(parts[1], 10) || 1) - 1;
+                    return `${MONTH_ABBR[monthIdx] || '?'} ${String(parts[0] || '').slice(-2)}`;
+                });
+                historyValues = fittedHistory.map(h => Number(h.value) || 0);
+            } else {
+                // Analytics service unreachable, or running a build that predates
+                // the fitted-history field: fall back to the workbook-backed
+                // BASELINE, never to vaccinationDataset -- that one is re-scoped by
+                // the Historical/Current dropdown, which is exactly how this chart
+                // started following the selector again.
+                var rawMonthly = (state.forecastBaseline?.by_month || []).slice(-6);
                 var monthlyRows = rawMonthly.filter(r =>
                     (Number(r.total_vaccinated) || 0) > 0 ||
                     (Number(r.dogs_vaccinated)  || 0) > 0 ||
                     (Number(r.cats_vaccinated)  || 0) > 0
                 );
-
-                var c2Labels   = [];
-                var excelData  = [];  // navy — historical totals
-                var projData   = [];  // light blue — +12% next-month estimate
-                var dbData     = [];  // green — live DB actual for selected range
-
-                if (monthlyRows.length > 0) {
-                    monthlyRows.forEach(r => {
-                        var lbl   = (r.month || '').slice(0, 3) + ' ' + String(r.year).slice(-2);
-                        var total = Number(r.total_vaccinated) || 0;
-                        // Fallback: derive total from dogs + cats if total_vaccinated is 0
-                        if (total === 0) total = (Number(r.dogs_vaccinated) || 0) + (Number(r.cats_vaccinated) || 0);
-                        c2Labels.push(lbl);
-                        excelData.push(total);
-                        projData.push(null);
-                        dbData.push(null);
-                    });
-
-                    // Add a dedicated "Next Month (est.)" slot for the projection
-                    var lastExcel = excelData[excelData.length - 1] || 0;
-                    c2Labels.push('Next Month (est.)');
-                    excelData.push(null);
-                    projData.push(Math.round(lastExcel * 1.12));
-                    dbData.push(null);
-
-                    // Add a dedicated "Live DB" slot so it never overwrites Excel bars
-                    if (dbGrandTotal > 0) {
-                        c2Labels.push(`Live DB (${range})`);
-                        excelData.push(null);
-                        projData.push(null);
-                        dbData.push(dbGrandTotal);
-                    }
-                } else {
-                    // Excel monthly data genuinely empty — just show DB if available
-                    if (dbGrandTotal > 0) {
-                        c2Labels = [`Live DB (${range})`];
-                        excelData = [null];
-                        projData  = [null];
-                        dbData    = [dbGrandTotal];
-                    } else {
-                        c2Labels  = ['No data available'];
-                        excelData = [0];
-                        projData  = [null];
-                        dbData    = [null];
-                    }
-                }
-
-                var c2FallbackDatasets = [
-                    { label: 'Monthly Total (Excel)', data: excelData, backgroundColor: '#002A58', borderRadius: 5 },
-                    { label: 'Projected Next Month (+12%)', data: projData, backgroundColor: '#60A5FA', borderRadius: 5 },
-                ];
-                if (dbGrandTotal > 0) {
-                    c2FallbackDatasets.push({
-                        label: `Actual Vaccinated (Live DB)`,
-                        data: dbData,
-                        backgroundColor: '#059669'
-                    });
-                }
-
-                charts['predictedAnimals'] = new Chart(
-                    document.getElementById('predictedAnimalsChart'), {
-                    type: 'bar',
-                    data: { labels: c2Labels, datasets: c2FallbackDatasets },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084' }, grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            title: {
-                                display: true,
-                                text: monthlyRows.length > 0
-                                    ? 'Monthly Trend — Forecast Service Unavailable'
-                                    : 'Live Data — Forecast & History Unavailable',
-                                font: { size: 11 }, color: '#e07b39'
-                            }
-                        }
-                    }
-                });
-            }
-        }
-
-        // ── Chart 3: Vaccine Types Distribution
-        // PRIMARY:  DB events grouped by vaccine type (live source)
-        // MERGED:   Excel vaccineDemand totals added as baseline when DB has no entries for a vaccine
-        // SHOWS BOTH if both sources have data, with clear labeling
-        destroyChart('vaccineTypes');
-        {
-            // Aggregate DB events by vaccine type
-            var dbVaccineTotals = {};
-            getFilteredEvents(range).forEach(e => {
-                var vaccineName = e.vaccine || 'Unspecified';
-                var tv = Number(e.totalVaccinated) || 0;
-                if (tv === 0 && e.breakdown) {
-                    tv = (Number(e.breakdown.dogs) || 0)
-                       + (Number(e.breakdown.cats) || 0)
-                       + (Number(e.breakdown.others) || 0);
-                }
-                dbVaccineTotals[vaccineName] = (dbVaccineTotals[vaccineName] || 0) + tv;
-            });
-            var dbVaccineLabels = Object.keys(dbVaccineTotals);
-            var dbVaccineValues = dbVaccineLabels.map(l => dbVaccineTotals[l]);
-
-            // Excel vaccine demand as baseline reference
-            var excelVaccineMap = {};
-            if (state.dashboardData?.vaccineDemand?.length) {
-                state.dashboardData.vaccineDemand.forEach(row => {
-                    excelVaccineMap[row.label] = Number(row.units) || 0;
+                historyLabels = monthlyRows.map(r => (r.month || '').slice(0, 3) + ' ' + String(r.year).slice(-2));
+                historyValues = monthlyRows.map(r => {
+                    var total = Number(r.total_vaccinated) || 0;
+                    return total || (Number(r.dogs_vaccinated) || 0) + (Number(r.cats_vaccinated) || 0);
                 });
             }
 
-            if (dbVaccineLabels.length > 0) {
-                // DB data exists — show DB totals as primary bars
-                // If Excel also has matching labels, show them as a secondary dataset
-                var hasExcelVaccine = Object.keys(excelVaccineMap).length > 0;
-                var c3Datasets = [
-                    {
-                        label: 'Doses Injected (Live DB)',
-                        data: dbVaccineValues,
-                        backgroundColor: '#002A58',
-                        borderRadius: 6
-                    }
-                ];
-
-                if (hasExcelVaccine) {
-                    // Only add Excel bars for labels that exist in both sources
-                    var excelValues = dbVaccineLabels.map(l => excelVaccineMap[l] || 0);
-                    var hasOverlap = excelValues.some(v => v > 0);
-                    if (hasOverlap) {
-                        c3Datasets.push({
-                            label: 'Historical Demand (Excel)',
-                            data: excelValues,
-                            backgroundColor: '#60A5FA',
-                            borderRadius: 6
-                        });
-                    }
-                }
-
-                charts['vaccineTypes'] = new Chart(
-                    document.getElementById('vaccineTypesChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: dbVaccineLabels,
-                        datasets: c3Datasets
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084' }, grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            title: { display: true, text: `Vaccine Types Injected — ${range}`, font: { size: 11 }, color: '#456084' }
-                        }
-                    }
-                });
-
-            } else if (Object.keys(excelVaccineMap).length) {
-                // No DB events — show Excel vaccineDemand only
-                var excelLabels = Object.keys(excelVaccineMap);
-                charts['vaccineTypes'] = new Chart(
-                    document.getElementById('vaccineTypesChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: excelLabels,
-                        datasets: [{
-                            label: 'Historical Demand (Excel)',
-                            data: excelLabels.map(l => excelVaccineMap[l]),
-                            backgroundColor: '#0f2a6d',
-                            borderRadius: 6
-                        }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084' }, grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            title: { display: true, text: `Vaccine Demand (Excel Baseline) — ${range}`, font: { size: 11 }, color: '#456084' }
-                        }
-                    }
-                });
-
+            var forecastLabels, forecastValues, lowerCi, upperCi, usingArima;
+            if (tv.forecast?.length) {
+                forecastLabels = tv.months || ['Next Month', 'Month 2', 'Month 3'];
+                forecastValues = tv.forecast;
+                lowerCi = tv.lower_ci || [];
+                upperCi = tv.upper_ci || [];
+                usingArima = true;
+            } else if (historyValues.length) {
+                // Benchmark shown only when the analytics service is unreachable.
+                // This was a hardcoded +12%-on-last-month: a growth rate with no
+                // derivation behind it, asserting a rising trend the data had never
+                // been tested for. A moving average is the standard naive benchmark
+                // a forecasting model is measured against, and it is the same family
+                // the disease side already degrades to ("Basic Estimate"), so both
+                // modules now fail the same way.
+                var maWindow = historyValues.slice(-3);
+                var maMean   = maWindow.reduce((s, v) => s + v, 0) / maWindow.length;
+                // Band = observed spread of that same window, not an invented percentage.
+                var maSd = Math.sqrt(
+                    maWindow.reduce((s, v) => s + Math.pow(v - maMean, 2), 0) / maWindow.length
+                );
+                var maPoint = Math.round(maMean);
+                // Flat projection: a mean-based benchmark models no trend, and a flat
+                // line says so honestly instead of implying one.
+                forecastLabels = ['Next Month (est.)', 'Month 2 (est.)', 'Month 3 (est.)'];
+                forecastValues = [maPoint, maPoint, maPoint];
+                lowerCi = forecastValues.map(v => Math.max(0, Math.round(v - maSd)));
+                upperCi = forecastValues.map(v => Math.round(v + maSd));
+                usingArima = false;
             } else {
-                // Completely empty — placeholder doughnut
-                charts['vaccineTypes'] = new Chart(
-                    document.getElementById('vaccineTypesChart'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['No reported vaccines'],
-                        datasets: [{ data: [1], backgroundColor: ['#dbe4f0'], borderWidth: 0 }]
+                forecastLabels = []; forecastValues = []; lowerCi = []; upperCi = [];
+                usingArima = false;
+            }
+
+            if (!historyLabels.length && !forecastLabels.length) {
+                historyLabels = ['No data available'];
+                historyValues = [0];
+            }
+
+            var c2Labels = historyLabels.concat(forecastLabels);
+            var n = c2Labels.length;
+            var actualSeries   = new Array(n).fill(null);
+            var forecastSeries = new Array(n).fill(null);
+            var bandLowerArr   = new Array(n).fill(null);
+            var bandUpperArr   = new Array(n).fill(null);
+
+            historyValues.forEach((v, i) => { actualSeries[i] = v; });
+
+            if (forecastLabels.length) {
+                // Bridge the dashed forecast line to start exactly where the solid
+                // history line ends, so it reads as one continuous trend rather
+                // than a disconnected floating segment.
+                var bridgeIdx = historyValues.length - 1;
+                if (bridgeIdx >= 0) {
+                    forecastSeries[bridgeIdx] = historyValues[bridgeIdx];
+                    bandLowerArr[bridgeIdx]   = historyValues[bridgeIdx];
+                    bandUpperArr[bridgeIdx]   = historyValues[bridgeIdx];
+                }
+                forecastValues.forEach((v, i) => { forecastSeries[historyValues.length + i] = v; });
+                lowerCi.forEach((v, i) => { bandLowerArr[historyValues.length + i] = v; });
+                upperCi.forEach((v, i) => { bandUpperArr[historyValues.length + i] = v; });
+            }
+
+            var c2Datasets = [
+                {
+                    label: 'Vaccinated (actual)',
+                    data: actualSeries,
+                    borderColor: VIZ.dogs,
+                    backgroundColor: (ctx) => {
+                        var area = ctx.chart.chartArea;
+                        if (!area) return 'rgba(47,157,240,0.18)';
+                        var gradient = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+                        gradient.addColorStop(0, 'rgba(47,157,240,0.28)');
+                        gradient.addColorStop(1, 'rgba(47,157,240,0)');
+                        return gradient;
                     },
-                    options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { position: 'right' } } }
+                    fill: 'origin',
+                    borderWidth: 2, pointRadius: 3, pointBackgroundColor: VIZ.dogs,
+                    tension: 0, spanGaps: false
+                }
+            ];
+
+            if (forecastLabels.length) {
+                c2Datasets.push({
+                    label: 'Forecast',
+                    data: forecastSeries,
+                    borderColor: VIZ.dogs, backgroundColor: VIZ.dogs,
+                    borderWidth: 2, borderDash: [6, 4], pointRadius: 3, pointBackgroundColor: VIZ.dogs,
+                    tension: 0, spanGaps: false
+                }, {
+                    label: 'Likely range',
+                    data: bandUpperArr,
+                    borderColor: 'transparent', backgroundColor: 'rgba(47,157,240,0.14)',
+                    pointRadius: 0, fill: '+1', tension: 0, spanGaps: false
+                }, {
+                    label: '_lower',
+                    data: bandLowerArr,
+                    borderColor: 'transparent', backgroundColor: 'transparent',
+                    pointRadius: 0, fill: false, tension: 0, spanGaps: false
                 });
             }
+
+            var c2Title = usingArima
+                ? `Vaccine Demand Trend — next ${forecastLabels.length} month${forecastLabels.length === 1 ? '' : 's'} forecast`
+                : (forecastLabels.length
+                    ? 'Monthly Trend — Forecast Service Unavailable (3-month average estimate shown)'
+                    : 'No historical or forecast data available');
+
+            var dividerIndex = (historyValues.length > 0 && forecastLabels.length > 0)
+                ? historyValues.length - 0.5 : null;
+
+            charts['predictedAnimals'] = new Chart(
+                document.getElementById('predictedAnimalsChart'), {
+                type: 'line',
+                data: { labels: c2Labels, datasets: c2Datasets },
+                plugins: [nowDividerPlugin],
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
+                        x: { ticks: { color: '#456084' }, grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { filter: (item) => item.text !== '_lower' } },
+                        nowDivider: { index: dividerIndex },
+                        title: { display: true, text: c2Title, font: { size: 11 }, color: usingArima ? '#456084' : VIZ.warn }
+                    }
+                }
+            });
         }
 
-        // ── Chart 4: Vaccines Needed per Barangay
-        // SOURCE: single municipal ARIMA forecast (real per-barangay history is too
-        //         sparse to fit independent models), distributed across barangays
-        //         by their real historical vaccination share.
-        // ADJUSTMENT: When DB events have actual data, boost the ARIMA total by
-        //             the ratio of (DB actuals / previous ARIMA forecast) so the
-        //             predicted need scales with real-world uptake.
-        // FALLBACK: disease-case-derived predicted values, scaled by DB activity ratio
-        destroyChart('vaccinesNeeded');
+        // ── Vaccines Needed per Barangay (ranked list, not a canvas chart —
+        //    see renderRankList above)
+        // SOURCE: single municipal ARIMA forecast (no per-barangay vaccination
+        //         history exists to fit independent models), split by each
+        //         barangay's share of the 2025 estimated dog population
+        //         (Barangay_Masterlist, served as dog_population_by_barangay).
+        //         This used to split by past vaccination share, and once the
+        //         seeded 2023-24 events were deleted that fell back to DISEASE
+        //         case counts -- the same proxy Chart 1 dropped as fabricated.
+        //         It also blended the total with live turnout, multiplying by the
+        //         range twice; the recorded turnout now shows as "done" instead.
+        // FALLBACK (forecast service unreachable): Chart 2's moving-average
+        //         estimate, split the same way.
         {
             var tvN   = state.arimaData?.total_vaccinated || {};
             var multi = range === 'Last 3 Months' ? 3 : range === 'This Year' ? 12 : 1;
+            var usingForecast = !!tvN.forecast?.length;
+            // forecastValues is Chart 2's series: the ARIMA forecast, or its
+            // moving-average benchmark when the service is down.
+            var monthDemand  = usingForecast ? (Number(tvN.forecast[0]) || 0) : (Number(forecastValues[0]) || 0);
+            var periodDemand = monthDemand * multi;
 
-            // ── Build the full barangay list from ALL available sources ────────────
-            // Priority: vaccinationDataset.by_barangay (real all-time DB totals) →
-            //           diseaseCasesByBarangay (dashboard Excel) →
-            //           DB event barangays
-            var barangayBaseMap = {}; // { barangay: { actual, predicted } }
+            var dogRows = state.vaccinationDataset?.dog_population_by_barangay || [];
+            // The event form spells it "Sto. Nino", the masterlist "Sto. Niño".
+            var nameKey = (name) => String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .toLowerCase().replace(/\s+/g, ' ').trim();
 
-            if (state.vaccinationDataset?.by_barangay?.length) {
-                state.vaccinationDataset.by_barangay.forEach(r => {
-                    var b = r.barangay;
-                    if (!b) return;
-                    if (!barangayBaseMap[b]) barangayBaseMap[b] = { actual: 0, predicted: 0 };
-                    barangayBaseMap[b].actual    += Number(r.total_vaccinated) || 0;
-                    barangayBaseMap[b].predicted += Number(r.total_vaccinated) || 0; // replaced below by RF if available
-                });
-            }
-
-            if (state.dashboardData?.diseaseCasesByBarangay?.length) {
-                state.dashboardData.diseaseCasesByBarangay.forEach(r => {
-                    var b = r.barangay;
-                    if (!b) return;
-                    if (!barangayBaseMap[b]) barangayBaseMap[b] = { actual: 0, predicted: 0 };
-                    // RF-predicted value from PHP backend — use this if available
-                    if (r.predicted > 0) barangayBaseMap[b].predicted = Number(r.predicted);
-                    if (barangayBaseMap[b].actual === 0 && r.actual > 0) {
-                        barangayBaseMap[b].actual = Number(r.actual);
-                    }
-                });
-            }
-
-            // Also add barangays that only exist in DB events (newly added)
+            var doneByKey = {};
             Object.keys(dbBarangayTotals).forEach(b => {
-                if (!barangayBaseMap[b]) barangayBaseMap[b] = { actual: 0, predicted: 0 };
+                doneByKey[nameKey(b)] = (doneByKey[nameKey(b)] || 0) + (dbBarangayTotals[b].total || 0);
             });
 
-            var allBarangays = Object.keys(barangayBaseMap);
-            if (!allBarangays.length) {
-                // Last resort fallback: standard Baliwag barangay list
-                ['Bagong Nayon','Barangca','Calantipay','Catulinan','Concepcion',
-                 'Hinukay','Makinabang','Matangtubig','Pagala','Paitan','Piel',
-                 'Pinagbarilan','Poblacion','Sabang','San Jose','San Roque',
-                 'Sta. Barbara','Sto. Cristo','Sto. Nino','Subic','Sulivan',
-                 'Tangos','Tarcan','Tiaong','Tibag','Tilapayong','Virgen Delas Flores'
-                ].forEach(b => { barangayBaseMap[b] = { actual: 0, predicted: 0 }; });
-                allBarangays = Object.keys(barangayBaseMap);
-            }
+            var labels = dogRows.map(r => r.barangay);
+            var needed = dogRows.map(r => Math.round((Number(r.share) || 0) * periodDemand));
+            var done   = dogRows.map(r => doneByKey[nameKey(r.barangay)] || 0);
 
-            // Total actual across all barangays (for proportional ARIMA distribution)
-            var totalActual = allBarangays.reduce((s, b) => s + (barangayBaseMap[b].actual || 0), 0) || 1;
+            // A barangay missing from the masterlist still shows its recorded turnout.
+            var listed = new Set(labels.map(nameKey));
+            Object.keys(dbBarangayTotals).forEach(b => {
+                if (listed.has(nameKey(b))) return;
+                listed.add(nameKey(b));
+                labels.push(b); needed.push(0); done.push(doneByKey[nameKey(b)]);
+            });
 
-            // ── ARIMA path — distribute forecast across ALL barangays ────────────
-            if (tvN.forecast?.length) {
-                var arimaBase = (tvN.forecast[0] || 0) * multi;
+            var c4Title = !dogRows.length
+                ? 'Dog population data unavailable'
+                : usingForecast
+                    ? `Predicted Vaccine Demand (${range}): ~${Math.round(periodDemand).toLocaleString()} vaccines, split by dog population — highest to lowest`
+                    : periodDemand > 0
+                        ? `Vaccine Demand — ${range} (Estimated — Forecast Unavailable), split by dog population — highest to lowest`
+                        : 'No forecast or vaccination history available';
 
-                // DB-adjust the ARIMA total when live data exists (60% ARIMA / 40% DB-informed blend)
-                var adjustedTotal = arimaBase;
-                if (dbGrandTotal > 0 && tvN.forecast[0] > 0) {
-                    var dbMonthEst = range === 'This Year' ? dbGrandTotal / 12
-                                   : range === 'Last 3 Months' ? dbGrandTotal / 3
-                                   : dbGrandTotal;
-                    var actRatio   = dbMonthEst / tvN.forecast[0];
-                    adjustedTotal  = Math.min(arimaBase * 2,
-                        Math.round(arimaBase * 0.6 + arimaBase * actRatio * 0.4) * multi);
-                }
-
-                var c4Title = dbGrandTotal > 0
-                    ? `Predicted Vaccine Demand (${range}): ~${Math.round(adjustedTotal).toLocaleString()} needed`
-                    : `Predicted Vaccine Demand (${range}): ~${Math.round(arimaBase).toLocaleString()} vaccines`;
-
-                charts['vaccinesNeeded'] = new Chart(
-                    document.getElementById('vaccinesNeededChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: allBarangays,
-                        datasets: [
-                            {
-                                label: 'Vaccines Needed (Forecast)',
-                                // Distribute total proportionally by each barangay's historical share
-                                data: allBarangays.map(b =>
-                                    Math.round(((barangayBaseMap[b].actual || 0) / totalActual) * adjustedTotal)
-                                ),
-                                backgroundColor: '#002A58',
-                                stack: 'need'
-                            },
-                            ...(hasDbData ? [{
-                                label: 'Already Vaccinated (Live DB)',
-                                data: allBarangays.map(b => (dbBarangayTotals[b] || {}).total || 0),
-                                backgroundColor: '#059669',
-                                stack: 'done'
-                            }] : [])
-                        ]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084', maxRotation: 45, minRotation: 45, font: { size: 10 } }, grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            title: { display: true, text: c4Title, font: { size: 11 }, color: '#456084' }
-                        }
-                    }
-                });
-
-            } else {
-                // Fallback — RF-predicted values from PHP dashboard (all barangays, no slice)
-                var c4FallbackDatasets = [
-                    {
-                        label: 'Vaccines Needed (RF Predicted)',
-                        data: allBarangays.map(b => Math.round((barangayBaseMap[b].predicted || 0) * multi)),
-                        backgroundColor: '#002A58'
-                    }
-                ];
-                if (hasDbData) {
-                    c4FallbackDatasets.push({
-                        label: 'Already Vaccinated (Live DB)',
-                        data: allBarangays.map(b => (dbBarangayTotals[b] || {}).total || 0),
-                        backgroundColor: '#059669'
-                    });
-                }
-
-                charts['vaccinesNeeded'] = new Chart(
-                    document.getElementById('vaccinesNeededChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: allBarangays,
-                        datasets: c4FallbackDatasets
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, ticks: { color: '#456084' }, grid: { color: '#edf2f9' } },
-                            x: { ticks: { color: '#456084', maxRotation: 45, minRotation: 45, font: { size: 10 } }, grid: { display: false } }
-                        },
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            title: {
-                                display: true,
-                                text: `Vaccine Demand — ${range} (Estimated — Forecast Unavailable)`,
-                                font: { size: 11 }, color: '#e07b39'
-                            }
-                        }
-                    }
-                });
-            }
+            renderRankList('vaccinesNeededList', 'vaccinesNeededTitle', c4Title,
+                usingForecast && dogRows.length ? '#456084' : VIZ.warn,
+                labels, needed, done, hasDbData);
         }
     };
 
@@ -1038,6 +1155,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     const setProgress = (el, val, max) => {
         el.style.width = `${Math.max(0, Math.min(100, (val / (max||100)) * 100))}%`;
     };
+
+    // ── Post-event report: Total ↔ species breakdown sync ──────────────────
+    // While "Include Breakdown" is on, the species fields are the single
+    // source of truth and Total is derived (read-only) from their sum —
+    // this makes it impossible for the two numbers to disagree, and
+    // impossible to save species counts without them counting toward Total.
+    const totalInput  = document.getElementById('total-vaccinated');
+    const totalError  = document.getElementById('total-vaccinated-error');
+    const dogsInput   = document.getElementById('dogs-count');
+    const catsInput   = document.getElementById('cats-count');
+    const othersInput = document.getElementById('others-count');
+
+    function distributeEvenly(total) {
+        const base = Math.floor(total / 3);
+        const remainder = total - base * 3;
+        return [base + (remainder > 0 ? 1 : 0), base + (remainder > 1 ? 1 : 0), base];
+    }
+
+    function recomputeTotalFromBreakdown() {
+        totalInput.value = (Number(dogsInput.value) || 0) + (Number(catsInput.value) || 0) + (Number(othersInput.value) || 0);
+    }
+
+    function setBreakdownMode(active) {
+        totalInput.readOnly = active;
+        if (active) recomputeTotalFromBreakdown();
+    }
 
     const hydrateDetail = (eventId) => {
         const e = state.events.find(item => item.id === eventId);
@@ -1061,6 +1204,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('include-breakdown').checked = wb;
         document.getElementById('species-breakdown').classList.toggle('hidden', !wb);
         document.getElementById('species-breakdown').setAttribute('aria-hidden', String(!wb));
+        setBreakdownMode(wb);
+        setFieldError(totalInput, totalError, '');
 
         document.getElementById('event-progress-value').textContent   = e.comparison.event;
         document.getElementById('average-progress-value').textContent = e.comparison.average;
@@ -1087,10 +1232,55 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('back-to-dashboard').addEventListener('click', () => setPanel('dashboard'));
 
+    document.getElementById('delete-event-btn')?.addEventListener('click', async () => {
+        const activeId = document.getElementById('post-event-form').dataset.activeEventId;
+        const e = state.events.find(item => item.id === activeId);
+        if (!e) return;
+        if (!(await vbConfirm(`Delete the ${e.barangay} – ${e.vaccine} event on ${e.dateLabel}? This cannot be undone.`, 'Yes, delete'))) return;
+
+        try {
+            const res = await fetch(MASS_VACC_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', id: e.rawId })
+            });
+            const result = await res.json();
+            if (!result.success) { await vbAlert(result.message || 'Failed to delete event.'); return; }
+        } catch (err) {
+            await vbAlert('Failed to delete event.'); return;
+        }
+
+        state.events = state.events.filter(item => item.id !== activeId);
+        renderTable();
+        updateMetrics();
+        buildCharts();
+        setPanel('dashboard');
+    });
+
     document.getElementById('include-breakdown').addEventListener('change', () => {
         const show = document.getElementById('include-breakdown').checked;
         document.getElementById('species-breakdown').classList.toggle('hidden', !show);
         document.getElementById('species-breakdown').setAttribute('aria-hidden', String(!show));
+
+        if (show) {
+            // Seed the species fields from whatever's already in Total — but only
+            // if they're still empty, so re-checking never clobbers values the
+            // vet already entered (e.g. after unchecking and checking again).
+            const speciesSum   = (Number(dogsInput.value) || 0) + (Number(catsInput.value) || 0) + (Number(othersInput.value) || 0);
+            const existingTotal = Number(totalInput.value) || 0;
+            if (speciesSum === 0 && existingTotal > 0) {
+                const [d, c, o] = distributeEvenly(existingTotal);
+                dogsInput.value = d; catsInput.value = c; othersInput.value = o;
+            }
+        }
+        setBreakdownMode(show);
+    });
+
+    // Live-recompute Total whenever a species field changes, while breakdown mode is active.
+    [dogsInput, catsInput, othersInput].forEach((input) => {
+        input.addEventListener('input', () => {
+            if (document.getElementById('include-breakdown').checked) recomputeTotalFromBreakdown();
+        });
     });
 
     document.getElementById('post-event-form').addEventListener('submit', async (ev) => {
@@ -1099,8 +1289,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         const e = state.events.find(item => item.id === activeId);
         if (!e) return;
 
-        e.totalVaccinated = Number(document.getElementById('total-vaccinated').value || 0);
-        e.breakdown = document.getElementById('include-breakdown').checked
+        const includeBreakdown = document.getElementById('include-breakdown').checked;
+        if (includeBreakdown) recomputeTotalFromBreakdown();
+
+        const total = Number(totalInput.value || 0);
+        if (total <= 0) {
+            setFieldError(totalInput, totalError, includeBreakdown
+                ? 'Dogs + Cats + Others must add up to more than 0.'
+                : 'Total Pets Vaccinated must be greater than 0.');
+            return;
+        }
+        setFieldError(totalInput, totalError, '');
+
+        e.totalVaccinated = total;
+        e.breakdown = includeBreakdown
             ? {
                 dogs:   Number(document.getElementById('dogs-count').value||0),
                 cats:   Number(document.getElementById('cats-count').value||0),
@@ -1122,7 +1324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const result = await res.json();
             if (result.success) Object.assign(e, result.data);
         } catch (err) {
-            alert('Failed to save report.'); return;
+            await vbAlert('Failed to save report.'); return;
         }
 
         // Re-render everything with fresh state — charts now pick up the new totals
@@ -1130,7 +1332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMetrics();
         buildCharts();
         hydrateDetail(e.id);
-        alert('Vaccination report saved.');
+        await vbAlert('Vaccination report saved.');
     });
 
     const dateInput        = document.getElementById('event-date');
@@ -1139,13 +1341,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     const barangayTrigger   = document.getElementById('barangay-trigger');
     const barangayError     = document.getElementById('barangay-error');
     const vaccineSelect     = document.getElementById('event-vaccine');
-    const otherVaccineField = document.getElementById('other-vaccine-field');
-    const otherVaccineInput = document.getElementById('event-vaccine-other');
-    const otherVaccineError = document.getElementById('vaccine-other-error');
+    const addVaccineTypeBtn = document.getElementById('add-vaccine-type-btn');
 
-    function todayIso() {
+    // Upper bound for the picker: no drive is planned more than a year out,
+    // so past this the date is a typo. Assembled from local-time parts rather
+    // than toISOString(), which converts to UTC first -- in Manila (UTC+8)
+    // that rolled the limit back a day for anyone using the form between
+    // midnight and 8am, and made the cap disagree with the
+    // MASS_VACC_HORIZON_YEARS check in api/mass-vaccination/events.php.
+    function horizonIso() {
         const d = new Date();
+        d.setFullYear(d.getFullYear() + 1);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // Earliest date an encoder may enter by hand. Mirrors
+    // MASS_VACC_MANUAL_ENTRY_FROM in api/mass-vaccination/events.php -- change
+    // one and you must change the other, or the form and the server disagree
+    // about what is enterable.
+    //
+    // Note this is BEFORE today: past dates are meant to be allowed here.
+    // Encoders record drives that have already run (the Jan-Aug 2026 backlog),
+    // so the picker has to reach back into the year, not start at today.
+    const MANUAL_ENTRY_FROM = '2026-01-01';
+
+    function manualEntryFromLabel() {
+        const [y, m, d] = MANUAL_ENTRY_FROM.split('-').map(Number);
+        return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    // The ONE date rule for this form, applied as the field is filled in and
+    // again on submit. It deliberately mirrors the guard in
+    // api/mass-vaccination/events.php -- the server is what actually enforces
+    // this, since anything can POST to that endpoint; this copy exists so the
+    // encoder finds out at the moment of typing instead of after a round trip.
+    // Keeping it in one function is what stops the two checks here drifting
+    // apart from each other.
+    function dateFieldError(value) {
+        if (!value) return 'Please select a date.';
+        if (value < MANUAL_ENTRY_FROM) {
+            return `Events before ${manualEntryFromLabel()} come from the uploaded workbook and cannot be entered here.`;
+        }
+        if (value > horizonIso()) return 'Events can only be scheduled up to a year ahead.';
+        return '';
     }
 
     function setFieldError(input, errorEl, message) {
@@ -1218,21 +1456,77 @@ document.addEventListener('DOMContentLoaded', async () => {
         return { syncLabel, closePanel };
     }
 
+    /* Check the date the moment it is entered, not only on submit.
+       The form carries novalidate, so the browser never enforces the min/max
+       set above on its own: Chrome greys out out-of-range days in the calendar
+       popup, but a date typed straight into the field segments -- 01/01/2020
+       -- lands in the box and sits there looking accepted until Create is
+       pressed. Validating on input/change surfaces the problem while the
+       encoder is still looking at the field. The submit check still runs;
+       this does not replace it. */
+    ['input', 'change'].forEach((evt) => {
+        dateInput.addEventListener(evt, () => {
+            // Empty is not an error WHILE typing -- only on submit. Nagging
+            // "Please select a date." at someone clearing the field is noise.
+            setFieldError(dateInput, dateError, dateInput.value ? dateFieldError(dateInput.value) : '');
+        });
+    });
+
     const barangaySelectUI = enhanceSelect(barangaySelect, 'barangay-select-wrap', 'barangay-trigger', 'barangay-panel');
     const vaccineSelectUI  = enhanceSelect(vaccineSelect, 'vaccine-select-wrap', 'vaccine-trigger', 'vaccine-panel');
 
-    function toggleOtherVaccineField() {
-        const isOthers = vaccineSelect.value === 'Others';
-        otherVaccineField.hidden = !isOthers;
-        otherVaccineInput.required = isOthers;
-        if (!isOthers) setFieldError(otherVaccineInput, otherVaccineError, '');
+    // Vaccine Type options come from the shared VaccineTypes registry
+    // (defaults to Anti-Rabies only; grows as staff add new types).
+    function rebuildVaccineOptions(selectValue) {
+        const types = window.VaccineTypes?.getAll ? window.VaccineTypes.getAll() : ['Anti-Rabies'];
+        const previous = selectValue ?? vaccineSelect.value;
+        vaccineSelect.innerHTML = types.map((t) => `<option>${t}</option>`).join('');
+        vaccineSelect.value = types.includes(previous) ? previous : types[0];
+        vaccineSelectUI?.syncLabel();
     }
 
-    vaccineSelect.addEventListener('change', toggleOtherVaccineField);
+    rebuildVaccineOptions();
+
+    // ── Add Vaccination Type modal ─────────────────────────────────
+    const addVaccineTypeModal = document.getElementById('add-vaccine-type-modal');
+    const addVaccineTypeForm  = document.getElementById('add-vaccine-type-form');
+    const newVaccineTypeInput = document.getElementById('new-vaccine-type-input');
+    const newVaccineTypeError = document.getElementById('new-vaccine-type-error');
+
+    const openAddVaccineTypeModal = () => {
+        addVaccineTypeForm.reset();
+        setFieldError(newVaccineTypeInput, newVaccineTypeError, '');
+        addVaccineTypeModal.classList.remove('hidden');
+        newVaccineTypeInput.focus();
+    };
+    const closeAddVaccineTypeModal = () => {
+        addVaccineTypeModal.classList.add('hidden');
+    };
+
+    addVaccineTypeBtn?.addEventListener('click', openAddVaccineTypeModal);
+    document.getElementById('close-add-vaccine-type').addEventListener('click', closeAddVaccineTypeModal);
+    document.getElementById('cancel-add-vaccine-type').addEventListener('click', closeAddVaccineTypeModal);
+    addVaccineTypeModal.addEventListener('click', (e) => {
+        if (e.target === addVaccineTypeModal) closeAddVaccineTypeModal();
+    });
+
+    addVaccineTypeForm.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const result = window.VaccineTypes?.add
+            ? window.VaccineTypes.add(newVaccineTypeInput.value)
+            : { ok: false, error: 'Vaccine type registry unavailable.' };
+        if (!result.ok) {
+            setFieldError(newVaccineTypeInput, newVaccineTypeError, result.error || 'Could not add that vaccination type.');
+            return;
+        }
+        rebuildVaccineOptions(result.value);
+        closeAddVaccineTypeModal();
+    });
 
     const openModal  = () => {
-        dateInput.min = todayIso();
-        toggleOtherVaccineField();
+        dateInput.min = MANUAL_ENTRY_FROM;
+        dateInput.max = horizonIso();
+        rebuildVaccineOptions();
         document.getElementById('create-event-modal').classList.remove('hidden');
     };
     const closeModal = () => {
@@ -1240,10 +1534,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('create-event-form').reset();
         setFieldError(dateInput, dateError, '');
         setFieldError(barangayTrigger, barangayError, '');
-        setFieldError(otherVaccineInput, otherVaccineError, '');
         barangaySelectUI?.syncLabel();
-        vaccineSelectUI?.syncLabel();
-        toggleOtherVaccineField();
+        rebuildVaccineOptions();
     };
 
     document.getElementById('open-create-event').addEventListener('click', openModal);
@@ -1277,15 +1569,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         setFieldError(dateInput, dateError, '');
         setFieldError(barangayTrigger, barangayError, '');
-        setFieldError(otherVaccineInput, otherVaccineError, '');
 
         let hasError = false;
 
-        if (!dateInput.value) {
-            setFieldError(dateInput, dateError, 'Please select a date.');
-            hasError = true;
-        } else if (dateInput.value < todayIso()) {
-            setFieldError(dateInput, dateError, 'Date cannot be in the past.');
+        const dateProblem = dateFieldError(dateInput.value);
+        if (dateProblem) {
+            setFieldError(dateInput, dateError, dateProblem);
             hasError = true;
         }
 
@@ -1294,16 +1583,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             hasError = true;
         }
 
-        const isOthers = vaccineSelect.value === 'Others';
-        if (isOthers && !otherVaccineInput.value.trim()) {
-            setFieldError(otherVaccineInput, otherVaccineError, 'Please specify the vaccine name.');
-            hasError = true;
-        }
-
         if (hasError) return;
 
         const fd = new FormData(document.getElementById('create-event-form'));
-        const vaccineValue = isOthers ? otherVaccineInput.value.trim() : fd.get('vaccine');
+        const vaccineValue = fd.get('vaccine');
 
         const isDuplicate = state.events.some(e =>
             e.date === dateInput.value &&
@@ -1328,27 +1611,89 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             const result = await res.json();
             if (result.success) state.events.unshift(result.data);
-            else { alert(result.message || 'Failed to create event.'); return; }
+            else { await vbAlert(result.message || 'Failed to create event.'); return; }
 
             renderTable();
             updateMetrics();
             buildCharts();
             closeModal();
             showEventSummary(result.data);
-        } catch (err) { alert('Failed to create event.'); return; }
+        } catch (err) { await vbAlert('Failed to create event.'); return; }
     });
 
     document.getElementById('range-filter')?.addEventListener('change', e => buildCharts(e.target.value));
 
+    document.getElementById('historical-year-filter')?.addEventListener('change', (e) => {
+        state.historicalYear = e.target.value;
+        buildCharts();
+    });
+
+    document.getElementById('data-view-filter')?.addEventListener('change', async (e) => {
+        state.dataView = e.target.value === 'current' ? 'current' : 'historical';
+        applyDataViewVisibility();
+        renderSkeletons();
+        await loadVaccinationDataset();
+        populateHistoricalYears();
+        updateMetrics();
+        // renderSkeletons() just overwrote the placeholder - and the ARIMA card
+        // lives inside it - so the card has to be rebuilt or the view toggle
+        // leaves a skeleton where the KPIs were. The forecast itself is
+        // municipality-wide and not scoped to the data view, so no refetch.
+        renderArimaCard();
+        buildCharts();
+    });
+
+    function applyDataViewVisibility() {
+        const rangeEl = document.getElementById('range-filter');
+        // Historical is a closed period -- This Month/Last 3 Months/This Year
+        // don't apply to it, so the range sub-filter only shows in Current.
+        if (rangeEl) rangeEl.hidden = state.dataView === 'historical';
+
+        // ...and the workbook year filter is the mirror image: only meaningful
+        // for the closed historical period, so it swaps in where range swaps out.
+        const yearEl = document.getElementById('historical-year-filter');
+        if (yearEl) yearEl.hidden = state.dataView !== 'historical';
+    }
+
+    // Fills the workbook year dropdown from whatever years the dataset actually
+    // holds, rather than hardcoding 2023-2025 -- if the workbook is extended the
+    // filter follows it. Keeps the current selection when it still exists.
+    function populateHistoricalYears() {
+        const select = document.getElementById('historical-year-filter');
+        if (!select) return;
+        // From the BASELINE, not the selector-scoped dataset. This is the workbook
+        // year filter, and the workbook is the same in either view; reading the
+        // scoped copy meant a Historical -> Current -> Historical round trip
+        // repopulated it with 2026 and silently dropped the 2024 default.
+        const source = state.forecastBaseline || state.vaccinationDataset;
+        const years = Array.from(new Set(
+            (source?.by_month || [])
+                .map(r => String(r.year || '').trim())
+                .filter(Boolean)
+        )).sort().reverse();
+        if (!years.length) return;
+
+        if (!years.includes(state.historicalYear)) {
+            // Preferred default is gone from the data; fall back to the newest.
+            state.historicalYear = years[0];
+        }
+        select.innerHTML = years.map(y =>
+            `<option value="${y}"${y === state.historicalYear ? ' selected' : ''}>${y}</option>`
+        ).join('') + `<option value="all"${state.historicalYear === 'all' ? ' selected' : ''}>All years</option>`;
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────
     renderSkeletons();
+    applyDataViewVisibility();
     await Promise.all([loadEvents(), loadArimaForecast(), loadDashboardData(), loadVaccinationDataset()]);
 
     renderTable();
     updateMetrics();
     setPanel('dashboard');
     closeModal();
+    await loadForecastBaseline();
     renderArimaCard();
+    populateHistoricalYears();
     buildCharts();
     populateBarangayDropdown();
 });

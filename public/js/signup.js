@@ -1,5 +1,5 @@
-/* =============================================
-   BVETTER — Create Account JS
+﻿/* =============================================
+   BVetter — Create Account JS
    File: js/signup.js
 ============================================= */
 
@@ -9,7 +9,7 @@ const otpState = {
     email: { verified: false, timer: null, verifiedValue: '' },
 };
 
-const VERIFY_API = 'http://localhost/bvetter/api/admin/verify-contact.php';
+const VERIFY_API = '/api/admin/verify-contact.php';
 
 /* ══════════════════════════════════════════════
    PROOF UPLOAD PREVIEW
@@ -64,6 +64,52 @@ function updateProofPreview(file) {
     }
 }
 
+/**
+ * Renders the chosen proof file into the REVIEW step's preview box.
+ *
+ * Sibling of updateProofPreview() above, which draws the same file into the
+ * upload box on step 2. This one targets the review step's three elements
+ * (wrapper, <img>, PDF placeholder), whose ids the caller passes in.
+ *
+ * This was being called by reviewStep() and had never been defined, so moving
+ * to step 3 threw a ReferenceError every time: no proof preview was drawn, and
+ * because the throw happened before updateStepper(3), the stepper never marked
+ * step 3 as current either.
+ */
+function renderProofPreview(file, targets) {
+    const wrap = document.getElementById(targets.wrap);
+    const img  = document.getElementById(targets.img);
+    const pdf  = document.getElementById(targets.pdf);
+    if (!wrap || !img || !pdf) return;
+
+    if (!file) {
+        wrap.hidden = true;
+        img.hidden  = true;
+        pdf.hidden  = true;
+        img.removeAttribute('src');
+        return;
+    }
+
+    wrap.hidden = false;
+
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            img.src    = event.target.result;
+            img.hidden = false;
+            pdf.hidden = true;
+        };
+        reader.readAsDataURL(file);
+        return;
+    }
+
+    // Anything else the form accepts is a PDF — show the document placeholder
+    // rather than a broken <img>.
+    img.hidden = true;
+    img.removeAttribute('src');
+    pdf.hidden = false;
+}
+
 document.getElementById('reg_proof')?.addEventListener('change', function () {
     updateProofPreview(this.files[0] || null);
 });
@@ -82,13 +128,76 @@ document.getElementById('reg_email')?.addEventListener('input', function () {
     if (otpState.email.verified && otpState.email.verifiedValue !== this.value.trim()) {
         resetEmailVerification();
     }
+    // A message about the previous address no longer applies to this one.
+    if (emailCheck.value !== this.value.trim()) renderEmailStatus(null);
+});
+
+/* ══════════════════════════════════════════════
+   EMAIL AVAILABILITY
+   Asked when the applicant leaves the Email field, so a taken address is
+   caught on this first screen instead of at the final submit, after the
+   verification code and the ID upload. The server applies the same rule
+   before sending a code and again on submit (api/config/email_availability.php),
+   so this is feedback, not the gate.
+══════════════════════════════════════════════ */
+
+const emailCheck = { value: '', result: null };
+
+async function checkEmailAvailability(email) {
+    if (emailCheck.value === email && emailCheck.result) return emailCheck.result;
+
+    try {
+        const body = new FormData();
+        body.append('action', 'check_email');
+        body.append('email', email);
+        const res  = await fetch(VERIFY_API, { method: 'POST', body });
+        const data = await res.json();
+        // Rate-limited or rejected input: say nothing here and let the
+        // server's own checks answer when the code is requested.
+        if (!data.success) return null;
+        emailCheck.value = email;
+        emailCheck.result = data;
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+function renderEmailStatus(result) {
+    const el = document.getElementById('reg_email_status');
+    if (!el) return;
+
+    el.className = 'email-status';
+    el.textContent = '';
+    el.hidden = !result || result.state === 'available';
+    if (el.hidden) return;
+
+    el.classList.add(result.allowed ? 'is-info' : 'is-error');
+    el.append(result.message);
+
+    // Someone who already has an account needs a way in, not a dead end.
+    if (result.state === 'registered' || result.state === 'walk_in') {
+        const links = document.createElement('span');
+        links.className = 'email-status-links';
+        links.innerHTML = '<a href="login.html">Log in</a> · <a href="forgot-password.html">Forgot Password</a>';
+        el.append(' ', links);
+    }
+}
+
+document.getElementById('reg_email')?.addEventListener('blur', async function () {
+    const email = this.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    const result = await checkEmailAvailability(email);
+    // Only if the field still holds what was checked -- the user may have
+    // kept typing while the request was out.
+    if (this.value.trim() === email) renderEmailStatus(result);
 });
 
 /* ══════════════════════════════════════════════
    STEP NAVIGATION
 ══════════════════════════════════════════════ */
 
-function goTo(step) {
+async function goTo(step) {
     if (currentStep === 1 && step === 2) {
         if (!validateStep1()) return;
 
@@ -97,6 +206,12 @@ function goTo(step) {
         // user goes back and edits the email after verifying, the old "verified"
         // flag no longer applies to this (different) address — require OTP again.
         if (!otpState.email.verified || otpState.email.verifiedValue !== currentEmail) {
+            const availability = await checkEmailAvailability(currentEmail);
+            renderEmailStatus(availability);
+            if (availability && !availability.allowed) {
+                showStepError(availability.message);
+                return;
+            }
             resetEmailVerification();
             startOtpFlow();
             return;
@@ -153,8 +268,11 @@ function validateStep1() {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         showStepError('Please enter a valid email address.'); return false;
     }
-    if (!pw1 || pw1.length < 8) {
-        showStepError('Password must be at least 8 characters.'); return false;
+    const pwError = window.PasswordPolicy
+        ? PasswordPolicy.validate(pw1 || '')
+        : (!pw1 || pw1.length < 12 ? 'Password must be at least 12 characters.' : null);
+    if (pwError) {
+        showStepError(pwError); return false;
     }
     if (pw1 !== pw2) { showStepError('Passwords do not match.'); return false; }
     if (!phone) { showStepError('Please enter your phone number.'); return false; }
@@ -217,6 +335,15 @@ async function sendOtp(type, value) {
         }
 
         if (!data.success) {
+            // The server refused the address itself (taken, or an application
+            // already pending). A code box is pointless -- close it and show
+            // the reason where the email was typed.
+            if (data.state) {
+                document.getElementById(`modal-otp-${type}`).hidden = true;
+                renderEmailStatus({ state: data.state, allowed: false, message: data.message });
+                showStepError(data.message);
+                return;
+            }
             showOtpError(type, data.message || 'Failed to send code.');
             return;
         }
@@ -457,10 +584,14 @@ function reviewStep() {
         document.getElementById('rv_barangay_id').value = barangay.value || '';
     }
 
-    document.getElementById('rv_proof_name').textContent =
-        (proofFile && proofFile.files.length > 0)
-            ? proofFile.files[0].name
-            : 'No file selected';
+    const file = proofFile && proofFile.files.length > 0 ? proofFile.files[0] : null;
+    document.getElementById('rv_proof_name').textContent = file ? file.name : 'No file selected';
+
+    renderProofPreview(file, {
+        wrap: 'rv_preview_wrap',
+        img: 'rv_preview_img',
+        pdf: 'rv_preview_pdf'
+    });
 }
 
 /* ══════════════════════════════════════════════
@@ -480,36 +611,39 @@ async function submitRegistration() {
     // user navigated back and forth between steps and something drifted out
     // of sync (e.g. email changed after verification, a field left empty).
     if (!fullname) {
-        alert('Please enter your full name.');
+        await vbAlert('Please enter your full name.');
         return;
     }
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        alert('Please enter a valid email address.');
+        await vbAlert('Please enter a valid email address.');
         return;
     }
     if (!otpState.email.verified || otpState.email.verifiedValue !== email) {
-        alert('This email address has not been verified. Please go back and verify it.');
+        await vbAlert('This email address has not been verified. Please go back and verify it.');
         goTo(1);
         return;
     }
-    if (password.length < 8) {
-        alert('Password must be at least 8 characters.');
+    const submitPwError = window.PasswordPolicy
+        ? PasswordPolicy.validate(password)
+        : (password.length < 12 ? 'Password must be at least 12 characters.' : null);
+    if (submitPwError) {
+        await vbAlert(submitPwError);
         return;
     }
     if (password !== confirmPassword) {
-        alert('Passwords do not match.');
+        await vbAlert('Passwords do not match.');
         return;
     }
     if (!phone || !isValidPHPhone(phone)) {
-        alert('Please enter a valid Philippine mobile number.');
+        await vbAlert('Please enter a valid Philippine mobile number.');
         return;
     }
     if (!barangayId) {
-        alert('Please select your barangay.');
+        await vbAlert('Please select your barangay.');
         return;
     }
     if (!proofInput?.files.length) {
-        alert('Please upload your proof of residence.');
+        await vbAlert('Please upload your proof of residence.');
         return;
     }
 
@@ -519,13 +653,14 @@ async function submitRegistration() {
     formData.append('password',       password);
     formData.append('phone_number',   document.getElementById('phone')?.value || '');
     formData.append('barangay_id',    document.getElementById('rv_barangay_id')?.value || '');
+    formData.append('accepted_terms', document.getElementById('reg_terms')?.checked ? '1' : '');
     formData.append('proof_document', proofInput.files[0]);
 
     try {
         const result = await api.register(formData);
 
         if (!result.success) {
-            alert(result.message || 'Registration failed.');
+            await vbAlert(result.message || 'Registration failed.');
             return;
         }
 
@@ -536,7 +671,7 @@ async function submitRegistration() {
 
         goTo(4);
     } catch {
-        alert('Registration failed. Please try again.');
+        await vbAlert('Registration failed. Please try again.');
     }
 }
 
@@ -561,7 +696,7 @@ async function loadBarangays() {
 
     try {
         const result = await api.getBarangays();
-        if (!result.success) { alert(result.message || 'Failed to load barangays.'); return; }
+        if (!result.success) { await vbAlert(result.message || 'Failed to load barangays.'); return; }
 
         select.innerHTML = '<option value="">Select Barangay</option>';
         result.data.forEach(b => {
@@ -571,7 +706,7 @@ async function loadBarangays() {
             select.appendChild(opt);
         });
     } catch {
-        alert('Could not load barangays.');
+        await vbAlert('Could not load barangays.');
     }
 }
 
