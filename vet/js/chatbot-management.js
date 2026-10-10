@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => {
+﻿document.addEventListener('DOMContentLoaded', async () => {
 	function appBasePath() {
 		const script = document.currentScript || Array.from(document.scripts).find((item) => item.src && item.src.includes('/vet/js/chatbot-management.js'));
 		const path = script?.src ? new URL(script.src).pathname : window.location.pathname;
@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		if (path.includes(jsMarker)) return path.slice(0, path.indexOf(jsMarker));
 		const pageMarker = '/vet/html/';
 		if (path.includes(pageMarker)) return path.slice(0, path.indexOf(pageMarker));
-		return '/bvetter';
+		return '';
 	}
 
 	const CHATBOT_API = `${appBasePath()}/api/chatbot/chatbot.php`;
@@ -98,6 +98,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	];
 
+	let consultationSymptoms = [
+		{ name: 'Fever', isUrgent: false },
+		{ name: 'Vomiting', isUrgent: false },
+		{ name: 'Diarrhea', isUrgent: false },
+		{ name: 'Coughing', isUrgent: false },
+		{ name: 'Limping', isUrgent: false },
+		{ name: 'Loss of Appetite', isUrgent: false },
+		{ name: 'Itching', isUrgent: false },
+		{ name: 'Seizures', isUrgent: true },
+		{ name: 'Wounds', isUrgent: true }
+	];
+
 	let labels = [
 		'Poblacion',
 		'San Jose',
@@ -140,18 +152,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	};
 
-	let locationLegendRows = [
-		{ name: 'Sabang', color: '#ff3b30' },
-		{ name: 'Tiong', color: '#ff5b2e' },
-		{ name: 'Tarcan', color: '#d1f400' },
-		{ name: 'Poblacion', color: '#14b8a6' },
-		{ name: 'San Rafael', color: '#00d34f' },
-		{ name: 'Tibag', color: '#3ee489' },
-		{ name: 'San Jose', color: '#2e92ff' },
-		{ name: 'Matang Tubig', color: '#ff3b30' },
-		{ name: 'Santo Nino', color: '#ff5b2e' },
-		{ name: 'Santo Cristo', color: '#d1f400' }
-	];
+	// Blue-led, CVD-validated categorical set (dataviz skill: validate_palette.js,
+	// all-pairs, light mode) — top 4 barangays get a distinct hue each, the rest
+	// fold into a neutral "Other" slice so the donut never exceeds ~5 segments.
+	const LOCATION_PALETTE = ['#2a78d6', '#1baf7a', '#4a3aa7', '#eda100'];
+	const LOCATION_OTHER_COLOR = '#94a3b8';
+
+	function buildLocationRows(rawRows) {
+		const ranked = rawRows
+			.map((row) => ({ name: row.name, count: Number(row.count || 0) }))
+			.sort((a, b) => b.count - a.count);
+		const top = ranked.slice(0, LOCATION_PALETTE.length).map((row, index) => ({
+			...row,
+			color: LOCATION_PALETTE[index]
+		}));
+		const otherCount = ranked.slice(LOCATION_PALETTE.length).reduce((sum, row) => sum + row.count, 0);
+		if (otherCount > 0) {
+			top.push({ name: 'Other', count: otherCount, color: LOCATION_OTHER_COLOR });
+		}
+		return top;
+	}
+
+	let locationLegendRows = buildLocationRows([
+		{ name: 'Sabang', count: 12 },
+		{ name: 'Tiong', count: 9 },
+		{ name: 'Tarcan', count: 7 },
+		{ name: 'Poblacion', count: 6 },
+		{ name: 'San Rafael', count: 5 },
+		{ name: 'Tibag', count: 4 },
+		{ name: 'San Jose', count: 3 },
+		{ name: 'Matang Tubig', count: 2 },
+		{ name: 'Santo Nino', count: 1 },
+		{ name: 'Santo Cristo', count: 1 }
+	]);
 
 	let dashboardStats = {
 		kpis: {
@@ -163,13 +196,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 	};
 
+	// Font Awesome glyphs (loaded via CDN <link> in chatbot-management.html).
+	// White icon on a solid species-colored tile -- see .consultation-icon
+	// in chatbot-management.css for the background colors.
+	const PET_TYPE_SVG = {
+		dog: '<i class="fa-solid fa-dog"></i>',
+		cat: '<i class="fa-solid fa-cat"></i>',
+		other: '<i class="fa-solid fa-paw"></i>'
+	};
+
+	function petTypeIconSvg(petType) {
+		return PET_TYPE_SVG[String(petType || '').toLowerCase()] || PET_TYPE_SVG.other;
+	}
+
+	const ICON_SVG = {
+		clock: '<i class="fa-solid fa-clock"></i>',
+		syringe: '<i class="fa-solid fa-syringe"></i>',
+		clipboard: '<i class="fa-solid fa-clipboard-list"></i>',
+		link: '<i class="fa-solid fa-link"></i>',
+		chat: '<i class="fa-solid fa-comment-dots"></i>',
+		pin: '<i class="fa-solid fa-location-dot"></i>'
+	};
+
 	const iconLibrary = {
-		clock: { badge: 'CLK', label: 'Clock' },
-		syringe: { badge: 'SYR', label: 'Syringe' },
-		clipboard: { badge: 'CLP', label: 'Clipboard' },
-		link: { badge: 'LNK', label: 'Link' },
-		chat: { badge: 'CHT', label: 'Chat' },
-		pin: { badge: 'PIN', label: 'Pin' }
+		clock: { svg: ICON_SVG.clock, label: 'Clock' },
+		syringe: { svg: ICON_SVG.syringe, label: 'Syringe' },
+		clipboard: { svg: ICON_SVG.clipboard, label: 'Clipboard' },
+		link: { svg: ICON_SVG.link, label: 'Link' },
+		chat: { svg: ICON_SVG.chat, label: 'Chat' },
+		pin: { svg: ICON_SVG.pin, label: 'Map Pin' }
 	};
 
 	const state = {
@@ -255,17 +310,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	async function loadChatbotRules() {
 		try {
-			const [inquiries, consultations, stats] = await Promise.all([
+			const [inquiries, consultations, symptoms, stats] = await Promise.all([
 				chatbotRequest('list_inquiries'),
 				chatbotRequest('list_consultations'),
+				chatbotRequest('list_symptoms'),
 				chatbotRequest('dashboard_stats')
 			]);
 			if (Array.isArray(inquiries)) inquiryRules = inquiries;
 			if (Array.isArray(consultations)) consultationRules = consultations;
+			if (Array.isArray(symptoms) && symptoms.length) consultationSymptoms = symptoms;
 			if (stats) applyDashboardStats(stats);
 		} catch (error) {
 			console.warn('Using local chatbot rules because backend failed:', error);
 		}
+		renderSymptomGrid();
+	}
+
+	function renderSymptomGrid() {
+		if (!ui.consultationSymptomGrid) return;
+		ui.consultationSymptomGrid.innerHTML = consultationSymptoms.map((symptom) => `
+			<div class="symptom-chip-wrap">
+				<button type="button" class="choice-chip" data-symptom="${escapeHtml(symptom.name)}">
+					${escapeHtml(symptom.name)}${symptom.isUrgent ? '<span class="symptom-urgent-badge">Urgent</span>' : ''}
+				</button>
+				<span class="symptom-chip-tools">
+					<button type="button" class="symptom-tool-btn" data-symptom-action="edit" data-symptom-id="${symptom.id}" aria-label="Edit ${escapeHtml(symptom.name)}">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+					</button>
+					<button type="button" class="symptom-tool-btn danger" data-symptom-action="delete" data-symptom-id="${symptom.id}" aria-label="Delete ${escapeHtml(symptom.name)}">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+					</button>
+				</span>
+			</div>
+		`).join('');
+		syncConsultationSelection();
 	}
 
 	function applyDashboardStats(stats) {
@@ -289,12 +367,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		}
 
 		if (Array.isArray(stats.locations)) {
-			const palette = ['#ff3b30', '#ff8a00', '#d1f400', '#14b8a6', '#2e92ff', '#a855f7', '#22c55e', '#f43f5e'];
-			locationLegendRows = stats.locations.map((row, index) => ({
-				name: row.name,
-				count: Number(row.count || 0),
-				color: palette[index % palette.length]
-			}));
+			locationLegendRows = buildLocationRows(stats.locations);
 		}
 	}
 
@@ -386,7 +459,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	}
 
 	function getIconMeta(iconKey) {
-		return iconLibrary[iconKey] || { badge: 'INQ', label: 'Inquiry' };
+		return iconLibrary[iconKey] || { svg: ICON_SVG.chat, label: 'Inquiry' };
 	}
 
 	function getInquiryTotalCount() {
@@ -432,6 +505,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 		if (value === 'Critical') return 0;
 		if (value === 'Active') return 1;
 		return 2;
+	}
+
+	function babyLabelForAnimal(animal) {
+		if (animal === 'Dog') return 'Puppy';
+		if (animal === 'Cat') return 'Kitten';
+		return 'Baby';
 	}
 
 	function severityClass(value) {
@@ -520,7 +599,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 				<tr>
 					<td>
 						<div class="consultation-pet-cell">
-							<span class="consultation-icon ${row.petType.toLowerCase()}">${row.petType.charAt(0)}</span>
+							<span class="consultation-icon ${row.petType.toLowerCase()}">${petTypeIconSvg(row.petType)}</span>
 							<span>${escapeHtml(row.petType)}</span>
 						</div>
 					</td>
@@ -566,6 +645,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 			button.setAttribute('aria-pressed', String(button.dataset.animal === state.selectedAnimal));
 		});
 		ui.consultationAgeGroupGrid?.querySelectorAll('[data-agegroup]').forEach((button) => {
+			if (button.dataset.agegroup === 'Baby') {
+				button.textContent = babyLabelForAnimal(state.selectedAnimal);
+			}
 			button.classList.toggle('active', button.dataset.agegroup === state.selectedAgeGroup);
 			button.setAttribute('aria-pressed', String(button.dataset.agegroup === state.selectedAgeGroup));
 		});
@@ -629,7 +711,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		event.preventDefault();
 		const values = consultationFormValues();
 		if (!values.petType || !values.symptoms.length || !values.duration || !values.condition || !values.severity || !values.recommendation) {
-			alert('Please complete all required fields.');
+			await vbAlert('Please complete all required fields.');
 			return;
 		}
 
@@ -648,7 +730,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 				openConsultationModal('saved-create', saved.id);
 			}
 		} catch (error) {
-			alert(error.message || 'Failed to save consultation rule.');
+			await vbAlert(error.message || 'Failed to save consultation rule.');
 			return;
 		}
 
@@ -677,7 +759,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 		const rows = [
 			['Pet Type', row.petType],
-			['Age Group', row.ageGroup || 'Any'],
+			['Age Group', row.ageGroup === 'Baby' ? babyLabelForAnimal(row.petType) : (row.ageGroup || 'Any')],
 			['Symptoms', row.symptoms.join(', ')],
 			['Symptoms Duration', row.duration],
 			['Possible Condition', row.condition],
@@ -694,7 +776,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 				</div>
 				<label class="field" for="consultation-delete-confirm">
 					<span>Type DELETE to confirm</span>
-					<input class="confirm-input" id="consultation-delete-confirm" type="text" placeholder="DELETE" autocomplete="off">
+					<input class="confirm-input" id="consultation-delete-confirm" type="text" placeholder="DELETE" autocomplete="off"
+						oninput="this.classList.remove('invalid'); document.getElementById('consultation-delete-error')?.classList.remove('visible');">
+					<span class="confirm-error" id="consultation-delete-error">Please type DELETE exactly (all capital letters) to confirm.</span>
 				</label>
 				<div class="modal-footer">
 					<button type="button" class="btn btn-soft" data-modal-action="close-modal">No, Keep</button>
@@ -735,13 +819,47 @@ document.addEventListener('DOMContentLoaded', async () => {
 			`;
 		}
 
+		if (mode === 'delete-symptom') {
+			const symptom = symptomById(id);
+			if (!symptom) return '';
+			return `
+				<h2 class="modal-title" id="modal-title">Delete Symptom?</h2>
+				<p class="modal-subtitle">This removes "${escapeHtml(symptom.name)}" from the symptom list. Existing consultation rules keep the name, but it will no longer be selectable for new rules.</p>
+				<div class="danger-card consultation-danger-card">
+					<div class="detail-row"><strong>Symptom</strong><span>${escapeHtml(symptom.name)}</span></div>
+					<div class="detail-row"><strong>Urgent</strong><span>${symptom.isUrgent ? 'Yes' : 'No'}</span></div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-soft" data-modal-action="close-modal">No, Keep</button>
+					<button type="button" class="btn btn-danger" data-modal-action="confirm-delete-symptom" data-id="${symptom.id}">Confirm Delete</button>
+				</div>
+			`;
+		}
+
+		if (mode === 'edit-symptom') {
+			const symptom = symptomById(id) || { id: '', name: '', isUrgent: false };
+			return `
+				<h2 class="modal-title" id="modal-title">Edit Symptom</h2>
+				<p class="modal-subtitle">Update this symptom chip used across consultation rules.</p>
+				<form id="symptom-create-form" data-symptom-id="${symptom.id}">
+					<div class="form-grid">
+						<label class="field span-2"><span>Symptoms Name*</span><input id="new-symptom-name" type="text" value="${escapeHtml(symptom.name)}" placeholder="e.g. Excessive Drooling"></label>
+						<label class="field"><span>Urgent Symptom</span><select id="new-symptom-urgent"><option value="no" ${!symptom.isUrgent ? 'selected' : ''}>No</option><option value="yes" ${symptom.isUrgent ? 'selected' : ''}>Yes</option></select></label>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-soft" data-modal-action="close-modal">Cancel</button>
+						<button type="submit" class="btn btn-primary">Save Changes</button>
+					</div>
+				</form>
+			`;
+		}
+
 		return `
 			<h2 class="modal-title" id="modal-title">Create New Symptoms</h2>
 			<p class="modal-subtitle">Add a custom symptom chip that can be used in future consultation rules.</p>
 			<form id="symptom-create-form">
 				<div class="form-grid">
 					<label class="field span-2"><span>Symptoms Name*</span><input id="new-symptom-name" type="text" placeholder="e.g. Excessive Drooling"></label>
-					<label class="field"><span>Category*</span><input id="new-symptom-category" type="text" placeholder="General"></label>
 					<label class="field"><span>Urgent Symptom</span><select id="new-symptom-urgent"><option value="no">No</option><option value="yes">Yes</option></select></label>
 				</div>
 				<div class="modal-footer">
@@ -755,7 +873,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 	function openConsultationModal(mode, id = null) {
 		if (!ui.modalOverlay || !ui.modalContent || !ui.modalShell) return;
 		ui.modalShell.classList.remove('modal-sm', 'modal-md');
-		if (mode === 'delete-rule') {
+		if (mode === 'delete-rule' || mode === 'delete-symptom') {
 			ui.modalShell.classList.add('modal-sm');
 		} else {
 			ui.modalShell.classList.add('modal-md');
@@ -771,7 +889,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 			const index = consultationRules.findIndex((item) => item.id === id);
 			if (index >= 0) consultationRules.splice(index, 1);
 		} catch (error) {
-			alert(error.message || 'Failed to delete consultation rule.');
+			await vbAlert(error.message || 'Failed to delete consultation rule.');
 			return;
 		}
 		state.consultationPage = 1;
@@ -797,9 +915,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 		if (action === 'confirm-delete-rule') {
 			const input = document.getElementById('consultation-delete-confirm');
-			if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
+			if (!input) return;
+			if (input.value.trim() !== 'DELETE') {
+				input.classList.add('invalid');
+				document.getElementById('consultation-delete-error')?.classList.add('visible');
+				return;
+			}
 			void deleteConsultationRule(Number(id || state.consultationDeletingId || 0));
 		}
+	}
+
+	function symptomById(id) {
+		return consultationSymptoms.find((item) => item.id === id);
+	}
+
+	async function createSymptom(name, isUrgent) {
+		const existing = consultationSymptoms.find((item) => item.name.toLowerCase() === name.toLowerCase());
+		if (existing) return existing;
+
+		const saved = await chatbotRequest('save_symptom', { name, isUrgent: isUrgent ? 'yes' : 'no' });
+		consultationSymptoms = [...consultationSymptoms, saved];
+		renderSymptomGrid();
+		return saved;
+	}
+
+	async function updateSymptomEntry(id, name, isUrgent) {
+		const previous = symptomById(id);
+		const saved = await chatbotRequest('update_symptom', { id, name, isUrgent: isUrgent ? 'yes' : 'no' });
+		consultationSymptoms = consultationSymptoms.map((item) => (item.id === id ? saved : item));
+		if (previous && previous.name !== saved.name) {
+			state.selectedSymptoms = state.selectedSymptoms.map((item) => (item === previous.name ? saved.name : item));
+		}
+		renderSymptomGrid();
+		return saved;
+	}
+
+	async function deleteSymptomEntry(id) {
+		const target = symptomById(id);
+		await chatbotRequest('delete_symptom', { id });
+		consultationSymptoms = consultationSymptoms.filter((item) => item.id !== id);
+		if (target) {
+			state.selectedSymptoms = state.selectedSymptoms.filter((item) => item !== target.name);
+		}
+		renderSymptomGrid();
 	}
 
 	function handleConsultationSelection(type, value) {
@@ -841,7 +999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 					<tr>
 						<td>
 							<div class="rule-cell">
-								<span class="rule-icon">${escapeHtml(iconMeta.badge)}</span>
+								<span class="rule-icon">${iconMeta.svg}</span>
 								<div>
 									<span class="rule-title">${escapeHtml(rule.name)}</span>
 									<span class="rule-subtitle">${escapeHtml(rule.actionLabel || 'No action')}</span>
@@ -910,14 +1068,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const symptomsChartCtx = document.getElementById('symptomsChart');
 		if (!consultationChartCtx || !inquiryTypeChartCtx || !locationPieChartCtx || !symptomsChartCtx) return;
 
-		const gridColor = 'rgba(154, 196, 244, 0.14)';
-		const tickColor = 'rgba(201, 223, 250, 0.8)';
+		const gridColor = 'rgba(15, 36, 64, 0.06)';
+		const tickColor = '#6d7f99';
+		const legendColor = '#334155';
 		const consultationGradient = consultationChartCtx.getContext('2d').createLinearGradient(0, 0, 0, 230);
-		consultationGradient.addColorStop(0, 'rgba(94, 191, 255, 0.45)');
-		consultationGradient.addColorStop(1, 'rgba(94, 191, 255, 0.02)');
+		consultationGradient.addColorStop(0, 'rgba(28, 92, 171, 0.28)');
+		consultationGradient.addColorStop(1, 'rgba(28, 92, 171, 0.02)');
 		const inquiryGradient = consultationChartCtx.getContext('2d').createLinearGradient(0, 0, 0, 230);
-		inquiryGradient.addColorStop(0, 'rgba(58, 237, 113, 0.45)');
-		inquiryGradient.addColorStop(1, 'rgba(58, 237, 113, 0.02)');
+		inquiryGradient.addColorStop(0, 'rgba(59, 130, 246, 0.28)');
+		inquiryGradient.addColorStop(1, 'rgba(59, 130, 246, 0.02)');
 
 		state.consultationChart = new Chart(consultationChartCtx, {
 			type: 'line',
@@ -927,9 +1086,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 					{
 						label: 'Consultation',
 						data: consultationSeries,
-						borderColor: '#8ad3ff',
-						pointBackgroundColor: '#8ad3ff',
+						borderColor: '#1c5cab',
+						pointBackgroundColor: '#1c5cab',
 						pointRadius: 2,
+						borderWidth: 2,
 						tension: 0.35,
 						fill: true,
 						backgroundColor: consultationGradient
@@ -937,9 +1097,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 					{
 						label: 'Inquiry',
 						data: inquirySeries,
-						borderColor: '#31e17a',
-						pointBackgroundColor: '#31e17a',
+						borderColor: '#3B82F6',
+						pointBackgroundColor: '#3B82F6',
 						pointRadius: 2,
+						borderWidth: 2,
 						tension: 0.35,
 						fill: true,
 						backgroundColor: inquiryGradient
@@ -953,10 +1114,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 						display: true,
 						position: 'bottom',
 						labels: {
-							color: tickColor,
+							color: legendColor,
 							boxWidth: 14,
 							boxHeight: 6,
-							padding: 16
+							padding: 16,
+							font: { weight: 600 }
 						}
 					}
 				},
@@ -989,7 +1151,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 			data: {
 				labels: inquiryDistribution.labels,
 				datasets: [
-					{ label: 'Uses', data: inquiryDistribution.values, backgroundColor: '#19b344', borderRadius: 6 }
+					{ label: 'Uses', data: inquiryDistribution.values, backgroundColor: '#176a9d', borderRadius: 6, maxBarThickness: 42 }
 				]
 			},
 			options: {
@@ -999,10 +1161,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 						display: true,
 						position: 'bottom',
 						labels: {
-							color: tickColor,
+							color: legendColor,
 							boxWidth: 12,
 							boxHeight: 12,
-							padding: 16
+							padding: 16,
+							font: { weight: 600 }
 						}
 					}
 				},
@@ -1038,8 +1201,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 						label: 'Cases',
 						data: symptomsByPetType.all.values,
 						borderRadius: 6,
-						backgroundColor: '#22c55e',
-						borderColor: '#67e8a0',
+						backgroundColor: '#176a9d',
+						borderColor: '#0d3f7a',
 						borderWidth: 1,
 						barPercentage: 0.62
 					}
@@ -1066,7 +1229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 							color: tickColor,
 							font: { size: 9 }
 						},
-						grid: { color: 'rgba(154, 196, 244, 0.06)' }
+						grid: { display: false }
 					}
 				}
 			}
@@ -1080,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 					{
 						data: getLocationChartValues(),
 						backgroundColor: getLocationChartColors(),
-						borderColor: '#0f1f3a',
+						borderColor: '#ffffff',
 						borderWidth: 2,
 						hoverOffset: 8
 					}
@@ -1161,7 +1324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 				<p class="modal-subtitle">This action is permanent and cannot be undone. Type DELETE to confirm.</p>
 				<div class="danger-card">
 					<div class="rule-cell">
-						<span class="rule-icon">${escapeHtml(iconMeta.badge)}</span>
+						<span class="rule-icon">${iconMeta.svg}</span>
 						<div>
 							<span class="rule-title">${escapeHtml(rule.name)}</span>
 							<span class="rule-subtitle">${escapeHtml(rule.actionLabel || 'No action')}</span>
@@ -1175,7 +1338,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 				</div>
 				<label class="field" for="delete-confirm-input">
 					<span>Type DELETE to confirm</span>
-					<input class="confirm-input" id="delete-confirm-input" type="text" placeholder="DELETE" autocomplete="off">
+					<input class="confirm-input" id="delete-confirm-input" type="text" placeholder="DELETE" autocomplete="off"
+						oninput="this.classList.remove('invalid'); document.getElementById('inquiry-delete-error')?.classList.remove('visible');">
+					<span class="confirm-error" id="inquiry-delete-error">Please type DELETE exactly (all capital letters) to confirm.</span>
 				</label>
 				<div class="modal-footer">
 					<button type="button" class="btn btn-soft" data-modal-action="close-modal">No, Keep</button>
@@ -1312,7 +1477,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 				inquiryRules.unshift(saved);
 			}
 		} catch (error) {
-			alert(error.message || 'Failed to save inquiry rule.');
+			await vbAlert(error.message || 'Failed to save inquiry rule.');
 			return;
 		}
 
@@ -1327,14 +1492,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const targetId = state.inquiryDeletingId;
 		if (!targetId) return;
 		const input = document.getElementById('delete-confirm-input');
-		if (!input || input.value.trim().toUpperCase() !== 'DELETE') return;
+		if (!input) return;
+		if (input.value.trim() !== 'DELETE') {
+			input.classList.add('invalid');
+			document.getElementById('inquiry-delete-error')?.classList.add('visible');
+			return;
+		}
 
 		try {
 			await chatbotRequest('delete_inquiry', { id: targetId });
 			const index = inquiryRules.findIndex((item) => item.id === targetId);
 			if (index >= 0) inquiryRules.splice(index, 1);
 		} catch (error) {
-			alert(error.message || 'Failed to delete inquiry rule.');
+			await vbAlert(error.message || 'Failed to delete inquiry rule.');
 			return;
 		}
 		state.inquiryPage = 1;
@@ -1362,6 +1532,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 		if (action === 'confirm-delete-inquiry') {
 			void confirmDeleteInquiry();
+			return;
+		}
+
+		if (action === 'confirm-delete-symptom') {
+			void (async () => {
+				try {
+					await deleteSymptomEntry(Number(id));
+					closeModal();
+				} catch (error) {
+					await vbAlert(error.message || 'Failed to delete symptom.');
+				}
+			})();
 		}
 	}
 
@@ -1449,6 +1631,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 			handleConsultationSelection('ageGroup', button.dataset.agegroup);
 		});
 		ui.consultationSymptomGrid?.addEventListener('click', (event) => {
+			const toolButton = event.target.closest('[data-symptom-action]');
+			if (toolButton) {
+				const symptomId = Number(toolButton.dataset.symptomId);
+				if (toolButton.dataset.symptomAction === 'edit') {
+					openConsultationModal('edit-symptom', symptomId);
+				} else if (toolButton.dataset.symptomAction === 'delete') {
+					openConsultationModal('delete-symptom', symptomId);
+				}
+				return;
+			}
 			const button = event.target.closest('[data-symptom]');
 			if (!button) return;
 			handleConsultationSelection('symptom', button.dataset.symptom);
@@ -1527,7 +1719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 					const index = consultationRules.findIndex((item) => item.id === row.id);
 					if (index >= 0) consultationRules[index] = saved;
 				} catch (error) {
-					alert(error.message || 'Failed to update consultation rule.');
+					await vbAlert(error.message || 'Failed to update consultation rule.');
 					return;
 				}
 				state.consultationPage = 1;
@@ -1541,13 +1733,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 			const symptomForm = event.target.closest('#symptom-create-form');
 			if (symptomForm) {
 				event.preventDefault();
-				const symptom = String(document.getElementById('new-symptom-name')?.value || '').trim();
-				if (!symptom) return;
-				if (!state.selectedSymptoms.includes(symptom)) {
-					state.selectedSymptoms = [...state.selectedSymptoms, symptom];
+				const name = String(document.getElementById('new-symptom-name')?.value || '').trim();
+				if (!name) return;
+				const isUrgent = document.getElementById('new-symptom-urgent')?.value === 'yes';
+				const editingId = Number(symptomForm.dataset.symptomId || 0);
+
+				const submitButton = symptomForm.querySelector('button[type="submit"]');
+				if (submitButton) submitButton.disabled = true;
+				try {
+					const saved = editingId
+						? await updateSymptomEntry(editingId, name, isUrgent)
+						: await createSymptom(name, isUrgent);
+					if (!state.selectedSymptoms.includes(saved.name)) {
+						state.selectedSymptoms = [...state.selectedSymptoms, saved.name];
+					}
 					syncConsultationSelection();
+					closeModal();
+				} catch (error) {
+					await vbAlert(error.message || 'Failed to save symptom.');
+				} finally {
+					if (submitButton) submitButton.disabled = false;
 				}
-				closeModal();
 			}
 		});
 

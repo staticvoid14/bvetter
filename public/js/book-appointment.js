@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — Book Appointment Page JS
+   BVetter — Book Appointment Page JS
    File: js/book-appointment.js
    Depends: nav.js, api.js
 
@@ -10,12 +10,6 @@
    - populateReview()     — fill step 4 review from form inputs
    - updateVetProfile(v)  — update profile card with vet data
    - buildCalendar(y, m)  — render dynamic calendar grid
-
-   TODO backend:
-   - populateReview / goStep(5): replace with
-     api.bookAppointment(data)
-   - pageHistory: replace static rows with
-     api.getAppointments()  
    ============================================= */
 
 /* ── Calendar state ──────────────────────────── */
@@ -45,12 +39,80 @@ function toLocalIsoDate(date = new Date()) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// getDay() → 0=Sun … 6=Sat, so weekend is either end of that range.
+// Shared by the calendar grid and the native apptDate input so both
+// agree on what counts as a weekend.
+function isWeekendDate(date) {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+function isWeekendIso(dateIso) {
+  if (!dateIso) return false;
+  const [y, m, d] = dateIso.split('-').map(Number);
+  return isWeekendDate(new Date(y, m - 1, d));
+}
+
+// Weekdays the clinic is closed -- Philippine holidays plus dates the office
+// marks closed -- as { 'YYYY-MM-DD': 'Christmas Day' }. Loaded from the
+// server, which refuses a booking on these days anyway; this just grays them
+// out so nobody picks one.
+let CLOSED_DATES = {};
+
+async function loadClosedDates() {
+  try {
+    const res = await fetch('/api/appointments/appointment.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'closed_dates' })
+    });
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      CLOSED_DATES = Object.fromEntries(json.data.map((day) => [day.date, day.name]));
+    }
+  } catch {
+    // Keep what we have; the server still refuses a closed date.
+  }
+}
+
+function toIsoDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// How far ahead an owner may book. Keeps the calendar from filling with
+// speculative bookings that hold slots nobody will honour. Mirrored
+// server-side in bookAppointment() — the input attribute is only UX.
+const BOOKING_HORIZON_MONTHS = 3;
+
+// Oldest plausible pet, used as the floor for vaccination history. Matches
+// MAX_PET_AGE_YEARS in vet/js/patient-records.js.
+const MAX_PET_AGE_YEARS = 30;
+
+function bookingHorizonDate() {
+  const horizon = new Date();
+  horizon.setHours(0, 0, 0, 0);
+  horizon.setMonth(horizon.getMonth() + BOOKING_HORIZON_MONTHS);
+  return horizon;
+}
+
 function buildCalendar(year, month) {
-  const vaccDate = document.getElementById("petVaccDate");
   const today_input = toLocalIsoDate();
   const apptDate = document.getElementById("apptDate");
   apptDate.min = today_input;
-  vaccDate.min = today_input;
+  apptDate.max = toLocalIsoDate(bookingHorizonDate());
+
+  // petVaccDate still spans past and future — owners log a vaccination already
+  // given or one already scheduled — but not by decades. The floor matches the
+  // oldest plausible pet, the ceiling a year out.
+  const vaccDate = document.getElementById("petVaccDate");
+  if (vaccDate) {
+    const floor = new Date();
+    floor.setFullYear(floor.getFullYear() - MAX_PET_AGE_YEARS);
+    const ceiling = new Date();
+    ceiling.setFullYear(ceiling.getFullYear() + 1);
+    vaccDate.min = toLocalIsoDate(floor);
+    vaccDate.max = toLocalIsoDate(ceiling);
+  }
 
   calYear = year;
   calMonth = month;
@@ -69,6 +131,8 @@ function buildCalendar(year, month) {
 
   // Remove time so only the date is compared
   today.setHours(0, 0, 0, 0);
+
+  const horizon = bookingHorizonDate();
 
   // Rebuild grid: labels + day cells
   grid.innerHTML = DAY_LABELS
@@ -93,6 +157,10 @@ function buildCalendar(year, month) {
     cellDate.setHours(0, 0, 0, 0);
 
     const isPast = cellDate < today;
+    // A holiday is treated exactly like a weekend: closed.
+    const closedReason = CLOSED_DATES[toIsoDate(cellDate)] || '';
+    const isWeekend = isWeekendDate(cellDate) || closedReason !== '';
+    const isBeyondHorizon = cellDate > horizon;
 
     const isToday =
       d === today.getDate() &&
@@ -102,12 +170,17 @@ function buildCalendar(year, month) {
     cell.className = 'cal-day';
 
     if (isToday) cell.classList.add('today');
-    if (isPast) cell.classList.add('disabled');
+    if (isPast || isWeekend || isBeyondHorizon) cell.classList.add('disabled');
+    if (closedReason) {
+      cell.classList.add('closed');
+      cell.title = `Clinic closed: ${closedReason}`;
+    }
 
     cell.textContent = d;
 
-    // Only allow clicking today and future dates
-    if (!isPast) {
+    // Only allow clicking today/future weekdays inside the booking horizon —
+    // vet isn't available weekends
+    if (!isPast && !isWeekend && !isBeyondHorizon) {
       cell.addEventListener('click', () => {
         grid.querySelectorAll('.cal-day').forEach(c => c.classList.remove('today'));
 
@@ -131,6 +204,8 @@ function buildCalendar(year, month) {
   const now = new Date();
 
   buildCalendar(now.getFullYear(), now.getMonth());
+  // Redraw once the holidays are known.
+  loadClosedDates().then(() => buildCalendar(calYear, calMonth));
 
   // Set today as the default selected date so slots load on page open
   const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -179,7 +254,7 @@ async function fetchAndBuildSlots() {
   console.log('[slots] fetching for vet:', selectedVetId, 'date:', selectedCalDate);
 
   try {
-    const res  = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res  = await fetch('/api/appointments/appointment.php', {
       method : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body   : JSON.stringify({
@@ -206,15 +281,55 @@ const ALL_TIME_SLOTS = [
   '1:00 PM', '2:00 PM',  '3:00 PM',  '4:00 PM'
 ];
 
+/* ── Slot-time helpers ────────────────────────
+   A time slot for TODAY that has already started shouldn't stay
+   clickable — otherwise an owner can "book" 8:00 AM at 4:00 PM.
+   Slots for any other date are never affected by this check.
+─────────────────────────────────────────────── */
+function parseSlotMinutes(slot) {
+  const match = String(slot || '').match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  const meridiem = match[3].toUpperCase();
+  if (meridiem === 'PM' && hour !== 12) hour += 12;
+  if (meridiem === 'AM' && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+/* Booked slots come back from the server as 24-hour 'HH:MM' ('15:00'); the
+   buttons on this page are labelled '3:00 PM'. Compared as plain strings
+   they never matched, so a time another owner already held stayed
+   clickable here and the owner only found out when the server refused it.
+   Both sides go through this before comparing. */
+function canonicalSlot(value) {
+  const text = String(value ?? '').trim();
+  const minutes = parseSlotMinutes(text);
+  if (minutes !== null) {
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  }
+  const match = text.match(/^(\d{1,2}):(\d{2})$/);
+  return match ? `${match[1].padStart(2, '0')}:${match[2]}` : text;
+}
+
+function isSlotPast(dateIso, slot) {
+  if (!dateIso || dateIso !== toLocalIsoDate()) return false;
+  const slotMinutes = parseSlotMinutes(slot);
+  if (slotMinutes === null) return false;
+  const now = new Date();
+  return slotMinutes <= (now.getHours() * 60 + now.getMinutes());
+}
+
 function buildTimeSlots(unavailableSlots = []) {
   const grid = document.getElementById('timeGrid');
   if (!grid) return;
   grid.innerHTML = '';
   selectedPreviewSlot = null;   // grid rebuilt — any earlier pick no longer applies
 
+  const booked = new Set(unavailableSlots.map(canonicalSlot));
   ALL_TIME_SLOTS.forEach(slot => {
     const div    = document.createElement('div');
-    const isNA   = unavailableSlots.includes(slot);
+    const isNA   = booked.has(canonicalSlot(slot)) || isSlotPast(selectedCalDate, slot);
     div.className   = 'time-slot ' + (isNA ? 'na' : 'available');
     div.textContent = slot;
 
@@ -238,11 +353,11 @@ buildTimeSlots();
 function updateVetProfile(vet) {
   replaceContent()
   console.log(vet)
-  const avatarSrc = getAvatarUrl(vet.avatar);
 
-  // FIX: profile image src was never set
-  const profileImg = document.getElementById('profile-heads');
-  if (profileImg) profileImg.src = avatarSrc;
+  const profileImgWrap = document.getElementById('profile-heads');
+  if (profileImgWrap) {
+    profileImgWrap.innerHTML = avatarMarkup(vet.full_name, vet.avatar, 'vet-profile-img');
+  }
 
   const set = (id, val, fallback = '—') =>
     (document.getElementById(id) || {}).textContent = val || fallback;
@@ -250,13 +365,18 @@ function updateVetProfile(vet) {
   set('profile-name',         vet.full_name,           'Dr. Jane Igaya');
   set('profile-title',        vet.position_title,       'Senior Veterinarian');
   set('profile-clinic',       vet.clinic_location,      'Baliwag Vet Clinic');
-  set('profile-rating',       vet.rating,               '4.9');
-  set('profile-review-count', `(${vet.review_count || 124} reviews)`);
-  set('stat-experience-val',  vet.experience_years  ? `${vet.experience_years}+ Years`   : '12+ Years');
+  set('profile-rating',       vet.rating,               'New');
+  set('profile-review-count', vet.review_count ? `(${vet.review_count} reviews)` : '(No reviews yet)');
   // stat-patients-val is populated by replaceContent() (completed appointment count for this vet)
-  set('stat-rating-val',      vet.rating_percentage ? `${vet.rating_percentage}%`        : '98%');
+  set('stat-rating-val',      vet.rating_percentage ? `${vet.rating_percentage}%`        : 'New');
   set('edu-tag',              vet.education,            'DVM, Cornell University');
-  set('section-desc',         vet.bio,                  '');
+  set('section-desc',         vet.bio,                  "This veterinarian hasn't added a bio yet.");
+
+  // Keep the booking-steps header (page 2) in sync with whichever vet
+  // was actually selected on page 1 — it used to be a static placeholder.
+  set('vet-booked-name',      vet.full_name,           'Dr. Jane Igaya');
+  set('vet-booked-role',      vet.position_title,      'Senior Veterinarian');
+  set('vet-booked-initials',  getInitials(vet.full_name), '?');
 }
 
 
@@ -281,13 +401,12 @@ async function fetchVets() {
   VetAccounts.data.forEach((vet, index) => {
     // Merge avatar onto vet object by matching email
     vet.avatar = avatarMap[vet.email] || '';
-    const avatarSrc = getAvatarUrl(vet.avatar);
 
     const item = document.createElement('div');
     item.className = 'vet-item' + (index === 0 ? ' active' : '');
+    item.dataset.vetId = vet.id;
     item.innerHTML = `
-      <img src="${escapeAttr(avatarSrc)}" alt="${escapeAttr(vet.full_name)}" class="vet-thumb"
-           onerror="this.onerror=null;this.src='../images/img/vet-profile.png';"/>
+      ${avatarMarkup(vet.full_name, vet.avatar, 'vet-thumb')}
       <div>
         <div class="vet-item-name">${escapeHtml(vet.full_name)}</div>
         <div class="vet-item-role">${escapeHtml(vet.position_title)}</div>
@@ -316,18 +435,28 @@ async function fetchVets() {
     loadVetFeedback(VetAccounts.data[0].id);// now both selectedVetId + selectedCalDate are set
     loadCommonCases(VetAccounts.data[0].id);
   }
+
+  // Let the booking-draft restore logic re-select a saved vet now that
+  // the list items actually exist.
+  document.dispatchEvent(new CustomEvent('bv-vets-loaded'));
 }
-async function loadRecentHistory() {
+let lastRecentAppointments = null;
+
+async function loadRecentHistory(options = {}) {
+  const silent = options.silent === true;
   try {
     const session = JSON.parse(
-      sessionStorage.getItem('vbetter_session') ||
-      sessionStorage.getItem('bvetter_user') ||
+      localStorage.getItem('vbetter_session') ||
+      localStorage.getItem('bvetter_user') ||
       'null'
     );
 
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // 'list' authenticates now, and the server pins owner_id to the session
+      // for pet owners -- the owner_id below is ignored, kept only so the
+      // request shape is unchanged for staff callers.
+      headers: authHeaders(),
       body: JSON.stringify({
         action: 'list',
         owner_id: session?.userId || session?.id || ''
@@ -338,11 +467,16 @@ async function loadRecentHistory() {
 
     if (!json.success || !json.data) return;
 
-    const container = document.getElementById('recentHistoryList');
-    container.innerHTML = '';
-
     // LIMIT TO ONLY 5
     const recentAppointments = json.data.slice(0, 5);
+
+    // Silent (polled) refreshes skip the rebuild when nothing changed.
+    const snapshot = JSON.stringify(recentAppointments);
+    if (silent && snapshot === lastRecentAppointments) return;
+    lastRecentAppointments = snapshot;
+
+    const container = document.getElementById('recentHistoryList');
+    container.innerHTML = '';
 
     recentAppointments.forEach(appt => {
       let reviewBtn = '';
@@ -371,12 +505,15 @@ async function loadRecentHistory() {
         `;
       }
 
-      // pending / cancelled
+      // Pending, confirmed, cancelled...: a status, not an action. It used to
+      // be a disabled button that still took the hand cursor and a hover
+      // fill, so it looked clickable and did nothing.
       else {
         reviewBtn = `
-          <button class="btn-rate" disabled>
-            ${capitalize(appt.status)}
-          </button>
+          <span class="status-badge s-${appt.status}">
+            <span class="status-dot"></span>
+            ${statusText(appt.status)}
+          </span>
         `;
       }
 //  const icons = {
@@ -437,11 +574,60 @@ async function loadRecentHistory() {
     console.error('Failed to load recent history:', err);
   }
 }
+
+/* ── Castration & Spay Program status card ───── */
+async function loadCspStatus() {
+  const card = document.getElementById('cspStatusCard');
+  if (!card) return;
+
+  try {
+    const session = JSON.parse(
+      localStorage.getItem('vbetter_session') ||
+      localStorage.getItem('bvetter_user') ||
+      'null'
+    );
+    const ownerId = session?.userId || session?.id || '';
+    if (!ownerId) return;
+
+    const result = await api.getCspStatus(ownerId);
+    if (!result.success || !result.registration) {
+      card.classList.add('is-hidden');
+      return;
+    }
+
+    const reg = result.registration;
+    const rows = [];
+    if (reg.status === 'scheduled') {
+      rows.push(['Status', 'Scheduled']);
+      rows.push(['Program Date', reg.program_date ? formatDate(reg.program_date) : 'To Be Announced']);
+      rows.push(['Time', formatTimeSlot(reg.time_slot) || 'TBA']);
+      rows.push(['Venue', reg.venue || 'TBA']);
+      rows.push(['Queue Number', reg.queue_number ?? '—']);
+    } else {
+      rows.push(['Status', 'Pending Schedule']);
+      rows.push(['Current Waiting List', `${result.waiting_count} Pets Registered`]);
+      rows.push(['Program Date', 'To Be Announced']);
+    }
+
+    card.innerHTML = `
+      <div class="csp-status-title">Municipal Castration &amp; Spay Program — ${escapeHtml(reg.pet_name || '')}</div>
+      ${rows.map(([label, val]) => `
+        <div class="csp-status-row"><span>${label}:</span><span class="csp-status-val">${escapeHtml(String(val))}</span></div>
+      `).join('')}
+    `;
+    card.classList.remove('is-hidden');
+  } catch (err) {
+    console.error('Failed to load Castration & Spay status:', err);
+  }
+}
+
 async function submitReview(appointmentId, rating, comment) {
   try {
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // submit_review authenticates now: the server checks the appointment
+      // actually belongs to the caller before accepting a rating.
+      headers: authHeaders(),
       body: JSON.stringify({
         action: 'submit_review',
         appointment_id: appointmentId,
@@ -455,16 +641,52 @@ async function submitReview(appointmentId, rating, comment) {
     if (json.success) {
       loadAppointmentHistory(); // refresh history
     } else {
-      alert(json.message || 'Failed to submit review.');
+      await vbAlert(json.message || 'Failed to submit review.');
     }
   } catch (err) {
     console.error(err);
-    alert('Failed to submit review.');
+    await vbAlert('Failed to submit review.');
   }
 }
+/**
+ * Owner's half of a reschedule. The clinic's proposed time isn't applied until
+ * this runs, and declining leaves the original booking exactly as it was.
+ */
+async function respondToReschedule(appointmentId, decision) {
+  const confirmText = decision === 'accept'
+    ? 'Accept the new date and time for this appointment?'
+    : 'Decline the new time? Your original appointment date will stay as it is.';
+
+  if (!(await vbConfirm(confirmText))) return;
+
+  try {
+    const res = await fetch('/api/appointments/appointment.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'respond_reschedule',
+        appointment_id: appointmentId,
+        decision: decision
+      })
+    });
+
+    const json = await res.json();
+
+    if (json.success) {
+      await vbAlert(json.message);
+      loadAppointmentHistory();
+    } else {
+      await vbAlert(json.message || 'Could not save your response.');
+    }
+  } catch (err) {
+    console.error(err);
+    await vbAlert('Could not save your response — check your connection.');
+  }
+}
+
 async function replaceContent(){
    try {
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -480,11 +702,11 @@ async function replaceContent(){
       document.getElementById('stat-patients-val').textContent = json.data;
       loadAppointmentHistory(); // refresh history
     } else {
-      alert(json.message || 'Failed to submit review.');
+      await vbAlert(json.message || 'Failed to submit review.');
     }
   } catch (err) {
     console.error(err);
-    alert('Failed to submit review.');
+    await vbAlert('Failed to submit review.');
   }
 }
 
@@ -507,7 +729,10 @@ function setRatingValue(value) {
   ratingModalState.value = value;
   const stars = document.querySelectorAll('#ratingStars .rating-star');
   stars.forEach((star) => {
-    star.classList.toggle('active', parseInt(star.dataset.value) <= value);
+    const isActive = parseInt(star.dataset.value) <= value;
+    star.classList.toggle('active', isActive);
+    const img = star.querySelector('img');
+    if (img) img.src = isActive ? '../images/icons/rating.svg' : '../images/icons/rating-outline.svg';
   });
   const hint = document.getElementById('ratingHint');
   const labels = ['Tap a star to rate', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
@@ -527,7 +752,10 @@ function initRatingStars() {
 function previewRatingValue(value) {
   const stars = document.querySelectorAll('#ratingStars .rating-star');
   stars.forEach((star) => {
-    star.classList.toggle('active', parseInt(star.dataset.value) <= value);
+    const isActive = parseInt(star.dataset.value) <= value;
+    star.classList.toggle('active', isActive);
+    const img = star.querySelector('img');
+    if (img) img.src = isActive ? '../images/icons/rating.svg' : '../images/icons/rating-outline.svg';
   });
 }
 
@@ -541,17 +769,24 @@ function submitRatingModal() {
   closeRatingModal();
 }
 
-initRatingStars();async function loadAppointmentHistory() {
+initRatingStars();
+let lastAppointmentHistory = null;
+
+async function loadAppointmentHistory(options = {}) {
+  const silent = options.silent === true;
   try {
     const session = JSON.parse(
-      sessionStorage.getItem('vbetter_session') ||
-      sessionStorage.getItem('bvetter_user') ||
+      localStorage.getItem('vbetter_session') ||
+      localStorage.getItem('bvetter_user') ||
       'null'
     );
 
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // 'list' authenticates now, and the server pins owner_id to the session
+      // for pet owners -- the owner_id below is ignored, kept only so the
+      // request shape is unchanged for staff callers.
+      headers: authHeaders(),
       body: JSON.stringify({
         action: 'list',
         owner_id: session?.userId || session?.id || ''
@@ -560,6 +795,12 @@ initRatingStars();async function loadAppointmentHistory() {
 
     const json = await res.json();
     console.log('Appointment history:', json);
+
+    // Silent (polled) refreshes skip the rebuild when nothing changed.
+    const snapshot = JSON.stringify(json.data || []);
+    if (silent && snapshot === lastAppointmentHistory) return;
+    lastAppointmentHistory = snapshot;
+
     const histList = document.getElementById('histList');
     const histEmpty = document.getElementById('histEmpty');
     const completedCountEl = document.getElementById('complted-visit');
@@ -577,14 +818,18 @@ initRatingStars();async function loadAppointmentHistory() {
     histList.innerHTML = '';
 
     json.data.forEach(appt => {
+      const awaitingResponse = appt.status === 'reschedule_pending';
+
       const rowClass = appt.status === 'completed'
         ? 'appt-row appt-completed'
-        : 'appt-row appt-pending';
+        : awaitingResponse
+          ? 'appt-row appt-reschedule'
+          : 'appt-row appt-pending';
 
       const statusBadge = `
         <span class="status-badge s-${appt.status}">
           <span class="status-dot"></span>
-          ${capitalize(appt.status)}
+          ${statusText(appt.status)}
         </span>
       `;
 
@@ -618,6 +863,18 @@ initRatingStars();async function loadAppointmentHistory() {
         `;
       }
 
+      // The clinic proposed a new time and it isn't applied until the owner
+      // answers, so this row needs an explicit accept/decline.
+      else if (awaitingResponse) {
+        reviewSection = `
+          ${statusBadge}
+          <div class="reschedule-actions">
+            <button class="btn-reschedule-accept" onclick="respondToReschedule(${appt.id}, 'accept')">Accept</button>
+            <button class="btn-reschedule-decline" onclick="respondToReschedule(${appt.id}, 'decline')">Decline</button>
+          </div>
+        `;
+      }
+
       // pending / others
       else {
         reviewSection = statusBadge;
@@ -629,7 +886,7 @@ initRatingStars();async function loadAppointmentHistory() {
             <div class="appt-col-label">PET NAME</div>
             <div class="appt-pet-name">${appt.patient}</div>
             <div class="appt-pet-meta">
-              ${appt.pet.species} &bull; ${appt.pet.age} yrs
+              ${appt.pet.species} &bull; ${appt.pet.age}
             </div>
           </div>
 
@@ -643,10 +900,18 @@ initRatingStars();async function loadAppointmentHistory() {
 
           <div class="appt-col">
             <div class="appt-col-label">DATE</div>
-            <div class="appt-date-val">
+            <div class="appt-date-val${awaitingResponse ? ' appt-date-superseded' : ''}">
               ${formatDate(appt.preferred_date)}
             </div>
-            <div class="appt-time-val">${appt.time_slot}</div>
+            <div class="appt-time-val${awaitingResponse ? ' appt-date-superseded' : ''}">${formatTimeSlot(appt.time_slot)}</div>
+            ${awaitingResponse ? `
+              <div class="appt-proposed">
+                <div class="appt-col-label">PROPOSED</div>
+                <div class="appt-date-val">${formatDate(appt.proposed_date)}</div>
+                <div class="appt-time-val">${formatTimeSlot(appt.proposed_time_slot)}</div>
+                ${appt.reschedule_reason ? `<div class="appt-proposed-reason">${escapeHtml(appt.reschedule_reason)}</div>` : ''}
+              </div>
+            ` : ''}
           </div>
 
           <div class="appt-actions">
@@ -662,7 +927,7 @@ initRatingStars();async function loadAppointmentHistory() {
 }
 async function loadVetFeedback(vetId) {
   try {
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -679,6 +944,9 @@ async function loadVetFeedback(vetId) {
       document.getElementById('feedback-pet').textContent = '';
       document.getElementById('comment').textContent = 'This veterinarian has not received feedback yet.';
       document.getElementById('rate').innerHTML = '';
+      document.getElementById('profile-rating').textContent = 'New';
+      document.getElementById('stat-rating-val').textContent = 'New';
+      document.getElementById('profile-review-count').textContent = '(No reviews yet)';
       return;
     }
 
@@ -730,7 +998,7 @@ async function loadCommonCases(vetId) {
   let cases = [];
 
   try {
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -771,7 +1039,7 @@ async function openReviewsModal() {
   overlay.classList.add('active');
 
   try {
-    const res = await fetch('/bvetter/api/appointments/appointment.php', {
+    const res = await fetch('/api/appointments/appointment.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -817,6 +1085,21 @@ function closeReviewsModal() {
 
 fetchVets();
 loadRecentHistory();
+loadCspStatus();
+
+// Keep whichever history view is currently on screen in sync without a
+// manual page reload — the small "Recent Appointment History" widget on
+// the vet-selection page, or the full history page, whichever is active.
+// Does nothing while the booking wizard (pageBooking) is on screen, so it
+// never touches the in-progress booking draft.
+if (typeof startPolling === 'function') {
+  startPolling((opts) => {
+    const pageHistoryEl = document.getElementById('pageHistory');
+    if (pageHistoryEl && pageHistoryEl.classList.contains('active')) return loadAppointmentHistory(opts);
+    const pageVetEl = document.getElementById('pageVet');
+    if (pageVetEl && pageVetEl.classList.contains('active')) return loadRecentHistory(opts);
+  }, 15000);
+}
 
 function getAverageRate(average) {
   if (average >= 5.0) {
@@ -871,6 +1154,104 @@ function getAverageRate(average) {
     }
   }
 
+  /* ── Booking draft persistence (Google-Forms-like) ──
+     Everything typed in steps 1-3 (plus the chosen vet, date and time
+     slot) is autosaved to sessionStorage, so a reload or browser-Back
+     drops the owner exactly where they left off instead of wiping the
+     form. Cleared once the booking submits successfully (goStep(5)). ── */
+  const BOOKING_DRAFT_KEY = 'bvetter_booking_draft';
+  const BOOKING_FIELD_IDS = [
+    'ownerName', 'ownerContact', 'ownerEmail', 'ownerBarangay', 'ownerAddress',
+    'petName', 'petType', 'petBreed', 'petAgeValue', 'petAgeUnit', 'petSex', 'petVaccDate',
+    'visitType', 'apptDate', 'apptNotes'
+  ];
+  let currentStep = 1;
+  let pendingRestoreVetId = null;
+
+  function saveBookingDraft() {
+    const fields = {};
+    BOOKING_FIELD_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) fields[id] = el.value;
+    });
+    const slotBtn = document.querySelector('#step3 .slot-btn.selected');
+    try {
+      sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify({
+        vetId: selectedVetId || '',
+        step: Math.min(currentStep, 4),
+        slot: slotBtn ? slotBtn.dataset.slot : '',
+        useAccount: usingAccountDetails(),
+        fields
+      }));
+    } catch {
+      /* storage unavailable — draft just won't persist */
+    }
+  }
+
+  function clearBookingDraft() {
+    try { sessionStorage.removeItem(BOOKING_DRAFT_KEY); } catch { /* ignore */ }
+  }
+
+  function restoreBookingDraft() {
+    let draft = null;
+    try { draft = JSON.parse(sessionStorage.getItem(BOOKING_DRAFT_KEY) || 'null'); } catch { draft = null; }
+    if (!draft || !draft.fields) return;
+
+    BOOKING_FIELD_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && draft.fields[id] != null) el.value = draft.fields[id];
+    });
+    // Put the account switch back where it was: with it on, the account's
+    // details win over whatever the draft held; with it off, the contact
+    // person the owner typed survives the reload.
+    const accountSwitch = document.getElementById('useAccountDetails');
+    if (accountSwitch && draft.useAccount === false) {
+      accountSwitch.checked = false;
+      applyAccountSwitch();
+    }
+    if (draft.slot) {
+      const slotBtn = document.querySelector(`#step3 .slot-btn[data-slot="${draft.slot}"]`);
+      if (slotBtn) {
+        document.querySelectorAll('.slot-btn').forEach((b) => b.classList.remove('selected'));
+        slotBtn.classList.add('selected');
+      }
+    }
+    toggleDewormingNotice();
+    toggleCspMode();
+
+    // Only jump back into the wizard when the draft actually holds input.
+    // Owner fields filled from the account aren't the owner's own input.
+    const ownerIds = ['ownerName', 'ownerContact', 'ownerEmail', 'ownerBarangay', 'ownerAddress'];
+    const hasContent = draft.slot || Object.entries(draft.fields).some(([id, v]) =>
+      !(draft.useAccount !== false && ownerIds.includes(id)) && String(v || '').trim() !== '');
+    if (!hasContent) return;
+
+    pendingRestoreVetId = draft.vetId || null;
+    showPage(pageBooking);
+    goStep(Math.min(Math.max(Number(draft.step) || 1, 1), 4));
+  }
+
+  // Re-select the saved vet once the list has rendered (fetchVets is async);
+  // then re-check slot availability for the restored vet if we're on step 3.
+  document.addEventListener('bv-vets-loaded', () => {
+    if (!pendingRestoreVetId) return;
+    const item = document.querySelector(`.vet-item[data-vet-id="${pendingRestoreVetId}"]`);
+    pendingRestoreVetId = null;
+    if (item && !item.classList.contains('active')) item.click();
+    if (currentStep === 3 && !isCspMode()) refreshStep3Slots();
+  });
+
+  // Autosave as the owner types or picks anything in steps 1-3.
+  BOOKING_FIELD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', saveBookingDraft);
+    el.addEventListener('change', saveBookingDraft);
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('.slot-btn') || event.target.closest('.vet-item')) saveBookingDraft();
+  });
+
   /* ── Page navigation wiring ─────────────── */
   document.getElementById('btnBook')           .addEventListener('click', () => {
     // Carry the date already picked in the preview calendar into step 3
@@ -917,32 +1298,42 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
   /* ── Per-step inline validation ──────────────
      Marks the missing field(s) instead of blocking
      navigation with a popup/alert.
+
+     The generic helpers now live in shared/js/form-validation.js so the other
+     forms in the app can use them too; these thin wrappers keep the call sites
+     below unchanged. Only the booking-specific rules (weekend, horizon, slot)
+     are still defined here.
   ─────────────────────────────────────────── */
-  function setGroupError(group, message) {
-    if (!group) return;
-    group.classList.add('has-error');
-    let msg = group.querySelector('.field-error-msg');
-    if (!msg) {
-      msg = document.createElement('span');
-      msg.className = 'field-error-msg';
-      group.appendChild(msg);
-    }
-    msg.textContent = message;
-  }
+  const setGroupError   = (group, message) => VBForm.setGroupError(group, message);
+  const clearGroupError = (group)          => VBForm.clearGroupError(group);
 
-  function clearGroupError(group) {
-    if (!group) return;
-    group.classList.remove('has-error');
-    const msg = group.querySelector('.field-error-msg');
-    if (msg) msg.remove();
-  }
+  const validateRequiredField = (id, message) => VBForm.validateRequired(id, message);
 
-  function validateRequiredField(id, message) {
-    const el = document.getElementById(id);
-    if (!el) return true;
+  function validateApptDateWeekend() {
+    const el = document.getElementById('apptDate');
+    if (!el || !el.value) return true;
     const group = el.closest('.form-group');
-    if (!(el.value || '').trim()) {
-      setGroupError(group, message);
+    if (isWeekendIso(el.value)) {
+      setGroupError(group, 'Weekends are not available — please choose a weekday.');
+      return false;
+    }
+    if (CLOSED_DATES[el.value]) {
+      setGroupError(group, `The clinic is closed that day (${CLOSED_DATES[el.value]}) — please choose another date.`);
+      return false;
+    }
+    clearGroupError(group);
+    return true;
+  }
+
+  function validateApptDateHorizon() {
+    const el = document.getElementById('apptDate');
+    if (!el || !el.value) return true;
+    const group = el.closest('.form-group');
+    const [y, m, d] = el.value.split('-').map(Number);
+    const picked = new Date(y, m - 1, d);
+    picked.setHours(0, 0, 0, 0);
+    if (picked > bookingHorizonDate()) {
+      setGroupError(group, `Appointments can only be booked up to ${BOOKING_HORIZON_MONTHS} months ahead.`);
       return false;
     }
     clearGroupError(group);
@@ -963,24 +1354,68 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
   function validateStep(n) {
     let valid = true;
 
+    // With the account switch on, step 1 holds the account's own details:
+    // the server takes the owner from the login and ignores these fields, so
+    // there is nothing for the owner to get wrong.
+    if (n === 1 && usingAccountDetails()) {
+      return true;
+    }
+
+    // Switch off: name, number and email are the contact person for this
+    // appointment. Barangay and address stay the account's, so they aren't
+    // checked here.
+    if (n === 1 && !usingAccountDetails() && accountDetails) {
+      if (!validateRequiredField('ownerName', 'Please enter the name of the person bringing the pet.')) valid = false;
+      if (!VBForm.validatePHPhone('ownerContact'))                                                      valid = false;
+      if (!VBForm.validateEmail('ownerEmail'))                                                          valid = false;
+      if (!VBForm.validateNoMarkup('ownerName', 'Full name'))                                           valid = false;
+      if (!valid) document.querySelector('#step1 .has-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return valid;
+    }
+
     if (n === 1) {
       if (!validateRequiredField('ownerName',     'Please enter your full name.'))        valid = false;
-      if (!validateRequiredField('ownerContact',  'Please enter your contact number.'))    valid = false;
-      if (!validateRequiredField('ownerEmail',    'Please enter your email address.'))     valid = false;
+      // Format, not just presence. These two used to be checked for emptiness
+      // only, on both the client AND the server, so "asdf" and "abcdefg" booked
+      // successfully -- and the email is what the clinic's confirmation mail is
+      // sent to. Same rules as signup (api/auth/register.php), because a guest
+      // booking creates a real account in the same users columns.
+      if (!VBForm.validatePHPhone('ownerContact'))                                        valid = false;
+      if (!VBForm.validateEmail('ownerEmail'))                                            valid = false;
       if (!validateRequiredField('ownerBarangay', 'Please select your barangay.'))         valid = false;
       if (!validateRequiredField('ownerAddress',  'Please enter your complete address.'))  valid = false;
+      if (!VBForm.validateNoMarkup('ownerName', 'Full name'))                             valid = false;
+      if (!VBForm.validateNoMarkup('ownerAddress', 'Address'))                            valid = false;
     } else if (n === 2) {
       if (!validateRequiredField('petName',  "Please enter your pet's name."))    valid = false;
       if (!validateRequiredField('petType',  'Please select a pet type.'))        valid = false;
       if (!validateRequiredField('petBreed', "Please enter your pet's breed."))   valid = false;
-      if (!validateRequiredField('petAge',   "Please enter your pet's age."))     valid = false;
+      // Age is optional for an appointment; Castration & Spay checks it in
+      // step 3, where that visit type is chosen.
       if (!validateRequiredField('petSex',   "Please select your pet's sex."))    valid = false;
+      if (!VBForm.validateNoMarkup('petName',  "Pet's name"))                     valid = false;
+      if (!VBForm.validateNoMarkup('petBreed', 'Breed'))                          valid = false;
       // petVaccDate is optional — not validated
     } else if (n === 3) {
-      if (!validateRequiredField('visitType', 'Please select the type of visit.'))                        valid = false;
-      if (!validateRequiredField('apptDate',  'Please select a preferred date.'))                          valid = false;
-      if (!validateTimeSlotField())                                                                        valid = false;
-      if (!validateRequiredField('apptNotes', "Please describe your pet's condition or reason for visit.")) valid = false;
+      if (!validateRequiredField('visitType', 'Please select the type of visit.')) valid = false;
+      // The program screens pets by age, so it is required here -- but the
+      // field lives on step 2, so send the owner back to it.
+      if (isCspMode() && !(document.getElementById('petAgeValue')?.value || '').trim()) {
+        valid = false;
+        vbAlert("Castration & Spay registration needs your pet's age. Please add it in Pet Information.").then(() => {
+          goStep(2);
+          validateRequiredField('petAgeValue', "Please enter your pet's age for Castration & Spay.");
+          document.getElementById('petAgeValue')?.focus();
+        });
+        return valid;
+      }
+      if (!isCspMode()) {
+        if (!validateRequiredField('apptDate', 'Please select a preferred date.')) valid = false;
+        else if (!validateApptDateWeekend())                                      valid = false;
+        else if (!validateApptDateHorizon())                                      valid = false;
+        if (!validateTimeSlotField())                                             valid = false;
+        // apptNotes is optional — not validated
+      }
     }
 
     if (!valid) {
@@ -1001,13 +1436,17 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
 
   /* ── Core step switcher ──────────────────── */
   function goStep(n) {
+    currentStep = n;
     for (let i = 1; i <= 5; i++) {
       const el = document.getElementById('step' + i);
       if (el) el.style.display = (i === n) ? 'block' : 'none';
     }
     updateStepper(n);
-    if (n === 3) refreshStep3Slots();
+    if (n === 3) { toggleCspMode(); if (!isCspMode()) refreshStep3Slots(); }
     if (n === 4) populateReview();
+    // Booking done → the draft has served its purpose; otherwise remember
+    // where the owner is so a reload/back returns them to this step.
+    if (n === 5) clearBookingDraft(); else saveBookingDraft();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1028,7 +1467,7 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
 
     let booked = [];
     try {
-      const res = await fetch('/bvetter/api/appointments/appointment.php', {
+      const res = await fetch('/api/appointments/appointment.php', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify({
@@ -1044,10 +1483,12 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
       return;
     }
 
+    const bookedSet = new Set(booked.map(canonicalSlot));
     slotButtons.forEach(btn => {
-      const isBooked = booked.includes(btn.dataset.slot);
-      btn.classList.toggle('unavailable', isBooked);
-      if (isBooked && btn.classList.contains('selected')) {
+      const slot = btn.dataset.slot;
+      const isUnavailable = bookedSet.has(canonicalSlot(slot)) || isSlotPast(dateVal, slot);
+      btn.classList.toggle('unavailable', isUnavailable);
+      if (isUnavailable && btn.classList.contains('selected')) {
         btn.classList.remove('selected');
       }
     });
@@ -1063,20 +1504,238 @@ document.getElementById('btnHistBack')       .addEventListener('click', () => sh
     }
   }
 
-  document.getElementById('apptDate')?.addEventListener('change', refreshStep3Slots);
+  document.getElementById('apptDate')?.addEventListener('change', () => {
+    validateApptDateWeekend();
+    refreshStep3Slots();
+  });
 
-  /* ── Submit appointment ──────────────────── */
+  /* ── Populate "Type of Visit" from the vet/admin-managed visit_types
+     table so new types added in Appointment Management show up here
+     without editing this page. ── */
+  async function populateVisitTypes() {
+    const select = document.getElementById('visitType');
+    if (!select) return;
+    try {
+      const result = await api.getVisitTypes();
+      if (!result.success || !Array.isArray(result.data) || !result.data.length) return;
+      const current = select.value;
+      const names = result.data.map((type) => type.name);
+      select.innerHTML = names.map((name) => `<option>${name}</option>`).join('');
+      if (names.includes(current)) select.value = current;
+      toggleDewormingNotice();
+      toggleCspMode();
+    } catch (err) {
+      // Keep the static fallback options already in the markup
+    }
+  }
+  populateVisitTypes();
+
+  /* ── Show the age-limit notice only for Deworming visits ── */
+  function toggleDewormingNotice() {
+    const visitType = document.getElementById('visitType')?.value || '';
+    document.getElementById('dewormingNotice')?.classList.toggle('is-hidden', visitType !== 'Deworming');
+  }
+  document.getElementById('visitType')?.addEventListener('change', toggleDewormingNotice);
+  toggleDewormingNotice();
+
+  /* ── Castration & Spay is a waiting-list registration, not a scheduled
+     visit — swap the date/time-slot step for a static notice and make
+     "Additional Details" optional whenever it's selected. ── */
+  /* ── "Use my account details" switch (step 1) ─────────────
+     On by default: the fields are filled from the owner's account and
+     locked, so nobody retypes them -- the server takes the owner from the
+     login anyway. Off means someone else is bringing the pet: name, number
+     and email become editable and are saved as this appointment's contact.
+     Barangay and address always stay the account's (they are the pet's
+     home, which the disease reports count). */
+  let accountDetails = null;
+
+  function usingAccountDetails() {
+    return document.getElementById('useAccountDetails')?.checked !== false;
+  }
+
+  function setOwnerField(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === 'SELECT' && value && ![...el.options].some(o => o.value === value || o.textContent === value)) {
+      el.add(new Option(value, value));
+    }
+    el.value = value || '';
+    VBForm.clearGroupError(el.closest('.form-group'));
+  }
+
+  function applyAccountSwitch() {
+    const on = usingAccountDetails();
+    const a = accountDetails || {};
+    if (on) {
+      setOwnerField('ownerName', a.name);
+      setOwnerField('ownerContact', a.phone);
+      setOwnerField('ownerEmail', a.email);
+    }
+    // Always the account's.
+    setOwnerField('ownerBarangay', a.barangay);
+    setOwnerField('ownerAddress', a.address);
+
+    ['ownerName', 'ownerContact', 'ownerEmail'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.readOnly = on;
+    });
+    const barangay = document.getElementById('ownerBarangay');
+    if (barangay) barangay.disabled = true;
+    const address = document.getElementById('ownerAddress');
+    if (address) address.readOnly = true;
+    document.getElementById('step1')?.classList.toggle('uses-account', on);
+
+    const hint = document.getElementById('useAccountHint');
+    if (hint) {
+      hint.textContent = on
+        ? 'Filled in from your account. Turn off if someone else is bringing your pet.'
+        : 'Enter the details of the person bringing your pet. The clinic will contact them about this appointment.';
+    }
+  }
+
+  async function loadAccountDetails() {
+    const session = window.VBetterAuth?.getSession?.() || {};
+    accountDetails = { name: session.name || '', phone: session.phone || '', email: session.email || '', barangay: '', address: '' };
+    applyAccountSwitch();
+    try {
+      const result = await api.getProfile();
+      if (result?.success && result.data) {
+        accountDetails = {
+          name: result.data.fullName || accountDetails.name,
+          phone: result.data.phone || accountDetails.phone,
+          email: result.data.email || accountDetails.email,
+          barangay: result.data.barangay || '',
+          address: result.data.address || ''
+        };
+        applyAccountSwitch();
+      }
+    } catch {
+      // Session values are already in place.
+    }
+  }
+
+  document.getElementById('useAccountDetails')?.addEventListener('change', applyAccountSwitch);
+  loadAccountDetails();
+
+  function isCspMode() {
+    return (document.getElementById('visitType')?.value || '') === 'Castration & Spay';
+  }
+
+  function toggleCspMode() {
+    const cspMode = isCspMode();
+    document.getElementById('apptDateGroup')?.classList.toggle('is-hidden', cspMode);
+    document.getElementById('apptTimeGroup')?.classList.toggle('is-hidden', cspMode);
+    document.getElementById('cspProgramNotice')?.classList.toggle('is-hidden', !cspMode);
+  }
+  document.getElementById('visitType')?.addEventListener('change', toggleCspMode);
+  toggleCspMode();
+
+  /* ── Combine the Age value + unit fields into one string
+     (e.g. "2 Years") the same way patient records stores it,
+     so history/detail views don't need their own unit suffix. ── */
+  function formatPetAge() {
+    const value = document.getElementById('petAgeValue')?.value.trim() || '';
+    const unit  = document.getElementById('petAgeUnit')?.value          || 'Years';
+    return value ? `${value} ${unit}` : '';
+  }
+
+  /* ── Loading/success window shown while the booking request (and its
+     confirmation email) is processing, instead of just swapping the
+     Confirm button's label. Self-contained (styles injected once) so it
+     renders the same regardless of what CSS this page happens to load. ── */
+  function ensureBookingOverlay() {
+    let overlay = document.getElementById('vbBookingOverlay');
+    if (overlay) return overlay;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      #vbBookingOverlay { position:fixed; inset:0; z-index:9999; display:none;
+        align-items:center; justify-content:center; background:rgba(15,23,42,0.55); }
+      #vbBookingOverlay .vb-box { background:#fff; border-radius:16px; padding:32px 40px;
+        text-align:center; min-width:260px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,0.25); }
+      #vbBookingOverlay .vb-spinner { width:44px; height:44px; margin:0 auto 16px;
+        border:4px solid #dbe4f0; border-top-color:#00B928; border-radius:50%;
+        animation:vb-spin 0.8s linear infinite; }
+      #vbBookingOverlay .vb-check { width:44px; height:44px; margin:0 auto 16px;
+        border-radius:50%; background:#00B928; color:#fff; display:flex; align-items:center;
+        justify-content:center; font-size:24px; animation:vb-pop 0.25s ease; }
+      #vbBookingOverlay .vb-msg { color:#1f2937; font-size:15px; font-weight:600; font-family:inherit; }
+      @keyframes vb-spin { to { transform:rotate(360deg); } }
+      @keyframes vb-pop { from { transform:scale(0.5); opacity:0; } to { transform:scale(1); opacity:1; } }
+    `;
+    document.head.appendChild(style);
+
+    overlay = document.createElement('div');
+    overlay.id = 'vbBookingOverlay';
+    overlay.innerHTML = '<div class="vb-box"><div class="vb-icon"></div><div class="vb-msg"></div></div>';
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function showBookingLoading(message) {
+    const overlay = ensureBookingOverlay();
+    overlay.querySelector('.vb-icon').innerHTML = '<div class="vb-spinner"></div>';
+    overlay.querySelector('.vb-msg').textContent = message;
+    overlay.style.display = 'flex';
+  }
+
+  function showBookingSuccess(message) {
+    const overlay = ensureBookingOverlay();
+    overlay.querySelector('.vb-icon').innerHTML = '<div class="vb-check">&#10003;</div>';
+    overlay.querySelector('.vb-msg').textContent = message;
+  }
+
+  function hideBookingOverlay() {
+    const overlay = document.getElementById('vbBookingOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  /* ── Submit appointment ──────────────────────
+     Guards against double-submits: without this, clicking Confirm
+     several times before the request resolves fired one booking per
+     click (all landing on the same slot on the vet/admin side). ── */
+  let isBookingSubmit = false;
+
   async function submitAppointment() {
+    if (isBookingSubmit) return;
+
+    // Re-check every step before submitting. The per-step checks only run on
+    // the Next buttons, so a restored draft (which jumps straight back to the
+    // review step) could otherwise reach Confirm without ever being validated.
+    for (const step of [1, 2, 3]) {
+      if (!validateStep(step)) {
+        goStep(step);
+        return;
+      }
+    }
+
+    isBookingSubmit = true;
+
+    const confirmBtn = document.getElementById('s4Confirm');
+    if (confirmBtn) confirmBtn.disabled = true;
+    showBookingLoading('Submitting your appointment…');
+
+    try {
+      await submitAppointmentRequest();
+    } finally {
+      isBookingSubmit = false;
+      if (confirmBtn) confirmBtn.disabled = false;
+    }
+  }
+
+  async function submitAppointmentRequest() {
 const selectedSlot = document.querySelector('.slot-btn.selected');
     const session = JSON.parse(
-      sessionStorage.getItem('vbetter_session') ||
-      sessionStorage.getItem('bvetter_user')    ||
+      localStorage.getItem('vbetter_session') ||
+      localStorage.getItem('bvetter_user')    ||
       'null'
     );
 
     const payload = {
       action:               'create',
       owner_id:             session?.userId || session?.id || '',
+      use_account_details:  usingAccountDetails() ? '1' : '0',
       veterinarian_id:      selectedVetId || '',           // ← vet selected on page 1
       owner_name:           document.getElementById('ownerName')?.value.trim()    || '',
       owner_contact:        document.getElementById('ownerContact')?.value.trim() || '',
@@ -1086,7 +1745,7 @@ const selectedSlot = document.querySelector('.slot-btn.selected');
       pet_name:             document.getElementById('petName')?.value.trim()      || '',
       pet_type:             document.getElementById('petType')?.value             || '',
       pet_breed:            document.getElementById('petBreed')?.value.trim()     || '',
-      pet_age:              document.getElementById('petAge')?.value.trim()       || '',
+      pet_age:              formatPetAge(),
       pet_sex:              document.getElementById('petSex')?.value              || '',
       pet_vaccination_date: document.getElementById('petVaccDate')?.value         || '',
       appointment_type:     document.getElementById('visitType')?.value           || '',
@@ -1095,32 +1754,83 @@ time_slot: selectedSlot ? selectedSlot.dataset.slot : '',
       notes:                document.getElementById('apptNotes')?.value.trim()    || ''
     };
 
+    if (isCspMode()) {
+      const required = [
+        'owner_name', 'owner_contact', 'owner_email', 'owner_barangay_id', 'owner_address',
+        'pet_name', 'pet_type', 'pet_breed', 'pet_age', 'pet_sex'
+      ];
+      if (required.some(k => !payload[k])) {
+        hideBookingOverlay();
+        await vbAlert('Please complete all required fields.');
+        return;
+      }
+      try {
+        const result = await api.registerCspProgram(payload);
+        if (!result.success) {
+          hideBookingOverlay();
+          await vbAlert(result.message || 'Failed to submit registration.');
+          return;
+        }
+        showBookingSuccess('Registration submitted successfully!');
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        hideBookingOverlay();
+        showCspSuccess(result.waiting_count);
+        goStep(5);
+      } catch (error) {
+        hideBookingOverlay();
+        await vbAlert('Failed to submit registration. Please try again.');
+      }
+      return;
+    }
+
     const required = [
       'owner_name','owner_contact','owner_email',
       'pet_name','pet_type','appointment_type',
       'preferred_date','time_slot'
     ];
     if (required.some(k => !payload[k])) {
-      alert('Please complete all required appointment fields.');
+      hideBookingOverlay();
+      await vbAlert('Please complete all required appointment fields.');
       return;
     }
 
     const todayIso = toLocalIsoDate();
     if (payload.preferred_date < todayIso) {
-      alert('Please select a date that has not yet passed.');
+      hideBookingOverlay();
+      await vbAlert('Please select a date that has not yet passed.');
       return;
     }
 
     try {
       const result = await api.bookAppointment(payload);
       if (!result.success) {
-        alert(result.message || 'Failed to book appointment.');
+        hideBookingOverlay();
+        await vbAlert(result.message || 'Failed to book appointment.');
         return;
       }
+      showBookingSuccess('Request sent! The clinic confirms within 1 working day.');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      hideBookingOverlay();
+      showDefaultSuccess();
       goStep(5);
     } catch (error) {
-      alert('Failed to book appointment. Please try again.');
+      hideBookingOverlay();
+      await vbAlert('Failed to book appointment. Please try again.');
     }
+  }
+
+  /* ── Toggle step-5 success card between the normal appointment
+     confirmation and the Castration & Spay waiting-list confirmation ── */
+  function showDefaultSuccess() {
+    document.getElementById('step5Default')?.classList.remove('is-hidden');
+    document.getElementById('step5Csp')?.classList.add('is-hidden');
+  }
+
+  function showCspSuccess(waitingCount) {
+    document.getElementById('step5Default')?.classList.add('is-hidden');
+    document.getElementById('step5Csp')?.classList.remove('is-hidden');
+    const countEl = document.getElementById('csp-waiting-count');
+    if (countEl) countEl.textContent = `${waitingCount ?? '—'} Pets Registered`;
   }
 
   /* ── Header stepper update ───────────────── */
@@ -1180,8 +1890,14 @@ time_slot: selectedSlot ? selectedSlot.dataset.slot : '',
     document.getElementById('rv-barangay') .textContent = selText('ownerBarangay');
     document.getElementById('rv-petname')  .textContent = val('petName');
     document.getElementById('rv-pettype')  .textContent = selText('petType');
-    document.getElementById('rv-ageSex')   .textContent = val('petAge') + ' / ' + selText('petSex');
+    document.getElementById('rv-ageSex')   .textContent = (formatPetAge() || '—') + ' / ' + selText('petSex');
     document.getElementById('rv-visitType').textContent = selText('visitType');
+
+    if (isCspMode()) {
+      document.getElementById('rv-date').textContent = 'To Be Announced';
+      document.getElementById('rv-time').textContent = 'To Be Announced';
+      return;
+    }
 
     const rawDate = val('apptDate');
     if (rawDate && rawDate !== '—') {
@@ -1195,6 +1911,9 @@ time_slot: selectedSlot ? selectedSlot.dataset.slot : '',
     document.getElementById('rv-time').textContent = selSlot ? selSlot.dataset.slot : '—';
   }
 
+  // Bring back any in-progress booking (must run after all wiring above).
+  restoreBookingDraft();
+
 })();
 
 
@@ -1203,24 +1922,31 @@ time_slot: selectedSlot ? selectedSlot.dataset.slot : '',
 /**
  * Converts whatever the DB returns for avatar into a browser-accessible URL.
  *
- * DB returns full filesystem paths like:
- *   /bvetter/api/uploads/profile/profile_xxx.png
- *
- * The backend serves those files from:
- *   http://localhost:3000/uploads/profile/profile_xxx.png
- *
- * Change BASE_URL below if your backend runs on a different port.
+ * DB returns a site-relative path, e.g. /storage/profile/profile_xxx.png —
+ * resolved against the current origin so it works on any host.
  */
-const BASE_URL = 'http://localhost';
-
 function getAvatarUrl(avatarPath) {
-  const FALLBACK = '../images/img/vet-profile.png';
-  if (!avatarPath) return FALLBACK;
   if (avatarPath.startsWith('http')) return avatarPath;  // already a full URL
-  // DB returns the full web-accessible path e.g.
-  // /bvetter/api/uploads/profile/xxx.png
-  // so just prepend the host — no stripping needed
-  return `${BASE_URL}${avatarPath.startsWith('/') ? '' : '/'}${avatarPath}`;
+  return avatarPath.startsWith('/') ? avatarPath : `/${avatarPath}`;
+}
+
+/* Vets with no uploaded photo get a 2-letter initials avatar instead of a
+   stock placeholder image, so every unphotographed vet doesn't look like
+   the same fake person. */
+function getInitials(name) {
+  const initials = String(name || '').trim().split(/\s+/)
+    .map(part => part[0]).join('').slice(0, 2).toUpperCase();
+  return initials || '?';
+}
+
+function avatarMarkup(name, avatarPath, sizeClass) {
+  if (!avatarPath) {
+    return `<div class="${sizeClass} avatar-initials">${getInitials(name)}</div>`;
+  }
+  const src = escapeAttr(getAvatarUrl(avatarPath));
+  const initials = getInitials(name);
+  return `<img src="${src}" alt="${escapeAttr(name)}" class="${sizeClass}" ` +
+    `onerror="this.onerror=null;this.outerHTML='<div class=\\'${sizeClass} avatar-initials\\'>${initials}</div>';">`;
 }
 
 function escapeHtml(value) {
@@ -1235,6 +1961,24 @@ function escapeHtml(value) {
 function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, '&#96;');
 }
+// Slots are stored as 24-hour 'HH:MM'; owners read them as '3:00 PM'.
+function formatTimeSlot(slot) {
+  const value = String(slot ?? '').trim();
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return value;
+  const hour = Number(match[1]);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  return `${hour % 12 || 12}:${match[2]} ${suffix}`;
+}
+
+// Status values are database enums; never show one to an owner raw, or
+// 'reschedule_pending' leaks through underscore and all.
+function statusText(status) {
+  const value = String(status ?? '').trim();
+  if (value === 'reschedule_pending') return 'New time proposed';
+  return capitalize(value.replace(/_/g, ' '));
+}
+
 function capitalize(text) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -1246,4 +1990,4 @@ function formatDate(dateString) {
     day: 'numeric',
     year: 'numeric'
   });
-}
+}

@@ -1,5 +1,5 @@
-/* =============================================
-   BVETTER — Chatbot Widget v4.0
+﻿/* =============================================
+   BVetter — Chatbot Widget v4.0
    No stepper · Doctor + Heart avatar
    Smooth intro on landing page load
    ============================================= */
@@ -15,7 +15,7 @@
     if (path.indexOf(marker) >= 0) return path.slice(0, path.indexOf(marker));
     marker = '/public/pages/';
     if (path.indexOf(marker) >= 0) return path.slice(0, path.indexOf(marker));
-    return '/bvetter';
+    return '';
   }
 
   var APP_BASE = appBasePath();
@@ -375,6 +375,57 @@ function closeChat() {
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && isOpen) closeChat();
   });
+
+  /* ─────────────────────────────────────────
+     6b. "NEED HELP?" TEASER BUBBLE
+     Small speech bubble beside the FAB so
+     visitors realise the heart is a chatbot.
+     Appears ~3s after load, once per browser
+     session; dismissible with ×; clicking it
+     opens the chat.
+  ───────────────────────────────────────── */
+  var TEASER_KEY = 'bv_chat_teaser_shown';
+
+  function maybeShowTeaser() {
+    try {
+      if (sessionStorage.getItem(TEASER_KEY)) return;
+    } catch (e) {
+      /* storage unavailable — just show it */
+    }
+
+    setTimeout(function () {
+      if (isOpen) return; /* chat already open — no need to nudge */
+
+      var teaser = document.createElement('div');
+      teaser.className = 'chatbot-teaser';
+      teaser.id = 'chatbotTeaser';
+      teaser.setAttribute('role', 'button');
+      teaser.innerHTML =
+        '<span class="chatbot-teaser-text">Need help? Chat with me!</span>' +
+        '<button class="chatbot-teaser-close" aria-label="Dismiss">&times;</button>';
+      document.body.appendChild(teaser);
+
+      try { sessionStorage.setItem(TEASER_KEY, '1'); } catch (e) { /* ignore */ }
+      requestAnimationFrame(function () { teaser.classList.add('show'); });
+
+      function hideTeaser() {
+        teaser.classList.remove('show');
+        setTimeout(function () { teaser.remove(); }, 250);
+      }
+
+      teaser.querySelector('.chatbot-teaser-close').addEventListener('click', function (e) {
+        e.stopPropagation();
+        hideTeaser();
+      });
+      teaser.addEventListener('click', function () {
+        hideTeaser();
+        openChat(false);
+      });
+      fab.addEventListener('click', hideTeaser);
+    }, 3000);
+  }
+
+  maybeShowTeaser();
 
   /* ─────────────────────────────────────────
      7. TABS
@@ -782,6 +833,17 @@ function closeChat() {
       .then(showInquiryMenu);
   }
 
+  // Maps Chatbot Management's icon field (clock/syringe/clipboard/link/
+  // chat/pin) to this widget's existing PNG assets.
+  var INQUIRY_ICON_FILES = {
+    clock: 'chatbot-schedule.png',
+    syringe: 'chatbot-vaccination.png',
+    clipboard: 'chatbot-appointment.png',
+    link: 'chatbot-lf.png',
+    chat: 'chatbot-inquiry.png',
+    pin: 'chatbot-lf.png'
+  };
+
   function showInquiryMenu() {
     clearOptions(iOpts);
     showOptionLabel(iOpts, 'Choose a topic');
@@ -795,12 +857,11 @@ function closeChat() {
 
         rules.forEach(function (rule) {
           var name = rule.name || rule.title || 'Inquiry';
-          var lowerName = name.toLowerCase();
-          var iconFile = lowerName.indexOf('schedule') >= 0 ? 'chatbot-schedule.png'
-            : lowerName.indexOf('vacc') >= 0 ? 'chatbot-vaccination.png'
-            : lowerName.indexOf('appointment') >= 0 ? 'chatbot-appointment.png'
-            : lowerName.indexOf('lost') >= 0 ? 'chatbot-lf.png'
-            : 'chatbot-inquiry.png';
+          // Use the icon the vet actually picked in Chatbot Management
+          // (rule.icon: clock/syringe/clipboard/link/chat/pin) instead of
+          // guessing from the name -- keeps this widget in sync with what
+          // admins configure instead of running its own separate logic.
+          var iconFile = INQUIRY_ICON_FILES[rule.icon] || 'chatbot-inquiry.png';
 
           addOptionBtn(iOpts, iconFile, name, rule.actionLabel || '', function () {
             addUserBubble(iMsgs, name);
@@ -1118,10 +1179,11 @@ function closeChat() {
   }
 
   function askAgeGroup() {
+    var babyLabel = cState.petType === 'Dog' ? 'Puppy' : cState.petType === 'Cat' ? 'Kitten' : 'Baby';
     addBotBubble(cMsgs, 'What age group is your pet?', 500)
       .then(function () {
-        showChips(cOpts, ['Baby', 'Young', 'Adult', 'Senior', 'Not sure'], function (ageGroup) {
-          cState.ageGroup = ageGroup;
+        showChips(cOpts, [babyLabel, 'Young', 'Adult', 'Senior', 'Not sure'], function (ageGroup) {
+          cState.ageGroup = ageGroup === babyLabel ? 'Baby' : ageGroup;
           addUserBubble(cMsgs, ageGroup);
           clearOptions(cOpts);
           cState.symptoms = [];
@@ -1130,10 +1192,19 @@ function closeChat() {
       });
   }
 
+  var FALLBACK_SYMPTOMS = ['Fever', 'Vomiting', 'Diarrhea', 'Coughing', 'Limping', 'Loss of Appetite', 'Itching', 'Seizures', 'Wounds'];
+
   function askSymptomsChecklist() {
-    var symptoms = ['Fever', 'Vomiting', 'Diarrhea', 'Coughing', 'Loss of Appetite', 'Wounds', 'Seizures'];
     addBotBubble(cMsgs, 'Which symptoms does your pet have? Select all that apply.', 450)
       .then(function () {
+        return chatbotRequest('public_symptoms')
+          .catch(function () { return null; });
+      })
+      .then(function (result) {
+        var symptoms = Array.isArray(result) && result.length
+          ? result.map(function (item) { return item.name; })
+          : FALLBACK_SYMPTOMS;
+
         showSymptomChecklist(cOpts, symptoms, function (selected) {
           cState.symptoms = selected.length ? selected : ['No listed symptoms'];
           addUserBubble(cMsgs, selected.length ? selected.join(', ') : 'None of these');

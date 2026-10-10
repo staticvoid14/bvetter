@@ -3,60 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VBetter | Admin Profile</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter | Admin Profile</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="/bvetter/shared/css/sidebar.css">
-    <link rel="stylesheet" href="/bvetter/admin/css/profile.css">
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile">
+    <link rel="stylesheet" href="../css/profile.css?v=20260928-mobile">
 </head>
 <body>
 <div class="main-holder">
 
     <aside class="sidebar">
         <div class="sidebar-header">
-            <div class="logo"><img src="/bvetter/shared/images/logo.png" alt="VBetter Logo"></div>
+            <div class="logo"><img src="../../shared/images/logo.png" alt="BVetter Logo"></div>
         </div>
         <nav class="sidebar-nav">
-            <a href="/bvetter/admin/pages/index.html" class="nav-item" title="Dashboard">
-                <img src="/bvetter/shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
+            <a href="index.html" class="nav-item" title="Dashboard">
+                <img src="../../shared/images/sidebar/dashboard.svg" class="nav-icon" alt="Dashboard">
                 <span class="nav-label">Dashboard</span>
             </a>
-            <a href="/bvetter/vet/html/appointment.html" class="nav-item" title="Appointments">
-                <img src="/bvetter/shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
+            <a href="../../vet/html/appointment.html" class="nav-item" title="Appointments">
+                <img src="../../shared/images/sidebar/appointment.svg" class="nav-icon" alt="Appointment Management">
                 <span class="nav-label">Appointment Management</span>
             </a>
-            <a href="/bvetter/vet/html/patient-records.html" class="nav-item" title="Patient Records">
-                <img src="/bvetter/shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
+            <a href="../../vet/html/patient-records.html" class="nav-item" title="Patient Records">
+                <img src="../../shared/images/sidebar/patient-records.svg" class="nav-icon" alt="Patient Records">
                 <span class="nav-label">Patient Records</span>
             </a>
-            <a href="/bvetter/vet/html/report.html" class="nav-item" title="Reports">
-                <img src="/bvetter/shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
+            <a href="../../vet/html/report.html" class="nav-item" title="Reports">
+                <img src="../../shared/images/sidebar/report.svg" class="nav-icon" alt="Report">
                 <span class="nav-label">Report</span>
             </a>
-            <a href="/bvetter/vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
-                <img src="/bvetter/shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
+            <a href="../../vet/html/disease-analytics.html" class="nav-item" title="Disease Analytics">
+                <img src="../../shared/images/sidebar/disease-analytics.svg" class="nav-icon" alt="Disease Analytics">
                 <span class="nav-label">Disease Analytics</span>
             </a>
-            <a href="/bvetter/vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
-                <img src="/bvetter/shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
+            <a href="../../vet/html/lost-and-found.html" class="nav-item" title="Lost and Found">
+                <img src="../../shared/images/sidebar/lost-found.svg" class="nav-icon" alt="Lost and Found">
                 <span class="nav-label">Lost And Found</span>
             </a>
-            <a href="/bvetter/vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
-                <img src="/bvetter/shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
+            <a href="../../vet/html/chatbot-management.html" class="nav-item" title="Chatbot Management">
+                <img src="../../shared/images/sidebar/chatbot.svg" class="nav-icon" alt="Chatbot Management">
                 <span class="nav-label">Chatbot Management</span>
             </a>
-            <a href="/bvetter/vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
-                <img src="/bvetter/shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
+            <a href="../../vet/html/mass-vaccination.html" class="nav-item" title="Mass Vaccination">
+                <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                 <span class="nav-label">Mass Vaccination</span>
             </a>
+            <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                <span class="nav-label">Support Tickets</span>
+            </a>
             <div class="nav-section-label">Administration</div>
-            <a href="/bvetter/admin/pages/account-management.html" class="nav-item admin-item" title="Account Management">
-                <img src="/bvetter/shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
+            <a href="account-management.html" class="nav-item admin-item" title="Account Management">
+                <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
                 <span class="nav-label">Account Management</span>
             </a>
-            <a href="/bvetter/admin/pages/website-management.html" class="nav-item admin-item" title="Website Management">
-                <img src="/bvetter/shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
+            <a href="website-management.html" class="nav-item admin-item" title="Website Management">
+                <img src="../../shared/images/sidebar/web-settings.svg" class="nav-icon" alt="Website Management">
                 <span class="nav-label">Website Management</span>
             </a>
         </nav>
@@ -65,13 +76,17 @@
 
     <main class="profile-main">
 
-        <!-- ── Hero ── -->
         <section class="profile-hero">
             <div class="hero-inner">
                 <div class="hero-avatar-wrap">
-                    <img id="profile-avatar" src="" alt="Admin profile" class="hero-avatar"
-                         onerror="this.style.display='none';document.getElementById('avatar-initials').style.display='flex';">
-                    <div id="avatar-initials" class="hero-avatar-initials" style="display:none;" aria-hidden="true"></div>
+                    <!-- No src="" here. An empty src resolves to this page's own
+                         URL, so the browser fetches the HTML, fails to decode it
+                         as an image and fires error — which used to reveal the
+                         initials before the profile had even loaded, leaving two
+                         avatars stacked. src is set from JS only when there is a
+                         real photo; the error fallback is bound there too. -->
+                    <img id="profile-avatar" alt="Admin profile" class="hero-avatar" hidden>
+                    <div id="avatar-initials" class="hero-avatar-initials" aria-hidden="true"></div>
                     <div class="avatar-edit-ring" title="Change photo">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -84,13 +99,12 @@
                     <h1 id="profile-name">Loading profile…</h1>
                     <div class="hero-badges">
                         <span class="badge-active">Active</span>
-                        <span class="badge-role badge-role--admin">VBetter Admin</span>
+                        <span class="badge-role badge-role--admin">BVetter Admin</span>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- ── KPI Strip ── -->
         <div class="kpi-strip">
             <article class="kpi-card">
                 <div class="kpi-icon kpi-icon--amber">
@@ -132,26 +146,15 @@
                 <div class="kpi-body">
                     <p class="kpi-label">Site Updates</p>
                     <strong class="kpi-val" id="stat-site-updates">—</strong>
-                    <span class="kpi-note">Last 30 days</span>
+                    <span class="kpi-note">Published announcements</span>
                 </div>
             </article>
-            <article class="kpi-card">
-                <div class="kpi-icon kpi-icon--navy">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                        <line x1="8" y1="21" x2="16" y2="21"/>
-                        <line x1="12" y1="17" x2="12" y2="21"/>
-                    </svg>
-                </div>
-                <div class="kpi-body">
-                    <p class="kpi-label">System Uptime</p>
-                    <strong class="kpi-val" id="stat-uptime">—</strong>
-                    <span class="kpi-note">All-time average</span>
-                </div>
-            </article>
+            <!-- A fourth "System Uptime 99.9%" card used to sit here. Nothing in
+                 this system measures uptime — the figure was a hardcoded string
+                 in profile.js — so it was removed rather than given a source it
+                 does not have. -->
         </div>
 
-        <!-- ── Profile Information ── -->
         <section class="prof-card">
             <div class="prof-card-head">
                 <div class="prof-card-title">
@@ -205,8 +208,7 @@
             </div>
         </section>
 
-        <!-- ── Security ── -->
-        <section class="prof-card">
+        <section class="prof-card" id="security">
             <div class="prof-card-head">
                 <div class="prof-card-title">
                     <div class="title-icon title-icon--amber">
@@ -222,7 +224,6 @@
             </div>
             <div class="prof-divider"></div>
             <div class="security-list">
-                <!-- Password -->
                 <div class="security-item">
                     <div class="security-item-left">
                         <div class="sec-icon">
@@ -244,7 +245,6 @@
                         Update Password
                     </button>
                 </div>
-                <!-- 2FA -->
                 <div class="security-item">
                     <div class="security-item-left">
                         <div class="sec-icon">
@@ -260,15 +260,14 @@
                     </div>
                     <div class="sec-right">
                         <span class="sec-status-pill sec-status-pill--off" id="tfa-status-pill">Not Enabled</span>
-                        <button class="btn-outline" type="button">
+                        <button class="btn-outline" type="button" id="tfa-manage-btn">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                             </svg>
-                            Manage 2FA
+                            <span id="tfa-manage-label">Manage 2FA</span>
                         </button>
                     </div>
                 </div>
-                <!-- Active Sessions -->
                 <div class="security-item">
                     <div class="security-item-left">
                         <div class="sec-icon">
@@ -292,8 +291,30 @@
                         Revoke All Other
                     </button>
                 </div>
+                <div class="security-item">
+                    <div class="security-item-left">
+                        <div class="sec-icon">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <polyline points="17 11 19 13 23 9"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="sec-title">Hand Over Account</p>
+                            <p class="sec-desc">Pass this administrator account to the next person who will manage BVetter</p>
+                            <p class="sec-desc handover-holders" id="handover-holders"></p>
+                        </div>
+                    </div>
+                    <button class="btn-outline" id="handover-btn" type="button">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                            <polyline points="12 5 19 12 12 19"/>
+                        </svg>
+                        Hand Over
+                    </button>
+                </div>
             </div>
-            <!-- Recent sign-ins -->
             <div class="prof-divider"></div>
             <div class="signin-section">
                 <p class="signin-section-title">Recent Sign-ins</p>
@@ -303,7 +324,6 @@
             </div>
         </section>
 
-        <!-- ── Notification Preferences ── -->
         <section class="prof-card">
             <div class="prof-card-head">
                 <div class="prof-card-title">
@@ -322,89 +342,98 @@
             </div>
             <div class="prof-divider"></div>
             <form class="notif-list" id="notification-form">
+                <!-- These four are the staff notification streams that actually
+                     fire — every notifyStaff() call in the codebase raises one of
+                     them. They are gated for admins in api/config/notifications.php.
+
+                     The five toggles that used to live here (New Account
+                     Registrations, System Alerts, Website Content Updates, Weekly
+                     Summary, Security Alerts) had no columns behind them and no
+                     code that would ever have read them: nothing in the system
+                     sends an admin any of those notifications. -->
                 <div class="notif-item">
                     <div class="notif-item-icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                            <circle cx="9" cy="7" r="4"/>
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="16" y1="2" x2="16" y2="6"/>
+                            <line x1="8" y1="2" x2="8" y2="6"/>
+                            <line x1="3" y1="10" x2="21" y2="10"/>
                         </svg>
                     </div>
                     <div class="notif-item-body">
-                        <p class="notif-title">New Account Registrations</p>
-                        <p class="notif-desc">Get notified when a new user registers on the system</p>
+                        <p class="notif-title">Appointment Activity</p>
+                        <p class="notif-desc">New bookings, reschedules, and status changes from pet owners</p>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" name="newAccountRegistrations">
+                        <input type="checkbox" name="staffAppointmentAlerts" aria-label="Appointment activity notifications">
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
                 <div class="notif-item">
                     <div class="notif-item-icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                            <line x1="12" y1="9" x2="12" y2="13"/>
-                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                            <circle cx="12" cy="10" r="3"/>
                         </svg>
                     </div>
                     <div class="notif-item-body">
-                        <p class="notif-title">System Alerts</p>
-                        <p class="notif-desc">Critical system events, errors, and downtime warnings</p>
+                        <p class="notif-title">Lost &amp; Found Reports</p>
+                        <p class="notif-desc">New lost or found pet reports, sightings, and ownership claims</p>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" name="systemAlerts">
+                        <input type="checkbox" name="staffLostFoundAlerts" aria-label="Lost and found notifications">
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
                 <div class="notif-item">
                     <div class="notif-item-icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"/>
-                            <polyline points="1 20 1 14 7 14"/>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                         </svg>
                     </div>
                     <div class="notif-item-body">
-                        <p class="notif-title">Website Content Updates</p>
-                        <p class="notif-desc">Notify me when website content is published or changed</p>
+                        <p class="notif-title">Support Tickets</p>
+                        <p class="notif-desc">Notify me when a pet owner submits a new support ticket</p>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" name="contentUpdates">
+                        <input type="checkbox" name="staffTicketAlerts" aria-label="Support ticket notifications">
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
                 <div class="notif-item">
                     <div class="notif-item-icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="20" x2="18" y2="10"/>
-                            <line x1="12" y1="20" x2="12" y2="4"/>
-                            <line x1="6" y1="20" x2="6" y2="14"/>
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                            <path d="M9 14l2 2 4-4"/>
                         </svg>
                     </div>
                     <div class="notif-item-body">
-                        <p class="notif-title">Weekly Summary Reports</p>
-                        <p class="notif-desc">Weekly digest of system activity and user statistics</p>
+                        <p class="notif-title">Castration &amp; Spay Registrations</p>
+                        <p class="notif-desc">New sign-ups to a castration or spay programme</p>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" name="weeklySummary">
+                        <input type="checkbox" name="staffCspAlerts" aria-label="Castration and spay notifications">
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
                 <div class="notif-item">
-                    <div class="notif-item-icon notif-item-icon--red">
+                    <div class="notif-item-icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                            <line x1="12" y1="8" x2="12" y2="12"/>
-                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
                         </svg>
                     </div>
                     <div class="notif-item-body">
-                        <p class="notif-title">Security Alerts <span class="notif-badge-required">Recommended</span></p>
-                        <p class="notif-desc">Get notified when your account is accessed from a new device or location</p>
+                        <p class="notif-title">Quiet Hours</p>
+                        <p class="notif-desc">Mute email alerts during these hours. Critical system alerts still go through.</p>
+                        <div class="quiet-hours-range">
+                            <input type="time" name="quietHoursStart" class="quiet-hours-time" value="22:00" aria-label="Quiet hours start">
+                            <span class="quiet-hours-sep">to</span>
+                            <input type="time" name="quietHoursEnd" class="quiet-hours-time" value="07:00" aria-label="Quiet hours end">
+                        </div>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" name="securityAlerts" checked>
+                        <input type="checkbox" name="quietHoursEnabled" aria-label="Enable Quiet Hours">
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
@@ -414,12 +443,11 @@
     </main>
 </div>
 
-<!-- ── Update Password Modal ── -->
 <div class="pw-modal-overlay" id="pwModalOverlay" hidden>
     <div class="pw-modal" role="dialog" aria-modal="true" aria-labelledby="pwModalTitle">
         <button type="button" class="pw-modal-close" id="pwModalClose" aria-label="Close">&times;</button>
         <h3 id="pwModalTitle">Update Password</h3>
-        <p class="pw-modal-sub">Choose a new password with at least 8 characters.</p>
+        <p class="pw-modal-sub">Choose a new password that meets the clinic security policy.</p>
         <form id="pw-update-form" class="pw-modal-form" novalidate>
             <div class="field-group">
                 <label for="pw-current">Current Password</label>
@@ -428,10 +456,12 @@
             <div class="field-group">
                 <label for="pw-new">New Password</label>
                 <input type="password" id="pw-new" name="newPassword" autocomplete="new-password" minlength="8" required>
+                <div data-pw-strength="pw-new"></div>
             </div>
             <div class="field-group">
                 <label for="pw-confirm">Confirm New Password</label>
                 <input type="password" id="pw-confirm" name="confirmPassword" autocomplete="new-password" minlength="8" required>
+                <div data-pw-match="pw-new" data-pw-confirm="pw-confirm"></div>
             </div>
             <p class="pw-modal-message" id="pwModalMessage"></p>
             <div class="pw-modal-actions">
@@ -442,9 +472,64 @@
     </div>
 </div>
 
-<script src="/bvetter/shared/js/auth.js"></script>
+<!--
+    Guided handover. Admin accounts are no longer created from Account
+    Management; the next administrator takes over this one. The new email is
+    proven with a code, the outgoing password confirms who is doing it, and
+    finishing signs everyone out (see api/admin/handover.php).
+-->
+<div class="pw-modal-overlay" id="handoverOverlay" hidden>
+    <div class="pw-modal handover-modal" role="dialog" aria-modal="true" aria-labelledby="handoverTitle">
+        <button type="button" class="pw-modal-close" id="handoverClose" aria-label="Close">&times;</button>
+        <h3 id="handoverTitle">Hand Over Account</h3>
+        <p class="pw-modal-sub">Fill this in with the new administrator beside you. When it's done, everyone is signed out and only the new email and password work.</p>
+        <form id="handover-form" class="pw-modal-form" novalidate>
+            <div class="field-group">
+                <label for="ho-name">New Administrator's Full Name</label>
+                <input type="text" id="ho-name" name="newFullName" autocomplete="off" maxlength="150" required>
+            </div>
+            <div class="field-group">
+                <label for="ho-email">New Administrator's Email</label>
+                <div class="handover-inline">
+                    <input type="email" id="ho-email" name="newEmail" autocomplete="off" maxlength="190" required>
+                    <button type="button" class="btn-outline" id="ho-send-code">Send Code</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label for="ho-code">Code Sent to That Email</label>
+                <input type="text" id="ho-code" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
+            </div>
+            <div class="field-group">
+                <label for="ho-phone">New Administrator's Phone (optional)</label>
+                <input type="tel" id="ho-phone" name="newPhone" autocomplete="off" maxlength="30">
+            </div>
+            <div class="field-group">
+                <label for="ho-password">New Password</label>
+                <input type="password" id="ho-password" name="newPassword" autocomplete="new-password" required>
+                <div data-pw-strength="ho-password"></div>
+            </div>
+            <div class="field-group">
+                <label for="ho-confirm">Confirm New Password</label>
+                <input type="password" id="ho-confirm" name="confirmPassword" autocomplete="new-password" required>
+                <div data-pw-match="ho-password" data-pw-confirm="ho-confirm"></div>
+            </div>
+            <div class="field-group">
+                <label for="ho-current">Your Current Password</label>
+                <input type="password" id="ho-current" name="currentPassword" autocomplete="current-password" required>
+            </div>
+            <p class="pw-modal-message" id="handoverMessage"></p>
+            <div class="pw-modal-actions">
+                <button type="button" class="btn-outline" id="handoverCancel">Cancel</button>
+                <button type="submit" class="btn-save">Hand Over</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="../../shared/js/auth.js?v=20260925-yesno"></script>
 <script>VBetterAuth.requireAuth(['admin']);</script>
-<script src="/bvetter/shared/js/sidebar.js"></script>
-<script src="/bvetter/admin/js/profile.js"></script>
+<script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+<script src="../../public/js/password-policy.js?v=20260925-strength"></script>
+<script src="../js/profile.js?v=20260925-handover"></script>
 </body>
 </html>

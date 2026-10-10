@@ -1,4 +1,4 @@
-# BVETTER — Data-Driven Veterinary Services System
+# BVetter — Data-Driven Veterinary Services System
 
 A web-based veterinary management system for Baliuag City, Bulacan, with ARIMA-based
 disease trend prediction, AI chatbot, lost & found pet image matching, and multi-role
@@ -277,6 +277,43 @@ python api/analytics/arima_service.py
 - [ ] `composer install` completed — `vendor/` folder present
 - [ ] Python virtual environment created and dependencies installed
 - [ ] `api/analytics/arima_service.py` running on port `5001`
+
+---
+
+## Backup & Recovery
+
+`database/backup.php` dumps every table (CREATE TABLE + INSERT statements) via
+the app's own PDO connection — not `mysqldump.exe`, whose bundled MariaDB
+client doesn't speak the auth plugin this setup negotiates by default.
+
+```powershell
+php database/backup.php            # writes database/backups/bvetter_<timestamp>.sql, keeps last 14
+php database/backup.php --keep=30  # keep more/fewer old backups
+```
+
+To restore (destructive — overwrites every table in the configured database;
+requires typing the database name back to confirm):
+
+```powershell
+php database/restore.php --file=database/backups/bvetter_20260810_184219.sql
+```
+
+`database/backups/` is gitignored — it holds real data, never commit it.
+This is a local backup/restore pair for the dev copy; the deployed instance
+needs its own backup setup on its own host.
+
+## Testing
+
+```powershell
+# PHP unit tests (Jaccard matching, chatbot input normalization)
+php vendor/bin/phpunit
+
+# Python unit tests (ARIMA guards, risk-classification thresholds)
+py -m pytest api/analytics/test_forecast_core.py
+```
+
+`api/analytics/test_eval.py` is a figure-generation script, not a test suite
+— don't run it as part of `pytest`'s default discovery.
 
 ---
 

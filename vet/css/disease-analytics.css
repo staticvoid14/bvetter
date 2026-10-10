@@ -243,6 +243,57 @@ select option { background: #0D2040; color: #fff; }
     gap: 14px;
 }
 
+/* ── Data-layer labels ───────────────────────────────────────────
+   The page reports two layers -- the frozen 2023-2025 snapshot and the
+   clinic's own live records -- and they carry different periods. These
+   labels are what keep a reader from reading one as the other. */
+.layer-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+.live-layer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 14px;
+    padding: 12px 16px;
+    border-left: 3px solid var(--teal);
+}
+
+/* A same-specificity class rule setting `display` beats the UA stylesheet's
+   [hidden]{display:none} regardless of source order (author origin always
+   wins over UA origin) -- this class selector must be paired with [hidden]
+   to actually take the element out of flow when JS hides it. */
+.live-layer[hidden] {
+    display: none;
+}
+
+.live-layer .live-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    flex-basis: 100%;
+}
+
+.live-layer .live-summary {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.live-layer .live-meta {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
 /* ── KPI cards ───────────────────────────────────────────────── */
 .kpi-row {
     display: grid;
@@ -327,6 +378,140 @@ select option { background: #0D2040; color: #fff; }
     gap: 8px;
     margin-bottom: 14px;
     flex: 1;
+}
+
+/* ── Differential diagnosis (RandomForestClassifier) ─────────────
+   Sits inside the insight panel, below the response protocol. Styled as a
+   distinct block rather than another protocol step: the steps are what to do,
+   this is what the case is likely to be, and conflating them would read as an
+   instruction rather than a shortlist. */
+.rf-diff {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+}
+
+.rf-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.rf-head h4 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.rf-tag {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border-mid);
+    border-radius: 99px;
+    padding: 2px 8px;
+    white-space: nowrap;
+}
+
+.rf-lede {
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-2);
+}
+
+.rf-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.rf-controls select {
+    background-color: var(--surface);
+    color: var(--ink);
+    border-color: var(--border-mid);
+}
+
+.rf-cols {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.rf-col-title {
+    margin: 0 0 7px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.rf-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ink);
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.rf-row:last-child { border-bottom: 0; }
+.rf-row b { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+.rf-note, .rf-muted {
+    margin: 12px 0 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
+@media (max-width: 720px) {
+    .rf-controls, .rf-cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Sits above both charts rather than in .header-actions, which already carries
+   four selects and a button and wraps to three rows on mobile. */
+.chart-sort-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 22px 0 -4px;
+}
+
+.chart-sort-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.chart-sort-hint {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+@media (max-width: 640px) {
+    .chart-sort-hint { flex-basis: 100%; }
+}
+
+/* Stacked rather than side-by-side: the card is the narrow column of the
+   overview grid, and both labels are too long to sit on one row there. */
+.data-sources-actions {
+    display: grid;
+    gap: 8px;
 }
 
 .data-sources li {
@@ -465,7 +650,13 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
     font-size: 12px;
 }
 
+/* Fixed minimum so the value column is the SAME width in both charts. It was
+   `auto`, and the predicted chart's per-row badge widened it — which moved the
+   bar track's start and end, so two charts drawn in the same order still could
+   not be read across. */
 .bar-row > span:last-child {
+    min-width: 52px;
+    text-align: right;
     color: var(--ink-2);
     font-size: 12px;
     font-weight: 600;
@@ -788,8 +979,23 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
 /* ── Insight drill-down ──────────────────────────────────────── */
 .insight-layout {
     display: grid;
-    grid-template-columns: 1fr 1.4fr;
+    /* Narrower left: it holds a name, two figures and five short bars, while
+       the right holds the protocol, four steps and the differential. At 1fr
+       it was given 42% of the width for a fraction of the content. */
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.7fr);
+    /* The default `stretch` forced the short left card to the full height of
+       the right one, which is what produced the large empty panel. */
+    align-items: start;
     gap: 16px;
+}
+
+/* Follows the reader down the long right column instead of scrolling away.
+   No ancestor sets overflow, so this holds. */
+@media (min-width: 900px) {
+    .insight-left {
+        position: sticky;
+        top: 16px;
+    }
 }
 
 .insight-left,
@@ -852,7 +1058,9 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
     margin: 8px 0 22px;
 }
 
-.mini-bars .bar-row { grid-template-columns: 140px 1fr; }
+/* Three columns, matching .bar-row: label, track, count. With only two the
+   count span landed on an implicit second row under each bar. */
+.mini-bars .bar-row { grid-template-columns: 140px minmax(0, 1fr) auto; }
 
 /* ── Protocol panel ──────────────────────────────────────────── */
 .protocol-alert {
@@ -1105,22 +1313,67 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
 
 #baliwagMap { width: 100%; height: 640px; }
 
+/* Stacked rather than inline: the map now carries two encodings (solid circle
+   = recorded, soft aura = forecast) plus three colours, which is too much for
+   a single strip of text. */
+/* Vertical colour scale, like a scientific heat-map key: the ramp reads
+   bottom-to-top with the hottest value on top, and the caption states plainly
+   that the shading between barangays is interpolated. */
 .map-footer-legend {
     position: absolute;
-    left: 12px; bottom: 12px;
+    right: 12px; bottom: 12px;
     z-index: 420;
-    padding: 7px 12px;
+    padding: 10px 12px;
     border-radius: var(--r-sm);
     background: rgba(255,255,255,0.95);
     backdrop-filter: blur(8px);
-    font-size: 11.5px;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--ink-2);
     border: 1px solid var(--border);
+    color: var(--ink-2);
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    font-size: 11.5px;
+    line-height: 1.3;
 }
+.map-footer-legend:empty { display: none; }
+
+.heat-scale { display: flex; gap: 6px; }
+
+.heat-scale-bar {
+    width: 14px;
+    min-height: 96px;
+    border-radius: 3px;
+    border: 1px solid rgba(15,23,42,0.18);
+}
+
+.heat-scale-ticks {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+}
+
+.heat-scale-caption {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    max-width: 150px;
+}
+.heat-scale-caption strong { font-size: 11.5px; color: var(--ink); }
+.heat-scale-caption span { font-size: 10.5px; color: var(--muted); }
+.heat-scale-note { font-style: italic; opacity: .85; }
+
+/* Slight blur softens the 160x160 raster when Leaflet scales it up, so the
+   field reads as a continuous gradient rather than visible grid cells.
+   No mix-blend-mode: multiply darkened the ramp against the basemap and turned
+   the greens muddy, losing the vividness the scale depends on. */
+.da-heat-surface {
+    filter: blur(4px) saturate(1.15);
+}
+
 
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .dot.critical { background: var(--red); }
@@ -1189,6 +1442,13 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
 .risk-monitor  { background: var(--amber); }
 .risk-stable   { background: var(--green); }
 
+/* The chip is keyed off the normalised level from actionStatus() rather than
+   the raw wire value. Scoped to .risk-chip so it cannot collide with
+   .insight-card.risk-low, which sets a border colour on a different element. */
+.risk-chip.risk-high   { background: var(--red); }
+.risk-chip.risk-medium { background: var(--amber); }
+.risk-chip.risk-low    { background: var(--green); }
+
 .forecast {
     padding: 12px;
     background: #073d78;
@@ -1219,6 +1479,46 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
     background: var(--surface);
     border: 1px solid var(--border);
     padding: 16px;
+}
+
+.action-pane-head {
+    padding: 15px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+}
+
+.action-pane-head .location-eyebrow {
+    display: block;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-tertiary);
+}
+
+.action-pane-head h3 {
+    margin: 4px 0 10px;
+    color: var(--ink);
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 800;
+}
+
+.action-pane-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.action-pane-stats span {
+    padding: 5px 8px;
+    border-radius: var(--r-xs);
+    background: var(--surface-2);
+    color: var(--ink-2);
+    border: 1px solid var(--border);
+    font-size: 11.5px;
+    font-weight: 700;
 }
 
 /* ── Insight left panel refinements ─────────────────────────── */
@@ -1314,7 +1614,7 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
 .bar-track { height: 5px; }
 
 .mini-bars .bar-row {
-    grid-template-columns: 130px 1fr;
+    grid-template-columns: 130px minmax(0, 1fr) auto;
 }
 
 .mini-bars .bar-row > span:first-child {
@@ -1622,3 +1922,120 @@ ul img { width: 16px; height: 16px; margin-right: 6px; opacity: 0.5; }
     .kpi-card strong { font-size: 22px; }
     .kpi-card h5 { font-size: 10px; }
 }
+
+/* ── Top-down forecast panel ──────────────────────────────────────────
+   Three figures side by side, with the 3-month total emphasised because it is
+   the one that can actually be trusted (~36% MAPE against ~91% monthly).
+   Ranges and caveats are part of the data here, not decoration: a bare point
+   value at ~8 cases/month would imply precision the data cannot support. */
+.td-panel {
+    margin-top: 12px;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    background: #FBFCFD;
+    padding: 14px 16px;
+}
+.td-panel.is-fallback {
+    border-color: #FCD34D;
+    background: #FFFBEB;
+}
+.td-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+}
+.td-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.td-cell.td-primary {
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: -10px -2px;
+}
+.td-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: #64748B;
+}
+.td-label em { font-style: normal; color: #1D4ED8; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.td-value {
+    font-size: 22px; font-weight: 800; color: #0F2942; line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+.td-value small { font-size: 12px; font-weight: 600; color: #64748B; margin-left: 3px; }
+.td-range { font-size: 12px; color: #475569; font-variant-numeric: tabular-nums; }
+.td-caveat { font-size: 11px; color: #94A3B8; line-height: 1.4; }
+
+.td-fallback {
+    background: #FEF3C7; border: 1px solid #FCD34D; color: #92400E;
+    border-radius: 8px; padding: 9px 12px; margin-bottom: 12px;
+    font-size: 12.5px; font-weight: 600;
+}
+.td-fallback small { display: block; font-weight: 500; margin-top: 3px; color: #A16207; }
+
+/* Action level — a rule over observed cases, so it never shows a confidence. */
+.td-action {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+    border-radius: 8px; padding: 9px 13px; margin-top: 10px;
+}
+.td-action-normal { background: #F0FDF4; border: 1px solid #BBF7D0; }
+.td-action-watch  { background: #FFFBEB; border: 1px solid #FDE68A; }
+.td-action-act    { background: #FEF2F2; border: 1px solid #FECACA; }
+.td-action-label {
+    font-size: 12px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase;
+}
+.td-action-normal .td-action-label { color: #15803D; }
+.td-action-watch  .td-action-label { color: #B45309; }
+.td-action-act    .td-action-label { color: #B91C1C; }
+.td-action-reason { font-size: 12.5px; color: #334155; }
+.td-action-basis  { font-size: 11px; color: #94A3B8; width: 100%; }
+
+.rf-badge.is-fallback { background: #FEF3C7; color: #92400E; }
+
+/* ── Per-disease forecast strip ─────────────────────────────────────── */
+.df-strip {
+    margin: 14px 0 0; border: 1px solid #E2E8F0; border-radius: 10px;
+    background: #FBFCFD; padding: 13px 16px;
+}
+.df-strip-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 8px;
+}
+.df-strip-title {
+    font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: #64748B;
+}
+.df-strip-acc { font-size: 11.5px; color: #94A3B8; }
+.df-months { display: flex; flex-wrap: wrap; gap: 18px; }
+.df-month { display: flex; flex-direction: column; }
+.df-month-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; color: #94A3B8;
+}
+.df-month-value {
+    font-size: 19px; font-weight: 800; color: #0F2942; font-variant-numeric: tabular-nums;
+}
+
+/* Markers sit on a coloured heat field, so they need their own separation from
+   it -- a white stroke alone is not enough where the surface is pale. The drop
+   shadow lifts them off the field without adding another hue. */
+.da-marker {
+    filter: drop-shadow(0 1px 2px rgba(15,23,42,0.45));
+}
+.da-marker-urgent {
+    filter: drop-shadow(0 1px 3px rgba(15,23,42,0.6));
+}
+
+/* ── Part-year pace comparison (under the two charts) ───────────── */
+/* Sits between the charts and the insight panel, styled as a caption rather
+   than a warning: nothing is wrong, the two charts simply cover different
+   spans and the reader needs that stated once. */
+.pace-note {
+    margin: 10px 2px 0;
+    padding: 10px 13px;
+    background: #f8fafc;
+    border-left: 3px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #475569;
+}
+.pace-note strong { color: #0f172a; }

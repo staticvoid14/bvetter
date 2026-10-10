@@ -365,20 +365,24 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* Height is set in JS to the scaled viewport's height (sizeLivePreview), so
+   the shell hugs the preview exactly and never runs a second scrollbar
+   alongside the embedded page's own. The 460px here is only what shows
+   before that first call. */
 .wm-browser-content {
   width: 100%; height: 460px; background: #F0F2F5;
   transition: height 0.3s ease; position: relative;
-  overflow-y: auto; overflow-x: hidden;
+  overflow: hidden;
 }
-.wm-browser-shell.mobile-mode .wm-browser-content { height: 540px; }
+/* A phone renders at life size and is centred, so the shell shows either
+   side of it — make that read as deliberate letterboxing, not dead space. */
+.wm-browser-shell.mobile-mode .wm-browser-content { background: #1A1D27; }
 
-/* Live iframe preview — real landing.html scaled to the shell's width.
-   The wrap's height is set in JS to match the scaled page height, and
-   .wm-browser-content (fixed height, overflow-y:auto) scrolls natively
-   over it — the iframe itself never scrolls internally, since a CSS
-   transform on the iframe breaks wheel-event routing into its document. */
+/* Live iframe preview — the frame gets a real device viewport (1440x900
+   desktop, 390x844 mobile) and the embedded page scrolls itself. Width,
+   height and the centring margin are all set in JS by sizeLivePreview(). */
 .wm-preview-frame-wrap {
-  width: 100%; position: relative;
+  position: relative;
 }
 .wm-preview-iframe {
   border: 0; display: block;
@@ -386,10 +390,7 @@ body {
   background: #fff;
   /* Clickable — links/buttons inside the preview navigate the iframe
      in place, so admins can click through modules and see settings
-     apply everywhere, not just on the first page loaded. The embedded
-     page forwards wheel events back out to .wm-browser-content (see
-     site-settings.js) since the CSS transform above would otherwise
-     swallow them without chaining the scroll back out. */
+     apply everywhere, not just on the first page loaded. */
   pointer-events: auto;
 }
 
@@ -460,10 +461,49 @@ input[type="file"] { display: none; }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 960px) {
+  /* Below 768px the sidebar leaves position:fixed and rejoins the flex
+     flow (see shared/css/sidebar.css) — without this, body's default
+     flex-direction:row squeezes .wm-main into a sliver next to it
+     instead of stacking them below it. */
+  body { flex-direction: column; }
   .wm-main { margin-left: 0; width: 100%; padding: 20px; }
   .wm-assets-grid { grid-template-columns: 1fr 1fr; }
   .wm-two-col { grid-template-columns: 1fr; }
   .wm-brand-row { grid-template-columns: 1fr; }
   .wm-hero { flex-direction: column; align-items: flex-start; }
 }
-@media (max-width: 600px) { .wm-assets-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .wm-assets-grid { grid-template-columns: 1fr; } }
+
+/* Quick Preview toolbar.
+   .wm-preview-topbar is flex + space-between and never wrapped, so on a
+   phone the title and the five controls together are wider than the screen
+   and space-between pushed them off BOTH edges. Nothing in the ancestry
+   scrolls horizontally, so "Mobile" (right edge ~462px) and "View full
+   site" (~546px) were clipped off a 390px viewport and could not be tapped
+   at all — not small, not hidden behind something, just unreachable.
+   Letting the row wrap puts them back on screen. */
+@media (max-width: 700px) {
+  .wm-preview-topbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  .wm-preview-controls {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px;
+  }
+  .wm-preview-divider { display: none; }
+}
+/* Clinic Closed Dates preview (website-management.js) */
+.wm-closed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary, #475569);
+}
+.wm-closed-list strong { color: var(--text-primary, #0f172a); }
+.wm-closed-empty { color: var(--text-tertiary, #94a3b8); }

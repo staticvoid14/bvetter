@@ -1,6 +1,6 @@
 /* ============================================================
-   VBetter – Appointment Management
-   /vet/css/appointment.css
+   BVetter – Appointment Management
+   /bvetter/vet/css/appointment.css
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
@@ -58,6 +58,49 @@ body {
     width:       calc(100% - var(--sidebar-width-expanded) - var(--sidebar-main-gap) - var(--shell-gap));
 }
 
+/* ── Panel tabs (Appointments / Castration & Spay) ───── */
+.appt-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--appt-line);
+}
+
+.appt-tabbar .tab-btn {
+    border: 0;
+    background: transparent;
+    padding: 10px 16px;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--appt-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color 0.15s;
+    white-space: nowrap;
+}
+
+.appt-tabbar .tab-btn:hover {
+    color: var(--appt-navy);
+}
+
+.appt-tabbar .tab-btn.active {
+    color: var(--appt-navy);
+    border-bottom-color: var(--appt-navy);
+    font-weight: 700;
+}
+
+.appt-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.appt-panel[hidden] {
+    display: none;
+}
+
 /* ── Header ─────────────────────────────────────────── */
 .header {
     background: linear-gradient(110deg, #002A58 0%, #00497A 40%, #006B50 100%);
@@ -65,6 +108,37 @@ body {
     padding: 30px 36px;
     position: relative;
     overflow: hidden;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.settings-btn {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.28);
+    color: #fff;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.settings-btn:hover { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+
+.settings-btn i {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2;
 }
 
 .header::before {
@@ -592,6 +666,15 @@ body {
 .status-confirmed { background: #d4eaff; color: #004080; }
 .status-completed { background: #d5f1dc; color: #176a2b; }
 .status-canceled  { background: #ffe5e5; color: #a02020; }
+.status-expired   { background: #eef0f3; color: #4b5563; }
+
+/* When an unconfirmed request lapses (api/includes/timed_rules.php) */
+.pending-item .expires-at {
+	margin: 2px 0 4px;
+	font-size: 11.5px;
+	font-weight: 600;
+	color: #6b7280;
+}
 
 /* ── Action buttons ──────────────────────────────────── */
 .action-buttons { display: flex; gap: 6px; }
@@ -1221,6 +1304,15 @@ body {
     font-weight: 800;
 }
 
+.day-btn.disabled,
+.day-btn:disabled {
+    color: #ccc;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.day-btn.disabled:hover,
+.day-btn:disabled:hover { background: transparent; }
+
 .day-filler {
     aspect-ratio:  1;
     border-radius: 8px;
@@ -1337,6 +1429,16 @@ body {
 .slot-btn.active .slot-label { color: #2563eb; }
 .slot-btn.active .slot-time  { color: #002A58; }
 
+.slot-btn.unavailable {
+    background:    #f1f5f9;
+    border-color:  #e2e8f0;
+    cursor:        not-allowed;
+    opacity:       0.6;
+}
+.slot-btn.unavailable:hover { border-color: #e2e8f0; background: #f1f5f9; }
+.slot-btn.unavailable .slot-label,
+.slot-btn.unavailable .slot-time { color: #94a3b8; }
+
 /* Slot summary */
 .rsch-summary-card {
     background:    #f8faff;
@@ -1422,6 +1524,83 @@ body {
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
 .two-actions  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 
+/* Visit type settings */
+.visit-type-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.visit-type-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border: 1px solid #e8eef6;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.visit-type-row span { font-size: 0.88rem; font-weight: 600; color: var(--appt-navy); }
+
+.visit-type-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #94A3B8;
+    margin-left: 8px;
+}
+
+.visit-type-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #c0392b;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.visit-type-remove:hover { background: #ffe8e8; }
+.visit-type-remove i { width: 15px; height: 15px; }
+
+.visit-type-input {
+    flex: 1;
+    padding:       10px 12px;
+    border:        1px solid #d0d8ea;
+    border-radius: 10px;
+    font:          inherit;
+    font-size:     0.86rem;
+    outline: none;
+    transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.visit-type-input:focus {
+    border-color: var(--appt-blue);
+    box-shadow: 0 0 0 3px rgba(30, 97, 167, 0.12);
+}
+
+.visit-type-input.invalid { border-color: #c0392b; }
+
+.add-visit-type-form {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.visit-type-error {
+    display: block;
+    color: #c0392b;
+    font-size: 0.76rem;
+    margin-top: 6px;
+    min-height: 0;
+}
+
 /* Buttons */
 .btn {
     display:       inline-flex;
@@ -1458,6 +1637,10 @@ body {
     .main-holder { flex-direction: column; }
 
     .right-content { margin-left: 0; width: 100%; padding: 16px 16px 32px; }
+
+    /* The Settings button won't shrink, so on a 360px phone it was pushed
+       past the header's clipped edge. Let it wrap under the title. */
+    .header { flex-wrap: wrap; padding: 22px 20px; }
 
     /* Stays 2-up on mobile — only the padding/font sizes shrink. */
     .card-holder { gap: 10px; }
@@ -1534,4 +1717,11 @@ body {
     }
 
     .info-grid, .reschedule-layout { grid-template-columns: 1fr; }
+}
+/* Legacy pending requests sharing one slot (vet/js/appointment.js) */
+.pending-item .slot-clash {
+	margin: 2px 0 4px;
+	font-size: 11.5px;
+	font-weight: 700;
+	color: #b45309;
 }

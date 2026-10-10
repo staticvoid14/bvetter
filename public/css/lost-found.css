@@ -1,5 +1,5 @@
 /* =============================================
-   BVETTER — lost-found.css
+   BVetter — lost-found.css
    Page: Lost & Found hub — report modal, pet grid, filters, My Reports.
    Depends: variables.css (must load first in HTML)
 
@@ -310,6 +310,101 @@ body {
   background: #e0e0e0;
 }
 
+/* =============================================
+   CLICK-TO-EXPAND PHOTOS (lightbox)
+   ============================================= */
+.lf-img-expand-wrap {
+  position: relative;
+  display: block;
+  cursor: zoom-in;
+}
+
+.lf-expand-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  padding: 0;
+  z-index: 2;
+  transition: background 0.15s;
+}
+
+.lf-img-expand-wrap:hover .lf-expand-badge,
+.lf-expand-badge:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.lf-img-expand-wrap.small .lf-expand-badge {
+  width: 16px;
+  height: 16px;
+  bottom: 2px;
+  right: 2px;
+}
+
+.lf-img-expand-wrap.small .lf-expand-badge svg {
+  width: 9px;
+  height: 9px;
+}
+
+.lf-expand-badge-lg {
+  bottom: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  cursor: zoom-in;
+}
+
+.lf-lightbox-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.lf-lightbox-overlay.open {
+  display: flex !important;
+}
+
+.lf-lightbox-img {
+  max-width: 100%;
+  max-height: 90vh;
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.lf-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.lf-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .pet-badge {
   position: absolute;
   top: 10px;
@@ -585,6 +680,41 @@ body {
   color: #ffffff;
 }
 
+.active-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.active-report-actions .btn-active-details {
+  margin-top: 0;
+  flex: 1 1 140px;
+}
+
+.btn-mark-resolved {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 14px;
+  background: #ffffff;
+  border: 1.5px solid var(--color-green-dark);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Manrope', sans-serif;
+  color: var(--color-green-dark);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex: 1 1 140px;
+}
+
+.btn-mark-resolved:hover {
+  background: var(--color-green-dark);
+  color: #ffffff;
+}
+
 .btn-arrow {
   width: 14px;
   height: 14px;
@@ -675,7 +805,7 @@ body {
 
 .history-header {
   display: grid;
-  grid-template-columns: 140px 1fr 100px 160px 120px;
+  grid-template-columns: 140px 1fr 100px 130px 140px 120px;
   padding: 12px 20px;
   background: var(--bg-input);
   border-bottom: 1px solid var(--border-default);
@@ -688,10 +818,15 @@ body {
 
 .history-row {
   display: grid;
-  grid-template-columns: 140px 1fr 100px 160px 120px;
+  grid-template-columns: 140px 1fr 100px 130px 140px 120px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-light);
   align-items: center;
+}
+
+.history-claimant {
+  font-size: 13px;
+  color: var(--text-primary);
 }
 
 .history-row:last-child {
@@ -1096,6 +1231,15 @@ body {
 
 .form-textarea::placeholder {
   color: var(--text-faint);
+}
+
+.char-counter {
+  display: block;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: -6px;
+  margin-bottom: 8px;
 }
 
 /* =============================================
@@ -1703,6 +1847,14 @@ body {
   color: var(--color-navy);
   font-weight: 700;
   text-decoration: underline;
+}
+
+.upload-file-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  word-break: break-all;
+  padding: 0 8px;
 }
 
 .sighting-footer {
@@ -2521,7 +2673,7 @@ body {
 }
 
 /* =============================================
-   BVETTER — lost-found-additions.css
+   BVetter — lost-found-additions.css
    APPEND THIS TO THE BOTTOM OF lost-found.css
 
    New styles for:
@@ -2786,8 +2938,116 @@ body {
   letter-spacing: 0.3px;
 }
 
-.lf-match-tag.lost-tag  { background: var(--color-red-light);    color: var(--color-red); }
-.lf-match-tag.found-tag { background: var(--color-green-light);  color: var(--color-green-dark); }
+.lf-match-tag.lost-tag     { background: var(--color-red-light);    color: var(--color-red); }
+.lf-match-tag.found-tag    { background: var(--color-green-light);  color: var(--color-green-dark); }
+.lf-match-tag.sighting-tag { background: #E3ECFB; color: var(--color-navy); }
+
+/* ── Sighting reports toggle ─────────────────── */
+.lf-sighting-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-view-sightings {
+  padding:       9px 16px;
+  background:    #ffffff;
+  border:        1.5px solid var(--border-default);
+  border-radius: 20px;
+  font-size:     12px;
+  font-weight:   700;
+  font-family:   'Manrope', sans-serif;
+  color:         var(--color-navy);
+  cursor:        pointer;
+  transition:    all 0.2s;
+}
+
+.btn-view-sightings:hover {
+  border-color: var(--color-navy);
+  background:   #E3ECFB;
+}
+
+.lf-sighting-note {
+  font-size:   11px;
+  color:       var(--text-muted);
+  line-height: 1.5;
+  font-style:  italic;
+}
+
+/* ── Sighting report card (plain info, no match/comparison UI — that
+   judgment call belongs to staff, not the owner) ── */
+.lf-sighting-card {
+  border-radius: 16px;
+  padding:       20px 22px;
+  display:       flex;
+  flex-direction: column;
+  gap:           14px;
+  background:    #F7FAFF;
+  border:        1.5px solid #DCE6F7;
+  box-shadow:    var(--shadow-card);
+}
+
+.lf-sighting-card-head {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  gap:             14px;
+}
+
+.lf-sighting-date {
+  font-size:   11px;
+  font-weight: 700;
+  color:       var(--text-muted);
+}
+
+.lf-sighting-card-body {
+  display: flex;
+  gap:     14px;
+}
+
+.lf-sighting-photo {
+  width:         84px;
+  height:        84px;
+  border-radius: 10px;
+  object-fit:    cover;
+  background:    #e0e0e0;
+  flex-shrink:   0;
+}
+
+.lf-sighting-info {
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+  min-width:      0;
+}
+
+.lf-sighting-notes {
+  font-size:   11px;
+  color:       var(--text-body);
+  line-height: 1.5;
+}
+
+.lf-sighting-contact {
+  display:        flex;
+  flex-direction: column;
+  gap:            4px;
+  margin-top:     4px;
+  padding-top:    10px;
+  border-top:     1px solid #E2E8F0;
+}
+
+.lf-sighting-contact-name {
+  font-size:   12px;
+  font-weight: 800;
+  color:       var(--text-primary);
+}
+
+.lf-sighting-contact a.pet-meta-item {
+  text-decoration: none;
+}
+
+.lf-sighting-contact a.pet-meta-item:hover {
+  color: var(--color-navy);
+}
 
 .lf-match-vs {
   display:        flex;
@@ -2834,6 +3094,118 @@ body {
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 10px;
+}
+
+.lf-match-actions.resolved {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.lf-match-resolved-badge {
+  padding: 12px;
+  text-align: center;
+  background: var(--color-green-pale);
+  border: 1.5px solid #c8eec8;
+  border-radius: var(--radius-md);
+  color: var(--color-green-dark);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.lf-match-claimant {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+}
+
+/* =============================================
+   MATCH DETAIL MODAL (click a Potential Match card)
+   ============================================= */
+.match-detail-modal-box {
+  max-width: 620px;
+}
+
+.match-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 20px 20px;
+}
+
+.lf-match-detail-pets .lf-match-pet-img {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+}
+
+.lf-match-detail-pets .lf-match-pet-card {
+  padding: 14px 16px;
+}
+
+.lf-match-detail-contact {
+  padding: 14px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.lf-match-detail-contact .details-section-title {
+  margin-bottom: 8px;
+}
+
+.lf-match-detail-contact-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.lf-match-detail-contact-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lf-match-detail-contact-rows a.pet-meta-item {
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.lf-match-detail-contact-rows a.pet-meta-item:hover {
+  color: var(--color-navy);
+}
+
+.lf-match-detail-empty-contact {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.lf-match-claimant-label {
+  color: var(--text-muted);
+}
+
+.lf-match-claimant-name {
+  font-weight: 700;
+  color: var(--color-navy);
+}
+
+.lf-match-claimant-contact {
+  color: var(--text-body);
+}
+
+.lf-match-claimant-contact::before {
+  content: '\00b7';
+  margin-right: 6px;
+  color: var(--text-muted);
 }
 
 .lfd-btn-notmine {
@@ -2953,9 +3325,9 @@ body {
   /* Report history reflows into stacked cards — the fixed
      140px/100px/160px/120px columns don't fit until well
      past 1024px, so this drops as low as tablet needs it.
-     Each row has 5 direct <span> children in a fixed order
-     (date, pet, type tag, status, action) — date/pet/action
-     get their own line, the two small badges (type + status)
+     Each row has 6 direct <span> children in a fixed order
+     (date, pet, type tag, status, claimed by, action) — date/pet/action
+     get their own line, the small badges (type + status + claimant)
      share a line since they're not forced full-width. */
   .history-header { display: none; }
 
@@ -2969,7 +3341,7 @@ body {
 
   .history-row > span:nth-child(1),
   .history-row > span:nth-child(2),
-  .history-row > span:nth-child(5) {
+  .history-row > span:nth-child(6) {
     flex-basis: 100%;
   }
 
@@ -2977,7 +3349,7 @@ body {
 
   .history-pet { font-size: 14px; }
 
-  .history-row > span:nth-child(5) {
+  .history-row > span:nth-child(6) {
     padding-top: 4px;
     border-top: 1px solid var(--border-light);
     text-align: right;
@@ -3107,3 +3479,39 @@ body {
 
   .success-modal-box { padding: 24px 20px 20px; }
 }
+
+/* ── Claimed / reunited reports stay on the board, grayed out ── */
+.pet-card.is-claimed { background: #f8fafc; }
+.pet-card.is-claimed .pet-card-img { filter: grayscale(1); opacity: 0.6; }
+.pet-card.is-claimed .pet-card-body { opacity: 0.75; }
+
+.pet-claimed-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  z-index: 2;
+}
+
+.details-claimed-note {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.details-claimed-note[hidden] { display: none; }
+
+/* The detail footers swap the claim/sighting button for "This is My Pet" on
+   a closed case by toggling [hidden]; the buttons' own display rule would
+   otherwise keep both on screen. */
+.details-footer .btn-details-action[hidden] { display: none !important; }

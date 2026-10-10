@@ -1,6 +1,6 @@
-document.addEventListener("DOMContentLoaded", () => {
-	const PROFILE_API = "/bvetter/api/users/profile.php";
-	const session = window.VBetterAuth?.getSession?.() || JSON.parse(sessionStorage.getItem("vbetter_session") || "null");
+﻿document.addEventListener("DOMContentLoaded", () => {
+	const PROFILE_API = "/api/users/profile.php";
+	const session = window.VBetterAuth?.getSession?.() || JSON.parse(localStorage.getItem("vbetter_session") || "null");
 	const userId = session?.userId || session?.id || 0;
 
 	const profileForm = document.getElementById("profile-form");
@@ -13,10 +13,21 @@ document.addEventListener("DOMContentLoaded", () => {
 		message.dataset.type = type;
 	}
 
+	// api/users/profile.php now authenticates with the bearer token and ignores
+	// any user_id in the body, so this request must carry the token or it 401s.
+	function authHeaders() {
+		// Both are written at login; vet-api.js reads session.token, public/js
+		// reads bvetter_token. Accept either so neither convention can break it.
+		const token = session?.token || localStorage.getItem("bvetter_token");
+		return token
+			? { "Content-Type": "application/json", "Authorization": "Bearer " + token }
+			: { "Content-Type": "application/json" };
+	}
+
 	async function profileRequest(action, payload = {}) {
 		const response = await fetch(PROFILE_API, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: authHeaders(),
 			body: JSON.stringify({ action, user_id: userId, ...payload })
 		});
 		const result = await response.json();
@@ -34,11 +45,22 @@ document.addEventListener("DOMContentLoaded", () => {
 		const avatar = document.getElementById("profile-avatar");
 		if (initialsEl) initialsEl.textContent = displayName.charAt(0).toUpperCase();
 
+		// Exactly one of the two is ever visible. The old version never turned the
+		// photo back ON, so once the empty-src error handler had revealed the
+		// initials, a vet with an uploaded photo never saw it at all.
+		function showAvatar(usePhoto) {
+			if (avatar) avatar.hidden = !usePhoto;
+			if (initialsEl) initialsEl.hidden = usePhoto;
+		}
+
 		if (avatar && profile.avatarUrl) {
+			// Bound here rather than inline in the HTML: an inline onerror fires
+			// against the placeholder src too, before this code ever runs.
+			avatar.onerror = () => { avatar.onerror = null; showAvatar(false); };
 			avatar.src = profile.avatarUrl;
-		} else if (avatar) {
-			avatar.style.display = "none";
-			if (initialsEl) initialsEl.style.display = "flex";
+			showAvatar(true);
+		} else {
+			showAvatar(false);
 		}
 
 		if (profileForm) {
@@ -47,6 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			profileForm.elements.phone.value = profile.phone || "";
 			profileForm.elements.education.value = profile.education || "";
 			profileForm.elements.specialization.value = profile.specialization || "";
+			profileForm.elements.bio.value = profile.bio || "";
 			profileForm.elements.role.value = profile.roleLabel || profile.role || "";
 		}
 
@@ -58,7 +81,14 @@ document.addEventListener("DOMContentLoaded", () => {
 			notificationForm.elements.lostFoundAlerts.checked = Boolean(profile.notifications?.lostFoundAlerts);
 			notificationForm.elements.appointmentReminders.checked = Boolean(profile.notifications?.appointmentReminders);
 			notificationForm.elements.chatbotUpdates.checked = Boolean(profile.notifications?.chatbotUpdates);
+			notificationForm.elements.quietHoursEnabled.checked = Boolean(profile.notifications?.quietHoursEnabled);
+			notificationForm.elements.quietHoursStart.value = profile.notifications?.quietHoursStart || "22:00";
+			notificationForm.elements.quietHoursEnd.value = profile.notifications?.quietHoursEnd || "07:00";
 		}
+
+		// Driven by the server, so a reload no longer contradicts what the
+		// toggle just reported.
+		applyTwoFactorBadge(Boolean(profile.twoFactorEnabled));
 	}
 
 	async function loadProfile() {
@@ -81,13 +111,14 @@ document.addEventListener("DOMContentLoaded", () => {
 			email: profileForm.elements.email.value.trim(),
 			phone: profileForm.elements.phone.value.trim(),
 			education: profileForm.elements.education.value.trim(),
-			specialization: profileForm.elements.specialization.value.trim()
+			specialization: profileForm.elements.specialization.value.trim(),
+			bio: profileForm.elements.bio.value.trim()
 		};
 		try {
 			const profile = await profileRequest("update", payload);
 			fillProfile(profile);
 			const nextSession = { ...session, name: profile.fullName, email: profile.email, phone: profile.phone };
-			sessionStorage.setItem("vbetter_session", JSON.stringify(nextSession));
+			localStorage.setItem("vbetter_session", JSON.stringify(nextSession));
 			setMessage("Profile saved.", "success");
 		} catch (error) {
 			setMessage(error.message, "error");
@@ -100,7 +131,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			const profile = await profileRequest("preferences", {
 				lostFoundAlerts: notificationForm.elements.lostFoundAlerts.checked,
 				appointmentReminders: notificationForm.elements.appointmentReminders.checked,
-				chatbotUpdates: notificationForm.elements.chatbotUpdates.checked
+				chatbotUpdates: notificationForm.elements.chatbotUpdates.checked,
+				quietHoursEnabled: notificationForm.elements.quietHoursEnabled.checked,
+				quietHoursStart: notificationForm.elements.quietHoursStart.value || "22:00",
+				quietHoursEnd: notificationForm.elements.quietHoursEnd.value || "07:00"
 			});
 			fillProfile(profile);
 			setMessage("Notification preferences saved.", "success");
@@ -121,6 +155,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	function openPasswordModal() {
 		pwForm?.reset();
+		// reset() changes values without an input event, so the strength bar
+		// and match line would keep describing the last password typed.
+		pwForm?.querySelectorAll('input[type="password"]').forEach((input) => input.dispatchEvent(new Event("input")));
 		setPwMessage("");
 		if (pwOverlay) pwOverlay.hidden = false;
 		document.getElementById("pw-current")?.focus();
@@ -130,15 +167,46 @@ document.addEventListener("DOMContentLoaded", () => {
 		if (pwOverlay) pwOverlay.hidden = true;
 	}
 
+	/* Two-factor.
+
+	   This button used to flip the badge in the DOM and nothing else: it
+	   announced "Two-factor authentication enabled." while users.two_factor_enabled
+	   stayed 0, so a vet who believed they had switched it on was still signing in
+	   behind a password alone -- and a reload silently put the badge back to
+	   DISABLED. It now goes through the same api/users/profile.php "two_factor"
+	   action the admin and resident screens use, behind a confirmation in both
+	   directions: turning it on changes every future sign-in, turning it off
+	   gives up a protection. */
 	const btnManage2FA = document.getElementById("btnManage2FA");
-	const twofaBadge = document.getElementById("twofaBadge");
-	btnManage2FA?.addEventListener("click", () => {
-		if (!twofaBadge) return;
-		const isEnabled = twofaBadge.classList.contains("enabled");
-		twofaBadge.classList.toggle("enabled", !isEnabled);
-		twofaBadge.classList.toggle("disabled", isEnabled);
-		twofaBadge.textContent = isEnabled ? "DISABLED" : "ENABLED";
-		setMessage(isEnabled ? "Two-factor authentication disabled." : "Two-factor authentication enabled.", "success");
+
+	function applyTwoFactorBadge(enabled) {
+		const badge = document.getElementById("twofaBadge");
+		if (!badge) return;
+		badge.classList.toggle("enabled", enabled);
+		badge.classList.toggle("disabled", !enabled);
+		badge.textContent = enabled ? "ENABLED" : "DISABLED";
+	}
+
+	btnManage2FA?.addEventListener("click", async () => {
+		const badge = document.getElementById("twofaBadge");
+		if (!badge) return;
+
+		const turningOn = !badge.classList.contains("enabled");
+		const question = turningOn
+			? "Enable two-factor authentication? You'll be emailed a 6-digit code every time you sign in."
+			: "Disable two-factor authentication? Your account will be protected by your password alone.";
+		if (!(await vbConfirm(question))) return;
+
+		btnManage2FA.disabled = true;
+		try {
+			const profile = await profileRequest("two_factor", { enabled: turningOn });
+			fillProfile(profile);
+			setMessage(turningOn ? "Two-factor authentication enabled." : "Two-factor authentication disabled.", "success");
+		} catch (error) {
+			setMessage(error.message, "error");
+		} finally {
+			btnManage2FA.disabled = false;
+		}
 	});
 
 	document.getElementById("update-password-btn")?.addEventListener("click", openPasswordModal);
@@ -155,7 +223,10 @@ document.addEventListener("DOMContentLoaded", () => {
 		const confirmPassword = pwForm.elements.confirmPassword.value;
 
 		if (!currentPassword) return setPwMessage("Enter your current password.", "error");
-		if (newPassword.length < 8) return setPwMessage("New password must be at least 8 characters.", "error");
+		const policyError = window.PasswordPolicy
+			? PasswordPolicy.validate(newPassword)
+			: (newPassword.length < 12 ? "New password must be at least 12 characters." : null);
+		if (policyError) return setPwMessage(policyError, "error");
 		if (newPassword !== confirmPassword) return setPwMessage("New password and confirmation do not match.", "error");
 
 		const submitBtn = pwForm.querySelector('button[type="submit"]');
@@ -163,6 +234,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		try {
 			await profileRequest("password", { currentPassword, newPassword });
 			closePasswordModal();
+			// Clears any forced-upgrade hold, so navigation is free again.
+			window.VBetterAuth?.clearPasswordUpgrade?.();
 			setMessage("Password updated.", "success");
 		} catch (error) {
 			setPwMessage(error.message, "error");
@@ -207,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			const formData = new FormData();
 			formData.append("action", "list");
 			formData.append("date", today);
-			const response = await fetch("/bvetter/api/appointments/appointment.php", { method: "POST", body: formData });
+			const response = await fetch("/api/appointments/appointment.php", { method: "POST", body: formData });
 			const result = await response.json();
 			const items = (result.data || [])
 				.filter((a) => (a.preferred_date || "").slice(0, 10) === today)
@@ -243,7 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
 						</div>
 						<div class="sched-right">
 							<span class="sched-badge ${bc}">${bl}</span>
-							${isActive ? `<a href="/bvetter/vet/html/appointment.html" class="sched-arrow" title="Open appointment">&#8250;</a>` : ""}
+							${isActive ? `<a href="../../vet/html/appointment.html" class="sched-arrow" title="Open appointment">&#8250;</a>` : ""}
 						</div>
 					</div>
 				`;

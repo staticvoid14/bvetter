@@ -3,19 +3,27 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>VBetter – Account Management</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+    <title>BVetter – Account Management</title>
+    <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <link rel="stylesheet" href="../../shared/css/sidebar.css"/>
-    <link rel="stylesheet" href="../css/account-management.css"/>
+    <link rel="stylesheet" href="../../shared/css/sidebar.css?v=20260928-mobile"/>
+    <link rel="stylesheet" href="../css/account-management.css?v=20260928-mobile"/>
+    <link rel="stylesheet" href="../../shared/css/table-cards.css?v=20260928-mobile">
 </head>
 <body>
 
     <aside class="sidebar" role="navigation" aria-label="Main navigation">
         <div class="sidebar-header">
             <div class="logo">
-                <img src="../../shared/images/logo.png" alt="VBetter" onerror="this.parentElement.textContent='V'">
+                <img src="../../shared/images/logo.png" alt="BVetter" onerror="this.parentElement.textContent='V'">
             </div>
         </div>
         <nav class="sidebar-nav">
@@ -51,6 +59,10 @@
                 <img src="../../shared/images/sidebar/mass-vacc.svg" class="nav-icon" alt="Mass Vaccination">
                 <span class="nav-label">Mass Vaccination</span>
             </a>
+            <a href="../../vet/html/support-tickets.html" class="nav-item" title="Support Tickets">
+                <img src="../../shared/images/sidebar/support-tickets.svg" class="nav-icon" alt="Support Tickets">
+                <span class="nav-label">Support Tickets</span>
+            </a>
             <div class="nav-section-label" data-roles="admin">Administration</div>
             <a href="account-management.html" class="nav-item active" title="Account Management" data-roles="admin">
                 <img src="../../shared/images/sidebar/acc-management.svg" class="nav-icon" alt="Account Management">
@@ -66,7 +78,6 @@
 
     <main class="am-main">
 
-        <!-- HERO BANNER -->
         <section class="am-hero">
             <div class="am-hero-copy">
                 <h1 class="am-hero-title">Account Management</h1>
@@ -82,7 +93,6 @@
             </button>
         </section>
 
-        <!-- KPI STRIP -->
         <section class="am-kpi-strip">
             <div class="am-kpi-card">
                 <div class="am-kpi-top">
@@ -110,7 +120,6 @@
             </div>
         </section>
 
-        <!-- SECURITY TIP -->
         <div class="am-security-tip">
             <div class="am-security-icon-wrap">
                 <svg class="am-security-icon" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2">
@@ -124,7 +133,6 @@
             <a href="manage-security.html" class="am-security-link">MANAGE SECURITY</a>
         </div>
 
-        <!-- USER TABLE -->
         <section class="am-table-section">
             <div class="am-table-topbar">
                 <h2 class="am-table-title">All User</h2>
@@ -133,9 +141,11 @@
                         <svg class="am-search-icon" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input class="am-search-input" type="text" id="search-users" name="user-table-filter" placeholder="Search users..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
                     </div>
-                    <button class="am-filter-btn" type="button" id="filter-btn">
-                        <svg class="am-filter-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-                    </button>
+                    <!-- The filter button that used to sit here was never wired to
+                         anything in any script, so it did nothing when clicked.
+                         Removed rather than implemented: the role tabs directly
+                         below and the search box beside it already cover filtering
+                         this table. -->
                 </div>
             </div>
 
@@ -147,7 +157,7 @@
             </div>
 
             <div class="am-table-wrap">
-                <table class="am-table">
+                <table class="am-table" data-cards>
                     <thead>
                         <tr>
                             <th>All User</th>
@@ -174,16 +184,13 @@
 
     </main>
 
-    <!-- ══════════════════════════════════════════════════════
-         ADD USER MODAL (dash-* form)
-    ══════════════════════════════════════════════════════ -->
     <div class="dash-overlay" id="modal-add-account" hidden>
         <div class="dash-modal" role="dialog" aria-modal="true" aria-labelledby="add-account-title">
 
             <div class="dash-modal-head">
                 <div>
                     <h2 id="add-account-title">Add Account</h2>
-                    <p>Create a new staff or user account</p>
+                    <p>Create a new veterinarian account. New administrators take over an existing admin account with Hand Over Account on its profile.</p>
                 </div>
                 <button class="dash-modal-close" id="modal-add-close" type="button" aria-label="Close">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -231,6 +238,8 @@
                                 <svg class="eye-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             </button>
                         </div>
+                        <small style="font-size:11px;color:#8A94A6;" data-pw-policy-hint>At least 12 characters, with an uppercase letter, a lowercase letter, a number and a special character.</small>
+                        <div data-pw-strength="add-acc-password"></div>
                     </div>
                     <div class="dash-form-group">
                         <label class="dash-label" for="add-acc-status">Status</label>
@@ -241,15 +250,9 @@
                     </div>
                 </div>
 
-                <!-- Veterinarian-only fields — backend requires these
-                     when the selected role is "veterinarian". -->
                 <div id="add-acc-vet-fields" hidden>
                     <div class="dash-form-row">
-                        <div class="dash-form-group">
-                            <label class="dash-label" for="add-acc-license">License Number</label>
-                            <input class="dash-input" type="text" id="add-acc-license" placeholder="PRC license number">
-                        </div>
-                        <div class="dash-form-group">
+                        <div class="dash-form-group dash-full">
                             <label class="dash-label" for="add-acc-specialization">Specialization</label>
                             <input class="dash-input" type="text" id="add-acc-specialization" placeholder="e.g. Small Animal Medicine">
                         </div>
@@ -261,7 +264,13 @@
                         </div>
                         <div class="dash-form-group">
                             <label class="dash-label" for="add-acc-clinic">Clinic Location</label>
-                            <input class="dash-input" type="text" id="add-acc-clinic" placeholder="Assigned clinic / branch">
+                            <input class="dash-input" type="text" id="add-acc-clinic" placeholder="AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026" value="AgriCorp Building, Baliwag Government Complex, 247 Highway, Baliwag, Philippines, 3026" readonly>
+                        </div>
+                    </div>
+                    <div class="dash-form-row">
+                        <div class="dash-form-group dash-full" style="flex-direction:row;align-items:center;gap:8px;">
+                            <input type="checkbox" id="add-acc-bookable" checked style="width:16px;height:16px;">
+                            <label class="dash-label" for="add-acc-bookable" style="margin:0;">Show this vet on the public booking page</label>
                         </div>
                     </div>
                 </div>
@@ -278,23 +287,16 @@
         </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════
-         UNBLOCK USER MODAL
-         No edit fields here — users manage their own profile
-         (account-settings.html) and password (forgot-password
-         flow). This modal only confirms the status change.
-    ══════════════════════════════════════════════════════ -->
     <div class="am-modal-overlay" id="modal-unblock" hidden>
         <div class="am-modal am-modal-lg" role="dialog" aria-modal="true" aria-labelledby="unblock-modal-title">
             <div class="am-modal-header-plain">
                 <div>
-                    <h2 id="unblock-modal-title">Unblock User</h2>
+                    <h2 id="unblock-modal-title">Unblock this user?</h2>
                     <p>Review the account below before restoring access</p>
                 </div>
                 <button class="am-modal-close" data-close="modal-unblock" aria-label="Close">&times;</button>
             </div>
 
-            <!-- Alert banner -->
             <div class="am-alert-banner">
                 <svg class="am-alert-banner-icon" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 <div class="am-alert-banner-text">
@@ -325,18 +327,62 @@
                 </div>
             </div>
 
-            <!-- Unblock action button -->
-            <button class="am-btn-unblock-lg" id="unblock-confirm-btn" type="button">Unblock</button>
+            <button class="am-btn-unblock-lg" id="unblock-confirm-btn" type="button">Yes</button>
 
             <div class="am-modal-footer">
-                <button class="am-btn-cancel" data-close="modal-unblock" type="button">CANCEL</button>
+                <button class="am-btn-cancel" data-close="modal-unblock" type="button">NO</button>
             </div>
         </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════
-         DELETE USER MODAL
-    ══════════════════════════════════════════════════════ -->
+    <div class="am-modal-overlay" id="modal-block" hidden>
+        <div class="am-modal am-modal-lg" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
+            <div class="am-modal-header-plain">
+                <div>
+                    <h2 id="block-modal-title">Block this user?</h2>
+                    <p>Review the account below before restricting access</p>
+                </div>
+                <button class="am-modal-close" data-close="modal-block" aria-label="Close">&times;</button>
+            </div>
+
+            <div class="am-alert-banner">
+                <svg class="am-alert-banner-icon" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <div class="am-alert-banner-text">
+                    <strong>Block This Account</strong>
+                    <span>Click the Block button. The user will immediately lose access until an admin unblocks them.</span>
+                </div>
+            </div>
+
+            <div class="am-modal-body">
+                <input type="hidden" id="block-user-id">
+                <div class="am-verify-info-grid">
+                    <div class="am-verify-field">
+                        <label>Full Name</label>
+                        <span id="block-name">—</span>
+                    </div>
+                    <div class="am-verify-field">
+                        <label>Role</label>
+                        <span id="block-role">—</span>
+                    </div>
+                    <div class="am-verify-field">
+                        <label>Phone Number</label>
+                        <span id="block-phone">—</span>
+                    </div>
+                    <div class="am-verify-field">
+                        <label>Email Address</label>
+                        <span id="block-email">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <button class="am-btn-block-lg" id="block-confirm-btn" type="button">Yes</button>
+
+            <div class="am-modal-footer">
+                <button class="am-btn-cancel" data-close="modal-block" type="button">NO</button>
+            </div>
+        </div>
+    </div>
+
     <div class="am-modal-overlay" id="modal-delete" hidden>
         <div class="am-modal am-delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
             <button class="am-modal-close" data-close="modal-delete" aria-label="Close" style="position:absolute;top:16px;right:16px;">&times;</button>
@@ -352,19 +398,27 @@
 
             <div class="am-delete-modal-body">
                 <h3 id="delete-modal-title">Delete User</h3>
-                <p>Are you sure you want to delete <strong id="delete-user-name">User</strong>?<br>This action is permanent and cannot be undone.</p>
+                <p>You are about to permanently delete <strong id="delete-user-name">User</strong>.</p>
+                <p class="am-delete-user-meta" id="delete-user-meta">&mdash;</p>
+                <p class="am-delete-warning">This removes the account and everything filed under it. It cannot be undone.</p>
+
+                <label class="am-delete-confirm-label" for="delete-confirm-input">
+                    To confirm, retype this person's full name
+                </label>
+                <input type="text" id="delete-confirm-input" class="am-delete-confirm-input"
+                       autocomplete="off" autocapitalize="off" spellcheck="false"
+                       placeholder="Type the name shown above"
+                       aria-describedby="delete-confirm-hint">
+                <span class="am-delete-confirm-hint" id="delete-confirm-hint">DELETE USER stays locked until this matches.</span>
             </div>
 
             <div class="am-delete-modal-footer">
-                <button class="am-btn-delete-confirm" id="delete-confirm-btn" type="button">DELETE USER</button>
+                <button class="am-btn-delete-confirm" id="delete-confirm-btn" type="button" disabled>DELETE USER</button>
                 <button class="am-btn-cancel-outline" data-close="modal-delete" type="button">CANCEL</button>
             </div>
         </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════
-         RESIDENT VERIFICATION MODAL
-    ══════════════════════════════════════════════════════ -->
     <div class="am-modal-overlay" id="modal-verify" hidden>
         <div class="am-modal am-verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-modal-title">
             <div class="am-verify-header">
@@ -399,12 +453,25 @@
                         </span>
                         <a href="#" id="verify-fullsize-link" class="am-verify-fullsize" target="_blank" rel="noopener">View Full Size</a>
                     </div>
-                    <!-- <img class="am-verify-id-img" id="verify-id-img" src="" > -->
                     <div class="am-verify-id-pdf" id="verify-id-pdf" hidden>
                         <img src="../../public/images/icons/qa-file.svg" alt="" class="am-verify-id-pdf-icon"/>
                         <span id="verify-id-pdf-name">Document.pdf</span>
                     </div>
-                    <!-- <p class="am-verify-id-empty" id="verify-id-empty" hidden>No document was uploaded.</p> -->
+                </div>
+
+                <!--
+                    Shown only when this registrant might already exist as a
+                    clinic walk-in record. Sits directly under the uploaded
+                    document on purpose: the document is the evidence, the
+                    match is only a suggestion, and the two have to be read
+                    together. Nothing here is pre-selected.
+                -->
+                <div class="am-walkin-wrap" id="verify-walkin-wrap" hidden>
+                    <div class="am-walkin-head">
+                        <span class="am-walkin-title">Possible existing clinic record</span>
+                        <span class="am-walkin-hint">Link only if the ID above shows the same person</span>
+                    </div>
+                    <div class="am-walkin-list" id="verify-walkin-list"></div>
                 </div>
             </div>
 
@@ -422,10 +489,36 @@
         </div>
     </div>
 
-    <script src="../../shared/js/auth.js"></script>
+    <!-- Read-only account details, opened by clicking a non-pending row. -->
+    <div class="am-modal-overlay" id="modal-details" hidden>
+        <div class="am-modal am-verify-modal" role="dialog" aria-modal="true" aria-labelledby="details-modal-title">
+            <div class="am-verify-header">
+                <div>
+                    <h2 id="details-modal-title">Account Details</h2>
+                    <p>Account information and history.</p>
+                </div>
+                <button class="am-modal-close" data-close="modal-details" aria-label="Close">&times;</button>
+            </div>
+            <div class="am-verify-body">
+                <div class="am-verify-info-grid" id="details-grid"></div>
+                <div class="am-details-doc" id="details-doc" hidden>
+                    <span class="am-verify-id-label">Uploaded Document</span>
+                    <a href="#" id="details-doc-link" class="am-verify-fullsize" target="_blank" rel="noopener">View uploaded document</a>
+                </div>
+            </div>
+            <div class="am-verify-footer">
+                <button class="am-btn-close-verify" data-close="modal-details" type="button">Close</button>
+                <div class="am-details-actions" id="details-actions"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
     <script>VBetterAuth.requireAuth(['admin']);</script>
-    <script src="../../shared/js/sidebar.js"></script>
-    <script src="../../public/js/api.js"></script>
-    <script src="../js/account-management.js"></script>
+    <script src="../../shared/js/sidebar.js?v=20260824-tz"></script>
+    <script src="../../public/js/api.js?v=20260828-walkin"></script>
+    <script src="../../public/js/password-policy.js?v=20260925-strength"></script>
+    <script src="../js/account-management.js?v=20260925-details"></script>
+    <script src="../../shared/js/table-cards.js?v=20260928-mobile"></script>
 </body>
-</html>
+</html>

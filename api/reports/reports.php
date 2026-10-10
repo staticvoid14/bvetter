@@ -1,7 +1,11 @@
 <?php
 
-require_once __DIR__ . '/../../config/connection.php';
+require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/../includes/dataset.php';
+require_once __DIR__ . '/../includes/case_timeline.php';
+require_once __DIR__ . '/../config/auth_guard.php';
+
+requireRole($pdo, ['veterinarian', 'admin']);
 
 function report_input()
 {
@@ -52,15 +56,25 @@ function report_columns($category)
             ['key' => 'riskLevel', 'label' => 'Risk Level'],
             ['key' => 'cases', 'label' => 'Cases'],
         ],
+        // 'Action Level' is Needs Action / Watch / Normal, the same rule and the
+        // same words Disease Analytics uses (see disease_rows). 'Source' says
+        // whether a month comes from the uploaded file or from visits typed in
+        // after it ends.
         'disease_incidence' => [
             ['key' => 'date', 'label' => 'Month'],
             ['key' => 'barangay', 'label' => 'Barangay'],
+            ['key' => 'source', 'label' => 'Source'],
             ['key' => 'skinRelatedCases', 'label' => 'Skin'],
             ['key' => 'parasiticCases', 'label' => 'Parasitic'],
             ['key' => 'respiratoryCases', 'label' => 'Respiratory'],
             ['key' => 'gastrointestinalCases', 'label' => 'Gastrointestinal'],
+            // 'Total Cases' again, now that it is the same count Disease
+            // Analytics shows: it read Barangay_Disease_Monthly's separate,
+            // larger tally before, and was labelled 'Surveillance Tally' to keep
+            // the two apart. The keys stay `totalCases` and `riskClass` so the
+            // JSON contract and the Excel column names do not move.
             ['key' => 'totalCases', 'label' => 'Total Cases'],
-            ['key' => 'riskClass', 'label' => 'Risk Class'],
+            ['key' => 'riskClass', 'label' => 'Action Level'],
         ],
         'mass_vaccination' => [
             ['key' => 'date', 'label' => 'Date'],
@@ -167,6 +181,7 @@ function dataset_patient_rows()
 function db_patient_rows($pdo){
      $barangayJoin ='LEFT JOIN owner_profiles op ON op.user_id = pets.owner_id LEFT JOIN barangays b ON b.id = op.barangay_id';
      $visitJoin ='LEFT JOIN patient_visit_records pvr ON pvr.pet_id = pets.id';
+     $profileJoin = 'LEFT JOIN patient_record_profiles prp ON prp.pet_id = pets.id';
       $lastVisitSelect= 'MAX(pvr.visit_date)';
         $diagnosisSelect= 'MAX(pvr.diagnosis)';
     $orderDate= 'COALESCE(MAX(pvr.visit_date), pets.created_at)';
@@ -183,11 +198,21 @@ function db_patient_rows($pdo){
             owners.phone_number AS owner_phone,
             " . ($barangayJoin ? "b.name" : "''") . " AS barangay,
             $lastVisitSelect AS last_visit,
-            $diagnosisSelect AS diagnosis
+            $diagnosisSelect AS diagnosis,
+            MAX(prp.source) AS source
         FROM pets
         LEFT JOIN users owners ON owners.id = pets.owner_id
         $barangayJoin
         $visitJoin
+        $profileJoin
+        WHERE COALESCE(prp.is_archived, 0) = 0
+          AND (
+            pvr.pet_id IS NOT NULL
+            OR EXISTS (
+                SELECT 1 FROM appointments a
+                WHERE a.pet_id = pets.id AND a.status IN ('confirmed', 'completed')
+            )
+        )
         GROUP BY pets.id, pets.pet_name, pets.species, pets.breed, pets.sex, pets.created_at, owners.full_name, owners.phone_number, barangay
         ORDER BY $orderDate DESC
     ";
@@ -195,6 +220,7 @@ function db_patient_rows($pdo){
      try {
         $rows = $pdo->query($sql)->fetchAll();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return [];
     }
 
@@ -211,6 +237,7 @@ function db_patient_rows($pdo){
             'date' => $row['last_visit'] ?: substr((string) $row['created_at'], 0, 10),
             'disease' => $row['diagnosis'] ?: '',
             'category' => strtolower($row['species'] ?? ''),
+            'source' => $row['source'] ?: '',
         ];
     }, $rows);
     
@@ -242,24 +269,63 @@ function db_consultation_rows($pdo)
     $barangayJoin = bv_table_exists($pdo, 'owner_profiles') && bv_table_exists($pdo, 'barangays')
         ? 'LEFT JOIN owner_profiles op ON op.user_id = pets.owner_id LEFT JOIN barangays b ON b.id = op.barangay_id'
         : '';
-    $barangayExpr = $barangayJoin ? "COALESCE(NULLIF(b.name, ''), NULLIF(op.complete_address, ''), 'N/A')" : "'N/A'";
+    // See db_disease_rows(): the visit's own snapshot is preferred over the
+    // owner's current profile, and is all that remains after de-identification.
+    $liveBarangay = $barangayJoin ? "NULLIF(b.name, ''), " : '';
+    $barangayExpr = "COALESCE(NULLIF(pvr.barangay_at_visit, ''), {$liveBarangay}'N/A')";
+
+    $profileJoin = bv_table_exists($pdo, 'patient_record_profiles')
+        ? 'LEFT JOIN patient_record_profiles prp ON prp.pet_id = pets.id'
+        : '';
+
+    // Archived records are ones the encoder marked as not-real (scratch entries,
+    // duplicates, typed-in test names), so their visits are not consultations
+    // that happened. COALESCE keeps de-identified visits, which have no pet row
+    // and therefore no profile to read a flag from -- those are real cases whose
+    // owner closed their account, and must still count.
+    $archiveFilter = $profileJoin ? 'AND COALESCE(prp.is_archived, 0) = 0' : '';
+
+    // pvr.disease_category holds the four-bucket value the risk model needs,
+    // but this table sits alongside Excel rows that show the richer ten-value
+    // category (e.g. 'Zoonotic / reportable'). Joining the catalog lets both
+    // sources display the same vocabulary instead of live rows flattening a
+    // rabies case to 'General/Other' next to an Excel row calling it zoonotic.
+    $diseaseJoin = bv_table_exists($pdo, 'diseases')
+        ? 'LEFT JOIN diseases d ON d.name = pvr.diagnosis'
+        : '';
+
+    // Only visits in months the uploaded dataset does not cover. This report
+    // used to list every visit beside every uploaded consultation, so a visit in
+    // a covered month was counted on top of the upload's own figures for it.
+    // See api/includes/case_timeline.php.
+    [$liveOnly, $liveParams] = bv_live_month_condition('COALESCE(pvr.visit_date, pvr.created_at)', $pdo);
 
     try {
-        $rows = $pdo->query("
+        $stmt = $pdo->prepare("
             SELECT
                 pvr.id,
                 pvr.visit_date,
                 pvr.diagnosis,
                 pvr.disease_category,
-                pets.species,
-                {$barangayExpr} AS barangay
+                pvr.patient_status_at_visit,
+                " . ($diseaseJoin ? 'd.display_category' : "NULL") . " AS display_category,
+                COALESCE(NULLIF(pvr.species_at_visit, ''), pets.species) AS species,
+                {$barangayExpr} AS barangay,
+                " . ($profileJoin ? 'prp.source' : "''") . " AS source
             FROM patient_visit_records pvr
-            INNER JOIN pets ON pets.id = pvr.pet_id
+            LEFT JOIN pets ON pets.id = pvr.pet_id
             {$barangayJoin}
-            WHERE pvr.diagnosis IS NOT NULL AND pvr.diagnosis != ''
+            {$profileJoin}
+            {$diseaseJoin}
+            WHERE pvr.diagnosis IN (SELECT name FROM diseases WHERE is_active = 1)
+            {$archiveFilter}
+            " . ($liveOnly !== '' ? "AND {$liveOnly}" : '') . "
             ORDER BY pvr.visit_date DESC, pvr.id DESC
-        ")->fetchAll();
+        ");
+        $stmt->execute($liveParams);
+        $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return [];
     }
 
@@ -270,35 +336,102 @@ function db_consultation_rows($pdo)
             'barangay' => $row['barangay'] ?: 'N/A',
             'animalGroup' => $row['species'] ?: 'N/A',
             'diagnosis' => $row['diagnosis'] ?: '',
-            'diseaseCategory' => $row['disease_category'] ?: 'General/Other',
-            'riskLevel' => 'N/A',
+            'diseaseCategory' => $row['display_category'] ?: ($row['disease_category'] ?: 'General/Other'),
+            'riskLevel' => risk_level_from_status($row['patient_status_at_visit']),
             'cases' => 1,
+            'source' => $row['source'] ?: '',
         ];
     }, $rows);
 }
 
+// Record Status (Active Patient / Monitoring / Critical) is the same field
+// the vet already sets on the Add/Edit Patient form, snapshotted per visit
+// in patient_status_at_visit (see api/includes/patient_tables.php). It's a
+// vet-entered signal, not a guess -- unlike disease_category there is no
+// ground-truth model here either, but the vet's own severity call is a real
+// answer, so this maps it instead of leaving every DB row at 'N/A'.
+// Rows saved before this column existed have patient_status_at_visit = NULL
+// and honestly stay 'N/A' rather than being backfilled with a guess.
+function risk_level_from_status($status)
+{
+    switch ($status) {
+        case 'Critical': return 'High';
+        case 'Monitoring': return 'Medium';
+        case 'Active Patient': return 'Low';
+        default: return 'N/A';
+    }
+}
+
+/**
+ * Every uploaded consultation, plus typed visits in the months after the upload
+ * ends -- one timeline, the same months counted from the same source as
+ * everywhere else (api/includes/case_timeline.php). The month cut is applied
+ * inside db_consultation_rows().
+ */
 function consultation_rows($pdo = null)
 {
     $dbRows = $pdo ? db_consultation_rows($pdo) : [];
     return array_merge($dbRows, excel_consultation_rows());
 }
 
-function excel_disease_rows()
+/**
+ * An empty Disease report row for one barangay-month.
+ *
+ * `zoonoticCases` is carried for the action level (see disease_rows) rather
+ * than shown: one reportable case is enough to act on, whatever the total.
+ */
+function disease_row_skeleton($date, $barangay, $source)
 {
-    $sourceRows = array_values(array_filter(bv_sheet_rows('Barangay_Disease_Monthly'), fn($row) => !empty($row['year']) && !empty($row['month_no']) && bv_clean($row['barangay'] ?? '') !== ''));
-    return array_map(function ($row) {
-        return [
-            'date' => bv_date_from_parts($row['year'] ?? 0, $row['month_no'] ?? 1),
-            'barangay' => $row['barangay'] ?? '',
-            'skinRelatedCases' => (int) ($row['skin_related_cases'] ?? 0),
-            'parasiticCases' => (int) ($row['parasitic_cases'] ?? 0),
-            'respiratoryCases' => (int) ($row['respiratory_cases'] ?? 0),
-            'gastrointestinalCases' => (int) ($row['gastrointestinal_cases'] ?? 0),
-            'totalCases' => (int) ($row['total_cases'] ?? 0),
-            'dominantCaseGroup' => $row['dominant_case_group'] ?? '',
-            'riskClass' => $row['risk_class'] ?? '',
-        ];
-    }, $sourceRows);
+    return [
+        'date' => $date,
+        'barangay' => $barangay,
+        'skinRelatedCases' => 0,
+        'parasiticCases' => 0,
+        'respiratoryCases' => 0,
+        'gastrointestinalCases' => 0,
+        'totalCases' => 0,
+        'zoonoticCases' => 0,
+        'source' => $source,
+    ];
+}
+
+/** Adds $cases of one disease category to a Disease report row. */
+function disease_row_add(array &$row, $category, $cases)
+{
+    $row['totalCases'] += $cases;
+    switch (bv_case_bucket($category)) {
+        case 'Skin': $row['skinRelatedCases'] += $cases; break;
+        case 'Parasitic': $row['parasiticCases'] += $cases; break;
+        case 'Respiratory': $row['respiratoryCases'] += $cases; break;
+        case 'Gastrointestinal': $row['gastrointestinalCases'] += $cases; break;
+        // 'General/Other' still counts toward totalCases but no specific bucket.
+    }
+    if (bv_is_zoonotic_category($category)) $row['zoonoticCases'] += $cases;
+}
+
+/**
+ * The uploaded dataset as barangay-months: the same consultations Disease
+ * Analytics counts, summed the same way (cases_reported), so the report and
+ * the page agree on every month.
+ *
+ * This used to read Barangay_Disease_Monthly, a separate sheet that shipped
+ * with the bundled workbook. It stopped at December 2025 whatever the clinic
+ * uploaded -- January 2026 read 0 here beside 65 consultations on the page --
+ * and its tallies never matched the consultations (4,927 against 2,551 cases
+ * for 2025).
+ */
+function upload_disease_rows()
+{
+    $grouped = [];
+    foreach (bv_sheet_rows('Consult_Diagnosis_3Y') as $row) {
+        $ym = bv_row_month($row);
+        $barangay = bv_clean($row['barangay'] ?? '');
+        if ($ym === '' || $barangay === '') continue;
+        $key = $ym . '|' . $barangay;
+        $grouped[$key] ??= disease_row_skeleton($ym . '-01', $barangay, 'Uploaded file');
+        disease_row_add($grouped[$key], $row['disease_category'] ?? '', (int) ($row['cases_reported'] ?? 1));
+    }
+    return array_values($grouped);
 }
 
 function db_disease_rows($pdo)
@@ -308,10 +441,45 @@ function db_disease_rows($pdo)
     $barangayJoin = bv_table_exists($pdo, 'owner_profiles') && bv_table_exists($pdo, 'barangays')
         ? 'LEFT JOIN owner_profiles op ON op.user_id = pets.owner_id LEFT JOIN barangays b ON b.id = op.barangay_id'
         : '';
-    $barangayExpr = $barangayJoin ? "COALESCE(NULLIF(b.name, ''), NULLIF(op.complete_address, ''), 'Unspecified')" : "'Unspecified'";
+
+    // barangay_at_visit wins over the owner's current profile: it is what was
+    // true when the case was recorded, and it is the only barangay left once a
+    // visit has been de-identified (see deleteUserAccount in
+    // api/admin/account-management.php). The live joins stay as a fallback for
+    // rows saved before that column existed.
+    $liveBarangay = $barangayJoin ? "NULLIF(b.name, ''), " : '';
+    $barangayExpr = "COALESCE(NULLIF(pvr.barangay_at_visit, ''), {$liveBarangay}'Unspecified')";
+
+    // Joined on pvr.pet_id rather than pets.id so it still resolves for a visit
+    // whose pet row is gone. See the $archiveFilter note in
+    // db_consultation_rows() for why archived visits are excluded but
+    // de-identified ones are kept.
+    $archiveJoin = bv_table_exists($pdo, 'patient_record_profiles')
+        ? 'LEFT JOIN patient_record_profiles prp ON prp.pet_id = pvr.pet_id'
+        : '';
+    $archiveFilter = $archiveJoin ? 'AND COALESCE(prp.is_archived, 0) = 0' : '';
+
+    // Only months after the uploaded dataset (api/includes/case_timeline.php).
+    [$liveOnly, $liveParams] = bv_live_month_condition('pvr.visit_date', $pdo);
 
     try {
-        $rows = $pdo->query("
+        // LEFT JOIN, not INNER: a de-identified visit has no pet row, and
+        // dropping it here would delete a real case from disease surveillance
+        // purely because the owner closed their account.
+        //
+        // The diagnosis filter matches db_consultation_rows() so both reports
+        // count the same visits -- without it a record saved with an empty
+        // diagnosis counts as a disease case here but not there.
+        //
+        // It checks the `diseases` catalog rather than merely a non-empty
+        // string, matching db_disease_barangay_counts() in
+        // api/dashboard/dashboard.php and the two live-continuation queries in
+        // api/analytics/arima_service.py. The diagnosis form offers an
+        // "Other / Not Listed" free-text option, so the column can hold
+        // anything; a non-empty test let scratch text ('asdadadad') count as a
+        // surveillance case. Off-catalog text stays on the patient's record and
+        // is simply not aggregated.
+        $stmt = $pdo->prepare("
             SELECT
                 YEAR(pvr.visit_date) AS yr,
                 MONTH(pvr.visit_date) AS mo,
@@ -319,12 +487,19 @@ function db_disease_rows($pdo)
                 pvr.disease_category,
                 COUNT(*) AS cases
             FROM patient_visit_records pvr
-            INNER JOIN pets ON pets.id = pvr.pet_id
+            LEFT JOIN pets ON pets.id = pvr.pet_id
             {$barangayJoin}
+            {$archiveJoin}
             WHERE pvr.visit_date IS NOT NULL
+              AND pvr.diagnosis IN (SELECT name FROM diseases WHERE is_active = 1)
+              {$archiveFilter}
+              " . ($liveOnly !== '' ? "AND {$liveOnly}" : '') . "
             GROUP BY yr, mo, barangay, pvr.disease_category
-        ")->fetchAll();
+        ");
+        $stmt->execute($liveParams);
+        $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return [];
     }
 
@@ -332,29 +507,36 @@ function db_disease_rows($pdo)
     $grouped = [];
     foreach ($rows as $row) {
         $key = $row['yr'] . '-' . $row['mo'] . '-' . $row['barangay'];
-        if (!isset($grouped[$key])) {
-            $grouped[$key] = [
-                'date' => bv_date_from_parts((int) $row['yr'], (int) $row['mo']),
-                'barangay' => $row['barangay'],
-                'skinRelatedCases' => 0,
-                'parasiticCases' => 0,
-                'respiratoryCases' => 0,
-                'gastrointestinalCases' => 0,
-                'totalCases' => 0,
-            ];
-        }
-        $cases = (int) $row['cases'];
-        $grouped[$key]['totalCases'] += $cases;
-        switch ($row['disease_category']) {
-            case 'Skin': $grouped[$key]['skinRelatedCases'] += $cases; break;
-            case 'Parasitic': $grouped[$key]['parasiticCases'] += $cases; break;
-            case 'Respiratory': $grouped[$key]['respiratoryCases'] += $cases; break;
-            case 'Gastrointestinal': $grouped[$key]['gastrointestinalCases'] += $cases; break;
-            // 'General/Other' still counts toward totalCases but no specific bucket.
-        }
+        $grouped[$key] ??= disease_row_skeleton(
+            bv_date_from_parts((int) $row['yr'], (int) $row['mo']), $row['barangay'], 'Clinic');
+        disease_row_add($grouped[$key], $row['disease_category'], (int) $row['cases']);
     }
+    return array_values($grouped);
+}
 
-    return array_values(array_map(function ($row) {
+/**
+ * The Disease report: the uploaded dataset's barangay-months, then typed visits
+ * in the months after it (the cut is inside db_disease_rows) -- the same
+ * timeline, and so the same numbers, as Disease Analytics.
+ *
+ * `riskClass` (shown as Action Level) is the analytics service's own rule,
+ * computed over the whole timeline before any date filter so each month is
+ * judged against its barangay's full history. See bv_action_tiers(). The key
+ * keeps its old name so the JSON contract with the frontend does not move.
+ */
+function disease_rows($pdo = null)
+{
+    $rows = array_merge($pdo ? db_disease_rows($pdo) : [], upload_disease_rows());
+
+    $tiers = bv_action_tiers(array_map(fn($row) => [
+        'barangay'   => $row['barangay'],
+        'ym'         => substr((string) $row['date'], 0, 7),
+        'total'      => $row['totalCases'],
+        'zoonotic'   => $row['zoonoticCases'],
+        'fromUpload' => $row['source'] === 'Uploaded file',
+    ], $rows));
+
+    return array_map(function ($row) use ($tiers) {
         $buckets = [
             'Skin' => $row['skinRelatedCases'],
             'Parasitic' => $row['parasiticCases'],
@@ -364,17 +546,9 @@ function db_disease_rows($pdo)
         arsort($buckets);
         $topBucket = array_key_first($buckets);
         $row['dominantCaseGroup'] = $buckets[$topBucket] > 0 ? $topBucket : 'General/Other';
-        // No ground-truth risk model for DB-sourced rows yet — left honestly
-        // unclassified rather than guessing (see item 4: ARIMA/risk pipeline).
-        $row['riskClass'] = 'N/A';
+        $row['riskClass'] = $tiers[$row['barangay'] . '|' . substr((string) $row['date'], 0, 7)] ?? 'Normal';
         return $row;
-    }, $grouped));
-}
-
-function disease_rows($pdo = null)
-{
-    $dbRows = $pdo ? db_disease_rows($pdo) : [];
-    return array_merge($dbRows, excel_disease_rows());
+    }, $rows);
 }
 
 function db_vaccination_rows($pdo)
@@ -389,6 +563,7 @@ function db_vaccination_rows($pdo)
             ORDER BY event_date DESC
         ")->fetchAll();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return [];
     }
 
@@ -461,6 +636,7 @@ function lost_found_rows($pdo)
             ORDER BY lfr.created_at DESC
         ")->fetchAll();
     } catch (Throwable $e) {
+        error_log('[BVetter] ' . __FILE__ . ': ' . $e->getMessage());
         return [];
     }
 
@@ -509,14 +685,19 @@ function report_metrics($pdo, $filteredRows, $category)
 
     // ── All Patient & Consultation Summary ──────────────────────────────
     if (in_array($category, ['all_patient', 'consultation_summary'])) {
+        // Same fix as the disease_incidence branch below: anchor on the rows the
+        // user is actually looking at ($filteredRows), while still reading the
+        // comparison month from the unfiltered set so the delta survives a
+        // filter that excludes it.
         $allRows = $category === 'consultation_summary'
             ? consultation_rows($pdo)
             : (db_patient_rows($pdo) ?: dataset_patient_rows());
+        $scoped  = $filteredRows ?: $allRows;
 
-        $now       = latest_month_in($allRows, fn($r) => bv_row_date($r));
+        $now       = latest_month_in($scoped, fn($r) => bv_row_date($r));
         $lastMonth = prev_month($now);
 
-        $thisMonth = array_values(array_filter($allRows, fn($r) => str_starts_with((string)bv_row_date($r), $now)));
+        $thisMonth = array_values(array_filter($scoped,  fn($r) => str_starts_with((string)bv_row_date($r), $now)));
         $lastMo    = array_values(array_filter($allRows, fn($r) => str_starts_with((string)bv_row_date($r), $lastMonth)));
 
         $thisCount = count($thisMonth);
@@ -525,23 +706,26 @@ function report_metrics($pdo, $filteredRows, $category)
             ? round((($thisCount - $lastCount) / $lastCount) * 100)
             : null;
 
-        $petTypeCounts = bv_count_by($thisMonth, 'petType');
+        $diseaseField = $category === 'consultation_summary' ? 'diagnosis' : 'disease';
+        $diseaseCounts = bv_count_by($thisMonth, $diseaseField);
         $barangayCounts = bv_count_by($thisMonth, 'barangay');
 
-        arsort($petTypeCounts);
+        arsort($diseaseCounts);
         arsort($barangayCounts);
 
-        $topPetType = array_key_first($petTypeCounts) ?: 'N/A';
+        $topDisease    = array_key_first($diseaseCounts) ?: 'N/A';
         $topBarangay   = array_key_first($barangayCounts) ?: 'N/A';
         $barangayCount = $barangayCounts[$topBarangay] ?? 0;
-        $totalRows     = count($allRows);
+        $totalDiagnosed = array_sum($diseaseCounts);
 
-        $petKeys = array_keys($petTypeCounts);
-        $secondPetType = $petKeys[1] ?? null;
-        $petCount = $petTypeCounts[$topPetType] ?? 0;
-        $petShare  = $totalRows > 0 ? round(($petCount / $totalRows) * 100) : 0;
+        $diseaseKeys   = array_keys($diseaseCounts);
+        $secondDisease = $diseaseKeys[1] ?? null;
+        $diseaseCount  = $diseaseCounts[$topDisease] ?? 0;
+        $diseaseShare  = $totalDiagnosed > 0 ? round(($diseaseCount / $totalDiagnosed) * 100) : 0;
 
         return [
+            'period'      => $now,
+            'periodLabel' => $now ? date('M Y', strtotime($now . '-01')) : '',
             'left' => [
                 'value'  => $thisCount,
                 'subset' => $diff !== null
@@ -550,12 +734,12 @@ function report_metrics($pdo, $filteredRows, $category)
                 'trend'  => $diff === null ? 'neutral' : ($diff >= 0 ? 'up' : 'down'),
             ],
             'center' => [
-                    'value'  => $topPetType,
-                    'subset' => $secondPetType
-                        ? "{$petShare}% of patients · 2nd: {$secondPetType}"
-                        : "{$petShare}% of patients in {$now}",
-                    'trend'  => 'neutral',
-],
+                'value'  => $topDisease,
+                'subset' => $secondDisease
+                    ? "{$diseaseShare}% of diagnosed cases · 2nd: {$secondDisease}"
+                    : ($topDisease !== 'N/A' ? "{$diseaseShare}% of diagnosed cases in {$now}" : "No diagnosis data for {$now}"),
+                'trend'  => 'neutral',
+            ],
             'right' => [
                 'value'  => $topBarangay,
                 'subset' => $barangayCount > 0
@@ -568,12 +752,20 @@ function report_metrics($pdo, $filteredRows, $category)
 
     // ── Disease Incidence ───────────────────────────────────────────────
     if ($category === 'disease_incidence') {
+        // Anchor on what the user is actually looking at. $filteredRows honours
+        // the date filter; $allRows does not. This branch used to ignore
+        // $filteredRows entirely and refetch everything, so narrowing the date
+        // range changed the table underneath while these three tiles stayed put.
+        //
+        // The comparison month is still read from $allRows, so "vs <prev month>"
+        // keeps working even when the filter excludes that month.
         $allRows = disease_rows($pdo);
+        $scoped  = $filteredRows ?: $allRows;
 
-        $now       = latest_month_in($allRows, fn($r) => $r['date'] ?? '');
+        $now       = latest_month_in($scoped, fn($r) => $r['date'] ?? '');
         $lastMonth = prev_month($now);
 
-        $thisMonth = array_values(array_filter($allRows, fn($r) => str_starts_with((string)($r['date'] ?? ''), $now)));
+        $thisMonth = array_values(array_filter($scoped,  fn($r) => str_starts_with((string)($r['date'] ?? ''), $now)));
         $lastMo    = array_values(array_filter($allRows, fn($r) => str_starts_with((string)($r['date'] ?? ''), $lastMonth)));
 
         $totalThis = array_sum(array_column($thisMonth, 'totalCases'));
@@ -600,9 +792,16 @@ function report_metrics($pdo, $filteredRows, $category)
         arsort($barangayCases);
         $topBarangay      = array_key_first($barangayCases) ?: 'N/A';
         $topBarangayCount = $barangayCases[$topBarangay] ?? 0;
-        $highRiskCount    = count(array_filter($thisMonth, fn($r) => strtolower($r['riskClass'] ?? '') === 'high'));
+        $needsActionCount = count(array_filter($thisMonth, fn($r) => ($r['riskClass'] ?? '') === 'Needs Action'));
 
         return [
+            // Named so the frontend can title the tiles with the month they
+            // actually describe. Without it the tiles read "This Month" while
+            // showing whatever the newest month in the data happens to be --
+            // which, with a frozen dataset plus live records, is neither the
+            // current month nor representative of the table below.
+            'period'      => $now,
+            'periodLabel' => $now ? date('M Y', strtotime($now . '-01')) : '',
             'left' => [
                 'value'  => $totalThis,
                 'subset' => $diff !== null
@@ -612,13 +811,13 @@ function report_metrics($pdo, $filteredRows, $category)
             ],
             'center' => [
                 'value'  => $dominantGroup,
-                'subset' => "{$dominantGroupCount} cases · " . count($groupTotals) . " groups tracked",
+                'subset' => bv_pluralize($dominantGroupCount, 'case') . ' · ' . count($groupTotals) . " groups tracked",
                 'trend'  => 'neutral',
             ],
             'right' => [
                 'value'  => $topBarangay,
-                'subset' => "{$topBarangayCount} cases · {$highRiskCount} high-risk area(s)",
-                'trend'  => $highRiskCount > 0 ? 'down' : 'neutral',
+                'subset' => bv_pluralize($topBarangayCount, 'case') . " · " . bv_pluralize($needsActionCount, 'area') . ' needing action',
+                'trend'  => $needsActionCount > 0 ? 'down' : 'neutral',
             ],
         ];
     }
@@ -927,7 +1126,16 @@ function pdf_export($columns, $rows, $category, $title, $input = [])
     ];
     $categoryLabel  = $categoryLabels[$category] ?? ucwords(str_replace('_',' ',$category));
     $dateGenerated  = date('F j, Y');
-    $coveragePeriod = 'January - December ' . date('Y');
+
+    // Derived from the rows actually being printed. This was hardcoded to
+    // 'January - December <current year>' regardless of the date filter, so an
+    // exported single-month report still claimed a full year of coverage --
+    // on a page that ends in the City Veterinarian's signature block.
+    $printedDates = array_values(array_filter(array_map(fn($r) => bv_row_date($r), $rows)));
+    sort($printedDates);
+    $coveragePeriod = $printedDates
+        ? date('F Y', strtotime($printedDates[0])) . ' - ' . date('F Y', strtotime((string) end($printedDates)))
+        : 'No records in selected range';
     $generatedBy    = bv_clean($input['generated_by'] ?? 'Baliuag City Veterinary Office');
 
     // ── Logo ─────────────────────────────────────────────────────────
@@ -961,10 +1169,17 @@ function pdf_export($columns, $rows, $category, $title, $input = [])
     $summaryRows = '';
     if (in_array($category, ['consultation_summary','all_patient'])) {
         $t = count($rows);
+        // Counted from patient_record_profiles.source, set at record-creation
+        // time (walk_in = manual Add Patient form, appointment = confirmed via
+        // ensurePatientRecordFromAppointment()). Rows with no linked profile
+        // (e.g. legacy historical dataset rows) are honestly left uncounted
+        // rather than guessed at.
+        $walkIn = count(array_filter($rows, fn($r) => ($r['source'] ?? '') === 'walk_in'));
+        $appointment = count(array_filter($rows, fn($r) => ($r['source'] ?? '') === 'appointment'));
         $summaryRows = '
             <tr><td>Total Consultation</td><td class="sv">'.$t.'</td></tr>
-            <tr><td>Walk-in Patient</td><td class="sv">'.(int)round($t*0.4).'</td></tr>
-            <tr><td>Scheduled Appointment</td><td class="sv">'.(int)round($t*0.08).'</td></tr>';
+            <tr><td>Walk-in Patient</td><td class="sv">'.$walkIn.'</td></tr>
+            <tr><td>Scheduled Appointment</td><td class="sv">'.$appointment.'</td></tr>';
     } elseif ($category === 'mass_vaccination') {
         $summaryRows = '
             <tr><td>Total Vaccinated</td><td class="sv">'.array_sum(array_column($rows,'totalVaccinated')).'</td></tr>
@@ -972,11 +1187,11 @@ function pdf_export($columns, $rows, $category, $title, $input = [])
             <tr><td>Cats Vaccinated</td><td class="sv">'.array_sum(array_column($rows,'catsVaccinated')).'</td></tr>';
     } elseif ($category === 'disease_incidence') {
         $tc = array_sum(array_column($rows,'totalCases'));
-        $hr = count(array_filter($rows, fn($r) => strtolower($r['riskClass']??'') === 'high'));
+        $hr = count(array_filter($rows, fn($r) => ($r['riskClass']??'') === 'Needs Action'));
         $bc = count(array_unique(array_column($rows,'barangay')));
         $summaryRows = '
             <tr><td>Total Cases</td><td class="sv">'.$tc.'</td></tr>
-            <tr><td>High Risk Areas</td><td class="sv">'.$hr.'</td></tr>
+            <tr><td>Barangay-Months Needing Action</td><td class="sv">'.$hr.'</td></tr>
             <tr><td>Barangays Covered</td><td class="sv">'.$bc.'</td></tr>';
     } elseif ($category === 'lost_found') {
         $res = count(array_filter($rows, fn($r) => strtolower($r['status']??'') === 'resolved'));
@@ -1119,9 +1334,9 @@ body { font-family:Arial,sans-serif; font-size:9pt; color:#1a1a2e; }
 <!-- SIGNATURE -->
 <div class="sig">
     <p>Prepared and Certified By City Veterinarian:</p>
-    <p>Name: <span class="sl"></span></p>
+    <p>Name: <span class="sl">'.htmlspecialchars($generatedBy).'</span></p>
     <p>Signature: <span class="sl"></span></p>
-    <p>Date: <span class="sl"></span></p>
+    <p>Date: <span class="sl">'.htmlspecialchars($dateGenerated).'</span></p>
 </div>
 
 </body></html>';
@@ -1139,9 +1354,13 @@ body { font-family:Arial,sans-serif; font-size:9pt; color:#1a1a2e; }
         'tempDir'       => $tmpDir,
     ]);
 
-    $mpdf->SetTitle('VBetter ' . $categoryLabel);
+    $fileSlug = strtolower(preg_replace('/[^A-Za-z0-9]+/', '-', trim($generatedBy)));
+    $fileSlug = trim($fileSlug, '-') ?: 'vet';
+    $fileName = 'vbetter-' . $category . '-report-' . $fileSlug . '-' . date('Y-m-d') . '.pdf';
+
+    $mpdf->SetTitle('BVetter ' . $categoryLabel);
     $mpdf->WriteHTML($html);
-    $mpdf->Output('vbetter-' . $category . '-report.pdf', 'D');
+    $mpdf->Output($fileName, 'D');
     exit;
 }
 
@@ -1154,7 +1373,7 @@ sort_rows($rows, $input['sort'] ?? 'asc');
 
 $columns = report_columns($category);
 if ($format === 'csv') csv_export($columns, $rows, 'vbetter-' . $category . '-report.csv');
-if ($format === 'pdf') pdf_export($columns, $rows, $category, 'VBetter ' . ucwords(str_replace('_', ' ', $category)) . ' Report', $input);
+if ($format === 'pdf') pdf_export($columns, $rows, $category, 'BVetter ' . ucwords(str_replace('_', ' ', $category)) . ' Report', $input);
 
 $page = max(1, (int) ($input['page'] ?? 1));
 $pageSize = max(1, min(100, (int) ($input['page_size'] ?? $input['pageSize'] ?? 10)));

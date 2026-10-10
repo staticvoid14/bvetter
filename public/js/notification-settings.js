@@ -1,45 +1,209 @@
 /* =============================================
-   BVETTER — Notification Settings JS
+   BVetter — Notification Settings JS
    File: js/notification-settings.js
    Depends: nav.js, api.js
 
    Functions:
-   - (clear all history)
-   - (configure schedule placeholder)
-   - (checkbox state save)
+   - loadNotifPrefs()      — api.getNotifPrefs() to set checkbox + quiet hours state
+   - saveNotifPrefs()      — api.updateNotifPrefs() on checkbox change
+   - loadHistory()         — buildOwnerNotifications() (nav.js) into the
+                             Recent History card
+   - (clear all history)   — api.dismissAllNotifications(); soft-deletes every
+                             row, so it empties the nav bell too
+   - Quiet Hours modal + enable toggle — api.updateNotifPrefs() on save/toggle
 
-   TODO backend:
-   - On load: api.getNotifPrefs() to set checkbox states
-   - On checkbox change: api.updateNotifPrefs(data)
-   - Configure schedule: open schedule modal → PATCH /notifications/quiet-hours
+   NOTE — known backend/UI mismatch:
+   The backend (api/users/profile.php) only stores ONE on/off
+   switch per category (lostFoundAlerts, appointmentReminders,
+   chatbotUpdates) — it does not track email/SMS/app separately.
+   This page's UI has 3 channel checkboxes per row, so a row is
+   treated as "on" if ANY of its 3 channel checkboxes is checked,
+   and all 3 channels move together as one saved preference.
+
+   Also: the 3rd row in this page is labeled "Claim Updates" but
+   the backend column behind it is `chatbot_updates`. That is a
+   pre-existing naming mismatch — flagging it here rather than
+   silently renaming a database column.
    ============================================= */
 
 (function () {
   'use strict';
 
+  const ROW_TO_PREF = {
+    lf: 'lostFoundAlerts',
+    ar: 'appointmentReminders',
+    cu: 'chatbotUpdates' // see NOTE above — UI row is "Claim Updates"
+  };
+
+  function rowCheckboxes(row) {
+    return Array.from(document.querySelectorAll(`input[data-row="${row}"]`));
+  }
+
+  async function loadNotifPrefs() {
+    const result = await api.getNotifPrefs().catch(() => ({ success: false }));
+    if (!result.success) return;
+    const prefs = result.data || {};
+    Object.entries(ROW_TO_PREF).forEach(([row, prefKey]) => {
+      const enabled = !!prefs[prefKey];
+      rowCheckboxes(row).forEach(cb => { cb.checked = enabled; });
+    });
+
+    quietHoursEnabled = !!prefs.quietHoursEnabled;
+    if (prefs.quietHoursStart && prefs.quietHoursEnd) {
+      quietHours = { start: prefs.quietHoursStart, end: prefs.quietHoursEnd };
+    }
+    if (qhEnabledToggle) qhEnabledToggle.checked = quietHoursEnabled;
+    renderQuietHours(quietHours);
+  }
+
+  async function saveNotifPrefs() {
+    const payload = {};
+    Object.entries(ROW_TO_PREF).forEach(([row, prefKey]) => {
+      payload[prefKey] = rowCheckboxes(row).some(cb => cb.checked);
+    });
+    await api.updateNotifPrefs(payload).catch(() => ({ success: false }));
+  }
+
+  document.addEventListener('DOMContentLoaded', loadNotifPrefs);
+
+  document.querySelectorAll('[data-row]').forEach(cb => {
+    cb.addEventListener('change', saveNotifPrefs);
+  });
+
+  /* ── Recent History ───────────────────────────
+     This card used to be two hardcoded .history-item blocks sitting in the
+     HTML — the same invented "Lost Pet Found Near Sector 4" and "Dr. Aris will
+     see 'Max' tomorrow" shown to every person who opened the page — and Clear
+     All deleted those nodes from the DOM and nothing else. The notification
+     rows were real all along; this card was simply never wired to them, so it
+     reported a stranger's demo data as the owner's own history.
+
+     Rendering leans on nav.js rather than growing a fourth copy of
+     notification categorisation (nav.js and account-profile.js already have
+     one each): buildOwnerNotifications() for the feed, notifCategoryFromType()
+     + NOTIF_ICONS for the glyph, notifStatusFromTitle() for the colour. nav.js
+     loads before this file on this page and is not an IIFE, so all of them are
+     simply in scope. ── */
+
+  // Fetched deeper than shown so Clear All can state the true total: the
+  // button empties the whole feed, not just the rows that fit on screen.
+  const HISTORY_SHOWN = 5;
+  const HISTORY_FETCH = 30;
+
+  const STATUS_DOT = { positive: 'green-dot', negative: 'red-dot', neutral: 'blue-dot' };
+
+  let historyItems = [];
+
+  function historyEl() {
+    return document.getElementById('historyList');
+  }
+
+  function setHistoryMessage(text) {
+    const list = historyEl();
+    if (list) list.innerHTML = `<p class="hist-empty">${vbEscapeHtml(text)}</p>`;
+  }
+
+  function renderHistory() {
+    const list = historyEl();
+    if (!list) return;
+
+    if (!historyItems.length) {
+      setHistoryMessage('No recent notifications.');
+      return;
+    }
+
+    // Titles and messages carry pet names, report text and whatever else
+    // people typed, so each one is escaped on the way into innerHTML. The
+    // glyph is our own markup and is the only part deliberately left raw.
+    list.innerHTML = historyItems.slice(0, HISTORY_SHOWN).map((item) => {
+      const dot   = STATUS_DOT[notifStatusFromTitle(item.title)] || 'blue-dot';
+      const glyph = NOTIF_ICONS[notifCategoryFromType(item.type)] || NOTIF_ICONS.general;
+      return `
+          <div class="history-item">
+            <div class="hist-dot-wrap ${dot}">${glyph}</div>
+            <div class="hist-content">
+              <div class="hist-title">${vbEscapeHtml(item.title)}</div>
+              <div class="hist-desc">${vbEscapeHtml(item.detail)}</div>
+              <div class="hist-time">${vbEscapeHtml(item.time)}</div>
+            </div>
+          </div>`;
+    }).join('');
+  }
+
+  async function loadHistory() {
+    if (typeof buildOwnerNotifications !== 'function') {
+      setHistoryMessage('Could not load recent notifications.');
+      return;
+    }
+    const items = await buildOwnerNotifications(HISTORY_FETCH).catch(() => []);
+    // 'empty' is the placeholder row nav.js pushes for its own dropdown; it is
+    // not a notification and must not be counted as one here.
+    historyItems = items.filter((item) => item.id !== 'empty');
+    renderHistory();
+  }
+
+  document.addEventListener('DOMContentLoaded', loadHistory);
+
   /* ── Clear notification history ─────────────
-     TODO backend: DELETE /api/notifications/history */
+     Destructive for real now: dismiss_all soft-deletes every undismissed row,
+     and since the bell reads the same dismissed_at IS NULL filter, clearing
+     here empties the bell too. Nothing in the UI brings them back, so the
+     confirmation says both things plainly. */
   const btnClear = document.querySelector('.btn-clear-all');
   if (btnClear) {
-    btnClear.addEventListener('click', () => {
-      const list = document.querySelector('.history-list');
-      if (list) {
-        list.innerHTML = '<p style="font-size:13px;color:#737781;padding:16px 0;text-align:center;">No recent notifications.</p>';
+    btnClear.addEventListener('click', async () => {
+      if (!historyItems.length) return;
+
+      // The feed is fetched under a LIMIT, so a full page means there may be
+      // older rows behind it. dismiss_all clears every row the account has, not
+      // just the fetched ones, so naming an exact number here would understate
+      // what the button does. Only claim a count when we know we have them all.
+      const count     = historyItems.length;
+      const truncated = count >= HISTORY_FETCH;
+      const subject   = truncated
+        ? 'all your notifications'
+        : `all ${count} ${count === 1 ? 'notification' : 'notifications'}`;
+      const aside = !truncated && count > HISTORY_SHOWN
+        ? ' (including older ones not shown here)'
+        : '';
+      const ok = await vbConfirm(
+        `Remove ${subject}${aside}? They will disappear from this list and from your `
+        + `notification bell, and cannot be brought back.`,
+        'Yes, clear all'
+      );
+      if (!ok) return;
+
+      btnClear.disabled = true;
+      const result = await api.dismissAllNotifications().catch(() => ({ success: false }));
+      btnClear.disabled = false;
+
+      // Left exactly as it was on failure. Emptying the list first and hoping
+      // is the mistake nav.js's mark-all-read comment records having made:
+      // it hid a write that had been failing every single time.
+      if (!result || !result.success) {
+        await vbAlert(result?.message || 'Could not clear your notifications. Please try again.');
+        return;
       }
+
+      historyItems = [];
+      renderHistory();
+      // The bell dot is driven by its own count, so it would otherwise keep
+      // showing unread items that no longer exist until the next page load.
+      if (typeof refreshNotifDot === 'function') void refreshNotifDot();
     });
   }
 
   /* ── Configure schedule ──────────────────────
-     TODO backend: persist via PATCH /api/notifications/quiet-hours
-     instead of localStorage once that endpoint exists.
+     Persisted via api.updateNotifPrefs() (quietHoursEnabled/Start/End),
+     backed by api/users/profile.php's user_notification_preferences row.
 
      Times are stored internally as 24h "HH:MM" strings; the picker
      UI itself is 12h + AM/PM (hour/minute selects + pill toggle)
      to avoid the inconsistent native <input type="time"> widget. */
-  const QUIET_HOURS_KEY = 'vbetter_quiet_hours';
   const btnConfigure     = document.querySelector('.btn-configure');
   const qhModal          = document.getElementById('quietHoursModal');
   const qhScheduleValue  = document.querySelector('.quiet-schedule-value');
+  const qhEnabledToggle  = document.getElementById('qhEnabledToggle');
 
   const qhStartHour   = document.getElementById('qhStartHour');
   const qhStartMinute = document.getElementById('qhStartMinute');
@@ -228,19 +392,17 @@
     select?.addEventListener('change', updateNightVisual);
   });
 
-  function loadQuietHours() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(QUIET_HOURS_KEY) || 'null');
-      if (saved && saved.start && saved.end) return saved;
-    } catch {}
-    return { start: '22:00', end: '07:00' };
-  }
-
   function renderQuietHours(schedule) {
-    if (qhScheduleValue) qhScheduleValue.textContent = `${to12hLabel(schedule.start)} — ${to12hLabel(schedule.end)}`;
+    if (qhScheduleValue) {
+      qhScheduleValue.textContent = quietHoursEnabled
+        ? `${to12hLabel(schedule.start)} — ${to12hLabel(schedule.end)}`
+        : `${to12hLabel(schedule.start)} — ${to12hLabel(schedule.end)} (Off)`;
+    }
+    document.querySelector('.quiet-card')?.classList.toggle('quiet-disabled', !quietHoursEnabled);
   }
 
-  let quietHours = loadQuietHours();
+  let quietHours = { start: '22:00', end: '07:00' };
+  let quietHoursEnabled = false;
   renderQuietHours(quietHours);
 
   function fillPicker(hhmm, hourSelect, minuteSelect, periodToggle) {
@@ -288,35 +450,32 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
   }
 
-  document.getElementById('qhModalSave')?.addEventListener('click', () => {
+  document.getElementById('qhModalSave')?.addEventListener('click', async () => {
     quietHours = {
       start: to24h(qhStartHour.value, qhStartMinute.value, getPeriodToggle(qhStartPeriod)),
       end:   to24h(qhEndHour.value, qhEndMinute.value, getPeriodToggle(qhEndPeriod))
     };
-    localStorage.setItem(QUIET_HOURS_KEY, JSON.stringify(quietHours));
+    quietHoursEnabled = true;
+    if (qhEnabledToggle) qhEnabledToggle.checked = true;
     renderQuietHours(quietHours);
     closeQhModal();
+    await api.updateNotifPrefs({
+      quietHoursEnabled: true,
+      quietHoursStart: quietHours.start,
+      quietHoursEnd: quietHours.end
+    }).catch(() => null);
     showToast('Quiet hours saved.', 'success');
   });
 
-  /* ── Checkbox preference saving ──────────────
-     TODO backend: on each change, call:
-     api.updateNotifPrefs(collectPrefs())
-
-  function collectPrefs() {
-    const prefs = {};
-    document.querySelectorAll('[data-row]').forEach(cb => {
-      const row     = cb.dataset.row;
-      const channel = cb.dataset.channel;
-      if (!prefs[row]) prefs[row] = {};
-      prefs[row][channel] = cb.checked;
-    });
-    return prefs;
-  }
-
-  document.querySelectorAll('[data-row]').forEach(cb => {
-    cb.addEventListener('change', () => api.updateNotifPrefs(collectPrefs()));
+  qhEnabledToggle?.addEventListener('change', async () => {
+    quietHoursEnabled = qhEnabledToggle.checked;
+    renderQuietHours(quietHours);
+    await api.updateNotifPrefs({
+      quietHoursEnabled,
+      quietHoursStart: quietHours.start,
+      quietHoursEnd: quietHours.end
+    }).catch(() => null);
+    showToast(quietHoursEnabled ? 'Quiet hours enabled.' : 'Quiet hours disabled.', 'success');
   });
-  */
 
 })();

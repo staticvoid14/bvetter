@@ -1,39 +1,37 @@
 <!DOCTYPE html>
-<!--
-  Page:    create-account.html
-  Feature: 3-step user registration
-  CSS:     variables.css → signup.css
-  JS:      signup.js (no nav.js — unauthenticated page)
-
-  TODO backend:
-  - Step 3 submit: api.register(data) → get reference number
-  - Upload proof: send as FormData with api.register()
--->
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>BVETTER - Create Account</title>
+    <link rel="manifest" href="../../manifest.json">
+    <script src="../../shared/js/pwa-register.js" defer></script>
+    <meta name="theme-color" content="#002A58">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="BVetter">
+    <link rel="apple-touch-icon" href="../../public/images/pwa/icon-192.png">
+  <title>BVetter - Create Account</title>
+  <link rel="icon" type="image/png" href="../../vet/images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <!-- 1. Design tokens (ALWAYS first) -->
   <link rel="stylesheet" href="../css/variables.css"/>
-  <!-- 2. Page-specific (no navbar on auth pages) -->
-  <link rel="stylesheet" href="../css/signup.css"/>
+  <link rel="stylesheet" href="../css/signup.css?v=20260925-emailcheck"/>
+  <!-- Loaded in <head>, not at the end of <body>: requireOwnerOrGuest()
+       redirects a logged-in vet/admin to their own dashboard, and that has
+       to happen before first paint or they see this page flash past. -->
+  <script src="../../shared/js/auth.js?v=20260925-yesno"></script>
+  <script>requireOwnerOrGuest();</script>
 </head>
 <body>
 
   <div class="page-wrapper">
 
-    <!-- LEFT PANEL -->
     <div class="left-panel">
       <div class="form-container">
 
         <img src="../images/logos/logo-color.png" alt="Baliwag City Veterinary Services" class="logo"/>
         <h2>Create An Account</h2>
 
-        <!-- STEPPER -->
         <div class="stepper">
           <div class="step">
             <div class="step-circle active" id="circle-1">1</div>
@@ -51,7 +49,6 @@
           </div>
         </div>
 
-        <!-- STEP 1: Account Details -->
         <div class="form-step active" id="step-1">
 
           <div class="form-group">
@@ -68,15 +65,17 @@
               <img src="../images/icons/icon-email.svg" alt="" class="input-icon"/>
               <input type="email" id="reg_email" name="email" placeholder="your@email.com" autocomplete="email"/>
             </div>
+            <div class="email-status" id="reg_email_status" aria-live="polite" hidden></div>
           </div>
 
           <div class="form-group">
-            <label>PASSWORD <span class="hint">Minimum 8 characters</span></label>
+            <label>PASSWORD <span class="hint">Must meet the rules below</span></label>
             <div class="input-wrapper">
               <img src="../images/icons/icon-password.svg" alt="" class="input-icon"/>
               <input type="password" id="reg_pw1" name="password" placeholder="••••••••" autocomplete="new-password"/>
               <img src="../images/icons/icon-eye.svg" alt="show" class="toggle-pw" onclick="togglePw('reg_pw1')"/>
             </div>
+            <div data-pw-strength="reg_pw1"></div>
           </div>
 
           <div class="form-group">
@@ -86,6 +85,7 @@
               <input type="password" id="reg_pw2" name="password_confirmation" placeholder="••••••••" autocomplete="new-password"/>
               <img src="../images/icons/icon-eye.svg" alt="show" class="toggle-pw" onclick="togglePw('reg_pw2')"/>
             </div>
+            <div data-pw-match="reg_pw1" data-pw-confirm="reg_pw2"></div>
           </div>
              <div class="form-group">
             <label>Phone Number</label>
@@ -93,8 +93,6 @@
               <input type="tel" id="rv_phone" class="no-icon" maxlength="13" placeholder="09XXXXXXXXX"/>
             </div>
           </div>
-          <!-- <div id="email-verified-badge" class="verified-badge" hidden>✓ Email verified</div> -->
-          <!-- <div id="phone-verified-badge" class="verified-badge" hidden>✓ Phone verified</div> -->
         
 
           <div class="form-group">
@@ -110,7 +108,7 @@
           <div class="checkbox-row">
             <input type="checkbox" id="reg_terms" name="terms"/>
             <label for="reg_terms">
-              I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+              I agree to the <a href="terms-of-service.html" target="_blank" rel="noopener">Terms of Service</a> and <a href="privacy-policy.html" target="_blank" rel="noopener">Privacy Policy</a>
             </label>
           </div>
 
@@ -122,7 +120,6 @@
           <p class="alt-link">Already have an account? <a href="login.html">Login</a></p>
         </div>
 
-        <!-- STEP 2: Proof of Residency -->
         <div class="form-step" id="step-2">
 
           <div class="form-group">
@@ -146,6 +143,11 @@
 
               <input type="file" id="reg_proof" name="proof_document" style="display:none" accept=".pdf,.jpg,.jpeg,.png"/>
             </div>
+            <p class="accepted-docs-hint">
+              <strong>Accepted documents:</strong> Barangay Certificate of Residency, or a valid
+              government ID showing your address &mdash; National ID (PhilID), Driver's License,
+              Passport, Voter's ID, UMID, or Postal ID.
+            </p>
           </div>
 
           <div class="btn-row">
@@ -159,7 +161,6 @@
           <p class="alt-link">Already have an account? <a href="login.html">Login</a></p>
         </div>
 
-        <!-- STEP 3: Review -->
         <div class="form-step" id="step-3">
 
           <div class="form-group">
@@ -214,6 +215,12 @@
               <img src="../images/icons/icon-edit.svg" alt="edit" class="edit-icon-sm" onclick="goTo(2)"/>
             </div>
             <div class="upload-box">
+              <div id="rv_preview_wrap" class="upload-preview-wrap" hidden>
+                <img id="rv_preview_img" class="upload-preview-img" alt="Proof of residency preview" hidden/>
+                <div id="rv_preview_pdf" class="upload-preview-pdf" hidden>
+                  <img src="../images/icons/qa-file.svg" alt="" class="upload-preview-pdf-icon"/>
+                </div>
+              </div>
               <p id="rv_proof_name">No file selected</p>
               <span>PDF, JPG or PNG (Max. 5MB)</span>
             </div>
@@ -228,7 +235,6 @@
           </div>
         </div>
 
-        <!-- STEP 4: Success -->
         <div class="form-step" id="step-4">
           <div class="success-card">
             <div class="success-top">
@@ -239,7 +245,7 @@
             </div>
             <div class="success-body">
               <h3>Account Request Submitted!</h3>
-              <p>Your account is now pending administrative verification. Our team will review your submitted documents shortly.</p>
+              <p>Your account is now pending administrative verification. Applications are reviewed within 2 working days (Monday to Friday), and you will get an email once yours is decided.</p>
 
               <div class="ref-box">
                 <span class="ref-label">Reference Number</span>
@@ -262,7 +268,6 @@
       </div>
     </div>
 
-    <!-- RIGHT PANEL -->
     <div class="right-panel">
       <img src="../images/logos/logo-white.png" alt="Baliwag City Veterinary Services" class="right-logo"/>
       <img src="../images/backgrounds/green-bg.png" alt="" class="bg-image"/>
@@ -275,14 +280,7 @@
     </div>
 
   </div>
-  <!--
-  ══════════════════════════════════════════════════════
-  Paste this block just before </body> in create-account.html
-  Replace the existing <script> tags at the bottom too.
-  ══════════════════════════════════════════════════════
--->
 
-<!-- ── EMAIL OTP MODAL ── -->
 <div class="otp-overlay" id="modal-otp-email" hidden>
     <div class="otp-card">
         <button class="otp-close" id="otp-email-close-btn" type="button">&times;</button>
@@ -323,7 +321,6 @@
     </div>
 </div>
 
-<!-- ── PHONE OTP MODAL ── -->
 <div class="otp-overlay" id="modal-otp-phone" hidden>
     <div class="otp-card">
         <button class="otp-close" id="otp-phone-close-btn" type="button">&times;</button>
@@ -366,26 +363,7 @@
     </div>
 </div>
 
-<!-- ── VERIFIED BADGES (shown in step 1 after verification) ── -->
-<!-- Paste these two divs inside step-1, after the phone number form-group -->
-<!--
-<div id="email-verified-badge" class="verified-badge" hidden>
-    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2.5">
-        <polyline points="20 6 9 17 4 12"/>
-    </svg>
-    Email verified
-</div>
-<div id="phone-verified-badge" class="verified-badge" hidden>
-    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#00B928" stroke-width="2.5">
-        <polyline points="20 6 9 17 4 12"/>
-    </svg>
-    Phone verified
-</div>
--->
 
-<!-- ══════════════════════════════════════════════
-     CSS — paste into signup.css
-══════════════════════════════════════════════ -->
 <style>
 /* OTP overlay */
 .otp-overlay {
@@ -573,8 +551,8 @@
 }
 </style>
 
-<!-- ══ SCRIPTS ══ -->
-<script src="../js/api.js"></script>
-<script src="../js/signup.js"></script>
+<script src="../js/api.js?v=20260819-authfix"></script>
+<script src="../js/password-policy.js?v=20260925-strength"></script>
+<script src="../js/signup.js?v=20260925-emailcheck"></script>
 </body>
 </html>

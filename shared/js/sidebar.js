@@ -1,10 +1,10 @@
-/**
- * VBetter – Shared Sidebar Controller  (shared/js/sidebar.js)
+﻿/**
+ * BVetter – Shared Sidebar Controller  (shared/js/sidebar.js)
  * ─────────────────────────────────────────────────────────────
  * FIXES:
  *  1. All nav routes are ABSOLUTE so they work from /vet/html/
  *     AND /admin/pages/ — no more "Cannot GET" errors.
- *  2. Profile card is always built from sessionStorage, so the
+ *  2. Profile card is always built from localStorage, so the
  *     real name (Dr. Kizea) always shows — never "Guest".
  *  3. data-roles hides admin-only items from vet users.
  *  4. Dashboard route is role-aware — admin goes to
@@ -17,26 +17,17 @@
 
     /* ── Absolute routes — work from ANY page in ANY folder ─── */
     const ROUTES = {
-        'appointment management': '/bvetter/vet/html/appointment.html',
-        'patient records':        '/bvetter/vet/html/patient-records.html',
-        'report':                 '/bvetter/vet/html/report.html',
-        'disease analytics':      '/bvetter/vet/html/disease-analytics.html',
-        'lost and found':         '/bvetter/vet/html/lost-and-found.html',
-        'chatbot management':     '/bvetter/vet/html/chatbot-management.html',
-        'mass vaccination':       '/bvetter/vet/html/mass-vaccination.html',
+        'appointment management': '../../vet/html/appointment.html',
+        'patient records':        '../../vet/html/patient-records.html',
+        'report':                 '../../vet/html/report.html',
+        'disease analytics':      '../../vet/html/disease-analytics.html',
+        'lost and found':         '../../vet/html/lost-and-found.html',
+        'chatbot management':     '../../vet/html/chatbot-management.html',
+        'mass vaccination':       '../../vet/html/mass-vaccination.html',
+        'support tickets':        '../../vet/html/support-tickets.html',
         // Admin-only — absolute paths
-        'account management':     '/bvetter/admin/pages/account-management.html',
-        'website management':     '/bvetter/admin/pages/website-management.html', // input here the directory of the Website management.
-    };
-
-    /* Default profile photos — used until the user uploads their own.
-       Reuses images already in the project (no external fetches):
-       vet-profile.png is the existing vet headshot used elsewhere
-       (book-appointment.html); account-avatar.png is the generic
-       silhouette already used as the pet-owner default. */
-    const DEFAULT_AVATARS = {
-        vet:   '/bvetter/public/images/img/vet-profile.png',
-        admin: '/bvetter/public/images/img/account-avatar.png'
+        'account management':     '../../admin/pages/account-management.html',
+        'website management':     '../../admin/pages/website-management.html', // input here the directory of the Website management.
     };
 
     const ACTIVE_ICON_CAPABLE = new Set([
@@ -49,7 +40,8 @@
         'chatbot',
         'mass-vacc',
         'acc-management',
-        'web-settings'
+        'web-settings',
+        'support-tickets'
     ]);
 
     /* ── Bootstrap ──────────────────────────────────────────── */
@@ -75,12 +67,24 @@
         wrapMobilePanel(sidebar);
     }
 
-    /* Single source of truth for "which photo represents this user" —
-       used by both the desktop/expanded profile card and the mobile
-       top-bar avatar, so they can never show a different picture. */
-    function resolveAvatarUrl(session) {
-        const role = (session && session.role) ? session.role : '';
-        return (session && session.pfp) ? session.pfp : (DEFAULT_AVATARS[role] || DEFAULT_AVATARS.admin);
+    /* Single source of truth for "how do we represent this user" — used by
+       both the desktop/expanded profile card and the mobile top-bar avatar.
+       A newly created vet/asst.-vet/admin has no uploaded photo yet, so
+       there's no real image to fall back to; a letter avatar (first letter
+       of their name) replaces the old generic stock-photo placeholder.
+       Falls back to the same letter avatar if a real uploaded photo fails
+       to load (broken path, offline, etc). */
+    function avatarMarkup(session, imgClass, initialsClass, idAttr) {
+        const name     = (session && session.name) ? session.name : 'Unknown';
+        const firstLet = name.slice(0, 1).toUpperCase();
+        const idHtml   = idAttr ? ' id="' + idAttr + '"' : '';
+        const idJs     = idAttr ? ' id=\\\'' + idAttr + '\\\'' : '';
+
+        if (session && session.pfp) {
+            return '<img src="' + session.pfp + '" alt="' + name + '" class="' + imgClass + '"' + idHtml + ' ' +
+                'onerror="this.onerror=null;this.outerHTML=\'<div' + idJs + ' class=\\\'' + initialsClass + '\\\'>' + firstLet + '</div>\'">';
+        }
+        return '<div class="' + initialsClass + '"' + idHtml + '>' + firstLet + '</div>';
     }
 
     /* ── Mobile top-bar actions (notification bell + avatar) ──
@@ -90,20 +94,30 @@
     function buildMobileActions(sidebar, session) {
         if (sidebar.querySelector('.sidebar-mobile-actions')) return;
 
-        const avatarUrl = resolveAvatarUrl(session);
-        const name      = (session && session.name) ? session.name : 'Unknown';
+        /* The page's own notification bell, if it has one. Only the two
+           dashboards (admin/pages/index.html, vet/html/index.html) do — they
+           own the modal and the fetch, and this file has no business
+           duplicating either. On the other 13 pages there is nothing to open,
+           so the mobile bell is not built at all rather than rendered as a
+           button that silently does nothing when tapped. */
+        const pageBell = document.getElementById('notification-icon-btn');
 
         const wrap = document.createElement('div');
         wrap.className = 'sidebar-mobile-actions';
         wrap.innerHTML =
-            '<button type="button" class="sidebar-mobile-notif-btn" id="sidebar-mobile-notif-btn" aria-label="Notifications">' +
-            '<img src="/bvetter/public/images/icons/icon-bell.svg" class="sidebar-mobile-notif-icon" alt="">' +
-            '<span class="sidebar-mobile-notif-dot"></span>' +
-            '</button>' +
-            '<img src="' + avatarUrl + '" alt="' + name + '" class="sidebar-mobile-avatar" id="sidebar-mobile-avatar-btn" ' +
-            'onerror="this.onerror=null;this.src=\'/bvetter/public/images/img/account-avatar.png\'">';
+            (pageBell
+                ? '<button type="button" class="sidebar-mobile-notif-btn" id="sidebar-mobile-notif-btn" aria-label="Notifications">' +
+                  '<img src="../../public/images/icons/icon-bell.svg" class="sidebar-mobile-notif-icon" alt="">' +
+                  '<span class="sidebar-mobile-notif-dot" hidden></span>' +
+                  '</button>'
+                : '') +
+            avatarMarkup(session, 'sidebar-mobile-avatar', 'sidebar-mobile-avatar--initials', 'sidebar-mobile-avatar-btn');
 
         sidebar.appendChild(wrap);
+
+        if (pageBell) {
+            wireMobileBell(wrap, pageBell);
+        }
 
         const avatarBtn = wrap.querySelector('#sidebar-mobile-avatar-btn');
         if (avatarBtn) {
@@ -113,6 +127,43 @@
                 syncToggleState(sidebar);
             });
         }
+    }
+
+    /* ── Mobile bell → the page's own bell ────────────────────
+       Forwards the tap rather than reimplementing the modal, so the mobile
+       bell can never drift out of step with the desktop one, and mirrors its
+       unread dot instead of keeping a second source of truth.
+
+       The dot markup used to ship with no `hidden` attribute and no CSS rule
+       to hide it, so every mobile page showed a permanent red "you have
+       unread notifications" dot. The observer below is what actually turns
+       it off: each dashboard already toggles `.notif-dot` on its own bell
+       when it knows the real unread count. */
+    function wireMobileBell(wrap, pageBell) {
+        const mobileBell = wrap.querySelector('#sidebar-mobile-notif-btn');
+        const mobileDot  = wrap.querySelector('.sidebar-mobile-notif-dot');
+        if (!mobileBell) return;
+
+        mobileBell.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();   // don't let it bubble into close-the-panel
+            pageBell.click();
+        });
+
+        const pageDot = pageBell.querySelector('.notif-dot');
+        if (!pageDot || !mobileDot) return;
+
+        const syncDot = function () {
+            mobileDot.hidden = pageDot.hidden;
+        };
+        syncDot();
+
+        // The dashboards set `.notif-dot[hidden]` asynchronously, once the
+        // notifications fetch resolves — after this runs. Watch for it.
+        new MutationObserver(syncDot).observe(pageDot, {
+            attributes: true,
+            attributeFilter: ['hidden']
+        });
     }
 
     /* ── Mobile dropdown panel ─────────────────────────────────
@@ -143,7 +194,7 @@
             if (window.VBetterAuth && window.VBetterAuth.getSession) {
                 return window.VBetterAuth.getSession();
             }
-            const raw = sessionStorage.getItem('vbetter_session');
+            const raw = localStorage.getItem('vbetter_session');
             console.log(raw)
             return raw ? JSON.parse(raw) : null;
         } catch { return null; }
@@ -196,15 +247,9 @@
 
     const name      = (session && session.name)      ? session.name      : 'Unknown';
     const role      = (session && session.role)      ? session.role      : '';
-    const avatarUrl = resolveAvatarUrl(session);
     const roleLabel = roleDisplayLabel(role);
-    const firstLet  = name.slice(0, 1).toUpperCase();
 
-    // Always render a photo; fall back to a letter avatar only if the
-    // image itself fails to load (broken path, offline, etc).
-    const avatarHTML =
-        '<img src="' + avatarUrl + '" alt="' + name + '" class="sidebar-profile-avatar" ' +
-        'onerror="this.onerror=null;this.outerHTML=\'<div class=\\\'sidebar-profile-avatar sidebar-profile-avatar--initials\\\'>' + firstLet + '</div>\'">';
+    const avatarHTML = avatarMarkup(session, 'sidebar-profile-avatar', 'sidebar-profile-avatar sidebar-profile-avatar--initials');
 
     footer.innerHTML =
         '<article class="sidebar-profile-card" data-role="' + role + '" aria-label="' + name + ' profile">' +
@@ -215,7 +260,7 @@
         '</div>' +
         '</article>' +
         '<button type="button" class="nav-item logout-item" id="sidebar-logout-btn" title="Log Out">' +
-        '<img src="/bvetter/shared/images/sidebar/logout.svg" class="nav-icon" alt="Log Out">' +
+        '<img src="../../shared/images/sidebar/logout.svg" class="nav-icon" alt="Log Out">' +
         '<span class="nav-label">Log Out</span>' +
         '</button>';
 
@@ -223,8 +268,8 @@
     if (card) {
         card.addEventListener('click', function () {
             const dest = role === 'admin'
-                ? '/bvetter/admin/pages/profile.html'
-                : '/bvetter/vet/html/profile.html';
+                ? '../../admin/pages/profile.html'
+                : '../../vet/html/profile.html';
             if (!window.location.pathname.toLowerCase().endsWith('profile.html')) {
                 window.location.href = dest;
             }
@@ -240,9 +285,13 @@
                 return;
             }
             // Fallback: some pages don't load auth.js yet — clear the
-            // session directly so logout still works everywhere.
-            sessionStorage.removeItem('vbetter_session');
-            window.location.href = '/bvetter/public/pages/login.html';
+            // session directly so logout still works everywhere. All three
+            // keys: they persist across tabs now, so a leftover token would
+            // survive this logout.
+            localStorage.removeItem('vbetter_session');
+            localStorage.removeItem('bvetter_token');
+            localStorage.removeItem('bvetter_user');
+            window.location.href = '../../public/pages/login.html';
         });
     }
 }
@@ -256,8 +305,8 @@
 
         // Dashboard route depends on role — admin gets admin dashboard
         ROUTES['dashboard'] = (role === 'admin')
-            ? '/bvetter/admin/pages/index.html'
-            : '/bvetter/vet/html/index.html';
+            ? '../../admin/pages/index.html'
+            : '../../vet/html/index.html';
 
         navItems.forEach(function (item) {
             if (item.style.display === 'none') return;
@@ -268,7 +317,15 @@
 
             if (route) item.setAttribute('href', route);
 
-            const isActive = Boolean(route) && currentPath === route.toLowerCase();
+            // Resolve the route against the current URL before comparing:
+            // currentPath is an absolute pathname while ROUTES are relative,
+            // so a direct string match never succeeds. (It also never matched
+            // when the app was served from a subfolder, back when the routes
+            // were root-absolute — the highlight was silently dead there.)
+            const routePath = route
+                ? new URL(route, window.location.href).pathname.toLowerCase()
+                : '';
+            const isActive = Boolean(route) && currentPath === routePath;
             item.classList.toggle('active', isActive);
             swapIcon(item, isActive);
 

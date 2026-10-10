@@ -1,5 +1,5 @@
 /**
- * VBetter – Admin Dashboard JS
+ * BVetter – Admin Dashboard JS
  * Backed by api.getAdminDashboard() (api/dashboard/dashboard.php?scope=admin)
  * and api.allUsers() / api.accountRoles() / api.createAccountUser() /
  * api.approveUser() / api.rejectUser() (api/admin/account-management.php).
@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', function () {
     loadRoles();
     wireAddAccountModal();
     wireChartTabs();
+    wireNotificationsModal();
+    wireAboutHelpModal();
+    wireCoverageCard();
 
     document.getElementById('manage-accounts-btn')?.addEventListener('click', function () {
         window.location.href = 'account-management.html';
@@ -31,14 +34,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const nameEl = document.getElementById('headerUserName');
         const dateEl = document.getElementById('headerDate');
         const avatarEl = document.getElementById('headerAvatar');
-        if (!nameEl && !dateEl && !avatarEl) return;
+        const greetingEl = document.getElementById('greeting-name');
+        if (!nameEl && !dateEl && !avatarEl && !greetingEl) return;
 
         let session = null;
         try {
             if (window.VBetterAuth && window.VBetterAuth.getSession) {
                 session = window.VBetterAuth.getSession();
             } else {
-                const raw = sessionStorage.getItem('vbetter_session');
+                const raw = localStorage.getItem('vbetter_session');
                 session = raw ? JSON.parse(raw) : null;
             }
         } catch { session = null; }
@@ -56,6 +60,9 @@ document.addEventListener('DOMContentLoaded', function () {
             dateEl.textContent = new Date().toLocaleDateString('en-US', {
                 weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
             });
+        }
+        if (greetingEl) {
+            greetingEl.textContent = `Good Day, ${titleCaseName(name)}!`;
         }
     })();
 
@@ -100,8 +107,18 @@ async function loadPendingApprovals() {
         return;
     }
 
-    pendingUsers = (result.data || []).filter(u => u.status === 'pending');
+    // Overdue applications (waiting past 2 working days) first.
+    pendingUsers = (result.data || [])
+        .filter(u => u.status === 'pending')
+        .sort((a, b) => (b.overdueSince ? 1 : 0) - (a.overdueSince ? 1 : 0));
     renderPendingApprovals(pendingUsers);
+
+    const overdue = pendingUsers.filter(u => u.overdueSince).length;
+    const badge = document.getElementById('kpi-pending-badge');
+    if (badge && overdue > 0) {
+        badge.hidden = false;
+        badge.textContent = `${overdue} Overdue`;
+    }
 }
 
 async function loadRoles() {
@@ -295,39 +312,17 @@ function renderPendingApprovals(users) {
             <div class="pending-item" data-id="${u.id}">
                 <div class="${avatarClass}">${initials}</div>
                 <div class="pending-info">
-                    <p class="pending-name">${escapeHtml(u.name || '')}</p>
+                    <p class="pending-name">${escapeHtml(u.name || '')}${u.overdueSince ? ' <span class="pending-overdue">Overdue</span>' : ''}</p>
                     <p class="pending-role">${escapeHtml(u.roleLabel || capitalize(u.role))} • Joined ${formatShortDate(u.created)}</p>
                 </div>
                 <div class="pending-actions">
-                    <button class="btn-approve" data-id="${u.id}">✓</button>
-                    <button class="btn-reject" data-id="${u.id}">✕</button>
+                    <a class="btn-review" href="account-management.html?review=${encodeURIComponent(u.id)}">Review</a>
                 </div>
             </div>`;
     }).join('');
-
-    list.querySelectorAll('.btn-approve').forEach(btn => {
-        btn.addEventListener('click', () => handlePendingAction(btn.dataset.id, 'approve'));
-    });
-    list.querySelectorAll('.btn-reject').forEach(btn => {
-        btn.addEventListener('click', () => handlePendingAction(btn.dataset.id, 'reject'));
-    });
-}
-
-async function handlePendingAction(userId, action) {
-    const user = pendingUsers.find(u => u.id === userId);
-    const name = user?.name || 'Account';
-
-    const result = action === 'approve'
-        ? await api.approveUser(userId).catch(() => ({ success: false }))
-        : await api.rejectUser(userId).catch(() => ({ success: false }));
-
-    if (!result.success) {
-        showToast(result.message || `Could not ${action} this account.`, 'error');
-        return;
-    }
-
-    showToast(action === 'approve' ? `${name} approved successfully.` : `${name} was rejected.`, action === 'approve' ? 'success' : 'error');
-    await loadDashboard();
+    // ✓ / ✕ buttons used to approve or reject straight from this card, with
+    // no ID in sight and no confirmation. Deciding happens in the review
+    // window on Account Management, next to the uploaded document.
 }
 
 /* ── Recent activity feed ────────────────────────────────────── */
@@ -351,6 +346,191 @@ function renderActivityFeed(events) {
 }
 
 /* ── ADD ACCOUNT MODAL ──────────────────────────────────────── */
+/* Category glyph (light, thin-stroke, currentColor) + status color mapping —
+   same icon set/logic as the public and vet notification bells, so all
+   three read as one system. Color signals status; the glyph signals category. */
+const NOTIF_ICONS = {
+    appointment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8.5 15.5l2 2 4-4"/></svg>',
+    lostfound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><line x1="20" y1="20" x2="14.5" y2="14.5"/></svg>',
+    vaccination: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    general: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+    account: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-1.5A5.5 5.5 0 0 1 9.5 14h1"/><circle cx="10" cy="8" r="4"/><path d="M14.5 18.5l2 2 4-4.5"/></svg>'
+};
+
+function notifCategoryFromType(type) {
+    if (type === 'appointment_new' || type === 'appointment_status') return 'appointment';
+    if (type === 'lost_found_new') return 'lostfound';
+    if (type === 'csp_registration') return 'vaccination';
+    if (type === 'account_application') return 'account';
+    return 'general';
+}
+
+function notifStatusFromTitle(title) {
+    const t = (title || '').toLowerCase();
+    if (t.includes('reject') || t.includes('cancel')) return 'negative';
+    if (t.includes('confirmed') || t.includes('approve') || t.includes('resolve') || t.includes('upcoming')) return 'positive';
+    return 'neutral';
+}
+
+/* ── About & Help ──────────────────────────────────────────────
+   The "?" button has been in this header since the markup was copied from
+   the vet dashboard, but the admin side never got the handler that vet has
+   in vet/js/index.js — so it did nothing at all when clicked. Same content
+   shape as vet's openAboutHelpModal, rebuilt on admin's own overlay idiom
+   (markup in the page, toggled by `hidden`) rather than vet's showModal(). */
+function wireAboutHelpModal() {
+    const btn      = document.getElementById('about-help-btn');
+    const overlay  = document.getElementById('modal-about-help');
+    const closeBtn = document.getElementById('modal-about-help-close');
+    if (!btn || !overlay) return;
+
+    const close = () => { overlay.hidden = true; };
+
+    btn.addEventListener('click', () => { overlay.hidden = false; });
+    closeBtn?.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !overlay.hidden) close();
+    });
+}
+
+/* ── Notifications (shared admin/vet feed) ─────────────────── */
+function wireNotificationsModal() {
+    const bellBtn  = document.getElementById('notification-icon-btn');
+    const overlay  = document.getElementById('modal-notifications');
+    const closeBtn = document.getElementById('modal-notifications-close');
+    const markAllBtn = document.getElementById('notifications-mark-all-read');
+    const listEl   = document.getElementById('notifications-list');
+
+    const NOTIF_PAGE_SIZE = 5;
+    let expanded = false;
+    let currentItems = [];
+
+    function setDotVisible(hasUnread) {
+        document.querySelectorAll('.notif-dot').forEach((dot) => { dot.hidden = !hasUnread; });
+    }
+
+    function openModal() {
+        expanded = false;
+        if (overlay) overlay.hidden = false;
+        loadNotifications();
+    }
+
+    function closeModal() {
+        if (overlay) overlay.hidden = true;
+    }
+
+    async function loadNotifications() {
+        if (listEl) listEl.innerHTML = '<p class="am-loading-cell">Loading notifications…</p>';
+        const result = await api.getNotifications().catch(() => ({ success: false }));
+        if (!result.success) {
+            if (listEl) listEl.innerHTML = '<p class="am-loading-cell">Could not load notifications.</p>';
+            return;
+        }
+        currentItems = result.data || [];
+        setDotVisible((result.unread_count || 0) > 0);
+        renderNotifications();
+    }
+
+    function renderNotifications() {
+        if (!listEl) return;
+        if (!currentItems.length) {
+            listEl.innerHTML = '<p class="am-loading-cell">No notifications yet.</p>';
+            return;
+        }
+
+        const visible = expanded ? currentItems : currentItems.slice(0, NOTIF_PAGE_SIZE);
+        const remaining = currentItems.length - visible.length;
+
+        listEl.innerHTML = visible.map((item) => `
+            <article class="dash-notification-item ${item.is_read ? 'read' : 'unread'}" data-notification-id="${item.id}">
+                <div class="notif-badge notif-badge--${notifStatusFromTitle(item.title)}">${NOTIF_ICONS[notifCategoryFromType(item.type)]}</div>
+                <div class="dash-notification-item-body">
+                    <h4>${escapeHtml(item.title)}</h4>
+                    <p>${escapeHtml(item.message)}</p>
+                    <small>${escapeHtml(formatNotificationTime(item.created_at))}</small>
+                </div>
+            </article>
+        `).join('') + (remaining > 0 ? `<button type="button" class="notif-show-more-btn" id="notif-show-more-btn">Show ${remaining} more</button>` : '');
+
+        const showMoreBtn = document.getElementById('notif-show-more-btn');
+        if (showMoreBtn) {
+            showMoreBtn.addEventListener('click', () => {
+                expanded = true;
+                renderNotifications();
+            });
+        }
+
+        listEl.querySelectorAll('[data-notification-id]').forEach((el) => {
+            el.addEventListener('click', async () => {
+                const id = Number(el.dataset.notificationId);
+                const entry = currentItems.find((item) => item.id === id);
+                if (entry) entry.is_read = true;
+                el.classList.remove('unread');
+                el.classList.add('read');
+                setDotVisible(currentItems.some((item) => !item.is_read));
+
+                // Marked optimistically above so the click feels immediate,
+                // but a failed write has to be put back — otherwise the item
+                // reads as done until the next refresh restores it.
+                const result = await api.markNotificationRead(id).catch(() => null);
+                if (!result || !result.success) {
+                    if (entry) entry.is_read = false;
+                    el.classList.remove('read');
+                    el.classList.add('unread');
+                    setDotVisible(currentItems.some((item) => !item.is_read));
+                    showToast('Could not mark that notification as read.', 'error');
+                    return;
+                }
+
+                // Account applications are the one notification with somewhere
+                // to go: reference_id carries the applicant's user id, so open
+                // account management straight on their verification modal
+                // rather than making the admin find the row by hand.
+                //
+                // Navigating only after the mark-read write has landed —
+                // unloading the page mid-request would leave the item unread
+                // again on the next refresh, which is exactly the "did I
+                // already handle this?" confusion the bell is meant to remove.
+                if (entry && entry.type === 'account_application' && entry.reference_id) {
+                    window.location.href = 'account-management.html?review=' + encodeURIComponent(entry.reference_id);
+                }
+            });
+        });
+    }
+
+    if (bellBtn) bellBtn.addEventListener('click', openModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (overlay) {
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closeModal();
+        });
+    }
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async () => {
+            // The UI used to mark everything read and hide the dot regardless
+            // of what the server said, so a write that failed every time still
+            // looked like it worked until the next refresh brought the dot
+            // back. Only reflect the change once the server confirms it.
+            const result = await api.markAllNotificationsRead().catch(() => null);
+            if (!result || !result.success) {
+                showToast('Could not mark notifications as read. Please try again.', 'error');
+                return;
+            }
+            currentItems.forEach((item) => { item.is_read = true; });
+            setDotVisible(false);
+            renderNotifications();
+        });
+    }
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay && !overlay.hidden) closeModal();
+    });
+
+    // Eager load so the dot reflects real unread state at page load,
+    // not just after the bell is clicked. Also warms the modal content.
+    loadNotifications();
+}
+
 function wireAddAccountModal() {
     const overlay    = document.getElementById('modal-add-account');
     const addBtn     = document.getElementById('add-account-btn');
@@ -378,13 +558,15 @@ function wireAddAccountModal() {
     }
 
     function resetForm() {
-        ['add-acc-name', 'add-acc-phone', 'add-acc-email', 'add-acc-password', 'add-acc-license', 'add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
+        ['add-acc-name', 'add-acc-phone', 'add-acc-email', 'add-acc-password', 'add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.value = ''; el.classList.remove('dash-error'); }
         });
         if (roleSelect) roleSelect.value = '';
         const statusEl = document.getElementById('add-acc-status');
         if (statusEl) statusEl.value = 'active';
+        const bookableEl = document.getElementById('add-acc-bookable');
+        if (bookableEl) bookableEl.checked = true;
         if (vetFields) vetFields.hidden = true;
         overlay?.querySelectorAll('.dash-field-error').forEach(el => el.remove());
         if (photoPreview) photoPreview.innerHTML = CAMERA_SVG;
@@ -459,12 +641,19 @@ function wireAddAccountModal() {
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
                     markError('add-acc-email',    'Enter a valid email address.');
         if (!pw)    markError('add-acc-password', 'Password is required.');
-        else if (pw.length < 8)
-                    markError('add-acc-password', 'Password must be at least 8 characters.');
+        else {
+            // Defers to the live policy when it loaded; the length fallback
+            // matches the server-side floor so this can't pass something the
+            // API will reject.
+            const pwError = window.PasswordPolicy
+                ? PasswordPolicy.validate(pw)
+                : (pw.length < 12 ? 'Password must be at least 12 characters.' : null);
+            if (pwError) markError('add-acc-password', pwError);
+        }
 
         const isVet = roleSelect?.selectedOptions[0]?.dataset.frontendRole === 'vet';
         if (isVet) {
-            ['add-acc-license', 'add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
+            ['add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
                 if (!document.getElementById(id)?.value.trim()) markError(id, 'Required for veterinarian accounts.');
             });
         }
@@ -486,10 +675,10 @@ function wireAddAccountModal() {
             formData.append('account_status', document.getElementById('add-acc-status')?.value || 'active');
 
             if (roleSelect.selectedOptions[0]?.dataset.frontendRole === 'vet') {
-                formData.append('license_number', document.getElementById('add-acc-license').value.trim());
                 formData.append('specialization', document.getElementById('add-acc-specialization').value.trim());
                 formData.append('education', document.getElementById('add-acc-education').value.trim());
                 formData.append('clinic_location', document.getElementById('add-acc-clinic').value.trim());
+                formData.append('is_bookable', document.getElementById('add-acc-bookable')?.checked ? '1' : '0');
             }
 
             if (photoInput?.files[0]) formData.append('profile_photo', photoInput.files[0]);
@@ -526,23 +715,55 @@ function capitalize(s) {
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
 
+/**
+ * Title-case a full name (e.g. "kizea igaya" -> "Kizea Igaya") so the
+ * greeting reads consistently regardless of how it was typed at signup.
+ */
+function titleCaseName(name) {
+    return String(name || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ') || 'Unknown';
+}
+
 function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str ?? '';
     return div.innerHTML;
 }
 
+/* The API hands back MySQL datetimes as "2026-08-21 16:49:32" — a space, no
+   timezone offset. `new Date()` on that exact shape is non-standard: Chrome
+   accepts it, but Safari (so every iPhone) returns Invalid Date. Swapping the
+   space for a "T" makes it an ISO local-time string, which every engine parses
+   the same way.
+
+   Leaving the offset off is deliberate, not an oversight: with no offset the
+   browser reads it as ITS OWN local time, and api/config/connection.php pins
+   the server to Philippine time so that the two agree. */
+function parseServerDate(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(String(dateStr).replace(' ', 'T'));
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function formatShortDate(dateStr) {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return '—';
+    const d = parseServerDate(dateStr);
+    if (!d) return '—';
     return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
 }
 
+/** Date + time, for the notification list. */
+function formatNotificationTime(dateStr) {
+    const d = parseServerDate(dateStr);
+    return d ? d.toLocaleString() : '—';
+}
+
 function formatRelativeTime(dateStr) {
-    if (!dateStr) return '—';
-    const then = new Date(dateStr.replace(' ', 'T'));
-    if (Number.isNaN(then.getTime())) return '—';
+    const then = parseServerDate(dateStr);
+    if (!then) return '—';
     const diffMs = Date.now() - then.getTime();
     const diffMin = Math.floor(diffMs / 60000);
 
@@ -587,6 +808,91 @@ function showToast(message, type = 'info') {
 }
 
 /* ── CSS animations ─────────────────────────────────────────── */
+// ===========================
+// DISEASE DATA COVERAGE — admin view/override
+// ===========================
+// The vet declares this from Patient Records as they finish encoding a month;
+// this is the admin's read-and-correct copy. Months at or before the declared
+// one are treated by the forecasting pipeline as fully encoded, which is what
+// lets them join the risk model's training set -- see _label_live_rows() in
+// api/analytics/arima_service.py.
+function wireCoverageCard() {
+    const stateEl  = document.getElementById('coverage-state');
+    const selectEl = document.getElementById('coverage-month');
+    const saveBtn  = document.getElementById('coverage-save');
+    if (!stateEl || !selectEl || !saveBtn) return;
+
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+
+    function coverageBasePath() {
+        const marker = '/admin/pages/';
+        const path = window.location.pathname;
+        return path.includes(marker) ? path.slice(0, path.indexOf(marker)) : '';
+    }
+    const COVERAGE_API = `${coverageBasePath()}/api/patient-records/patient_records.php`;
+
+    async function coverageRequest(action, payload) {
+        const response = await fetch(COVERAGE_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || 'Coverage request failed.');
+        }
+        return result;
+    }
+
+    // Future months are omitted: an unfinished month cannot have been fully
+    // encoded, and setCoverage() rejects it server-side anyway.
+    function fillOptions(year, month) {
+        const now = new Date();
+        const lastIdx = now.getFullYear() * 12 + now.getMonth();
+        let html = '<option value="0-0">Not declared</option>';
+        for (let idx = lastIdx; idx > lastIdx - 36; idx -= 1) {
+            const optYear = Math.floor(idx / 12);
+            const optMonth = (idx % 12) + 1;
+            const selected = optYear === year && optMonth === month ? ' selected' : '';
+            html += `<option value="${optYear}-${optMonth}"${selected}>${MONTHS[optMonth - 1]} ${optYear}</option>`;
+        }
+        selectEl.innerHTML = html;
+    }
+
+    async function refresh() {
+        try {
+            const result = await coverageRequest('coverage_get');
+            const data = result.data || {};
+            const year = Number(data.year) || 0;
+            const month = Number(data.month) || 0;
+            fillOptions(year, month);
+            stateEl.textContent = year && month
+                ? `Complete through ${MONTHS[month - 1]} ${year}${data.updatedBy ? ` · set by ${data.updatedBy}` : ''}`
+                : 'Not declared — live months are excluded from the risk model.';
+            stateEl.className = year && month ? 'coverage-state is-declared' : 'coverage-state is-undeclared';
+        } catch (error) {
+            stateEl.textContent = 'Coverage status unavailable.';
+            stateEl.className = 'coverage-state';
+        }
+    }
+
+    saveBtn.addEventListener('click', async function () {
+        const parts = String(selectEl.value || '0-0').split('-').map(Number);
+        saveBtn.disabled = true;
+        try {
+            await coverageRequest('coverage_set', { year: parts[0], month: parts[1] });
+            await refresh();
+        } catch (error) {
+            stateEl.textContent = error.message || 'Could not update coverage.';
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
+
+    refresh();
+}
+
 const style = document.createElement('style');
 style.textContent = `
     @keyframes fadeIn {

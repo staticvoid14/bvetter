@@ -1,5 +1,5 @@
 /**
- * VBetter – Account Management JS
+ * BVetter – Account Management JS
  * Backed by api.allUsers() / api.accountRoles() / api.createAccountUser()
  * / api.approveUser() / api.rejectUser() / api.deleteUser() / api.updateUserStatus()
  * (all hitting api/admin/account-management.php).
@@ -19,6 +19,7 @@ let currentPage   = 1;
 let pendingDeleteId  = null;
 let pendingVerifyId  = null;
 let pendingUnblockId = null;
+let pendingBlockId   = null;
 
 /* ── Init ───────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
@@ -26,12 +27,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     wireSearch();
     wireAddModal();
     wireUnblockModal();
+    wireBlockModal();
     wireDeleteModal();
     wireVerifyModal();
     wirePagination();
     wireCloseButtons();
 
     await Promise.all([loadRoles(), loadUsers()]);
+
+    // Deep link from the notification bell / staff alert email: both send
+    // the admin here with ?review=<user_id> instead of making them find the
+    // applicant by hand. Runs only after loadUsers() has populated allUsers,
+    // since openVerifyModal looks the id up there.
+    //
+    // Kept as a string, not Number(...) — listUsers() casts id to (string) in
+    // its JSON response (see account-management.php), and openVerifyModal's
+    // lookup is a strict `u.id === id`, same as every other caller here (e.g.
+    // the onclick="openVerifyModal('${u.id}')" above). A numeric id would
+    // never match and the deep link would silently do nothing.
+    const reviewId = new URLSearchParams(window.location.search).get('review');
+    if (reviewId) openVerifyModal(reviewId);
 });
 
 /* ── Load real data ─────────────────────────────────────────── */
@@ -62,7 +77,7 @@ async function loadRoles() {
     ).join('');
 }
 
-/* ── Generic close buttons ─────────────────────────────────── */
+
 function wireCloseButtons() {
     document.querySelectorAll('[data-close]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -71,13 +86,12 @@ function wireCloseButtons() {
             if (el) el.hidden = true;
         });
     });
-    // close on overlay click
     document.querySelectorAll('.am-modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', e => {
             if (e.target === overlay) overlay.hidden = true;
         });
     });
-    // ESC — covers both am-modal-overlay and dash-overlay
+    
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
             document.querySelectorAll('.am-modal-overlay:not([hidden]), .dash-overlay:not([hidden])').forEach(o => o.hidden = true);
@@ -85,14 +99,14 @@ function wireCloseButtons() {
     });
 }
 
-/* ── KPIs ───────────────────────────────────────────────────── */
+/*  KPIs */
 function updateKPIs() {
     setEl('kpi-total',   allUsers.length);
     setEl('kpi-vet',     allUsers.filter(u => u.role === 'vet' && u.status === 'active').length);
     setEl('kpi-blocked', allUsers.filter(u => u.status === 'blocked').length);
 }
 
-/* ── Table ──────────────────────────────────────────────────── */
+/* Table */
 function applyFilters() {
     const search = (document.getElementById('search-users')?.value || '').toLowerCase();
     filteredUsers = allUsers.filter(u => {
@@ -100,6 +114,8 @@ function applyFilters() {
         const matchSearch = !search || u.name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search);
         return matchTab && matchSearch;
     });
+    // Applications waiting past 2 working days go to the top.
+    filteredUsers.sort((a, b) => (b.overdueSince ? 1 : 0) - (a.overdueSince ? 1 : 0));
     currentPage = 1;
     renderTable();
 }
@@ -121,14 +137,39 @@ function renderTable() {
     }
 
     tbody.innerHTML = pageUsers.map(u => {
+        // u.name, u.email and u.avatar all come from user-controlled
+        // registration data and land in an administrator's browser, so they
+        // are escaped before being interpolated. Note the alt attribute too:
+        // an unescaped value there breaks out of the attribute just as
+        // easily as one in element text.
+        const esc = window.vbEscapeHtml;
         const initials = u.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
         const avatarEl = u.avatar
-            ? `<img class="am-avatar" src="${u.avatar}" alt="${u.name}">`
-            : `<div class="am-avatar-placeholder">${initials}</div>`;
+            ? `<img class="am-avatar" src="${esc(u.avatar)}" alt="${esc(u.name)}">`
+            : `<div class="am-avatar-placeholder">${esc(initials)}</div>`;
 
         const roleCss = roleClass(u.roleLabel || u.role);
 
-        const statusEl = `<span class="am-status ${u.status}"><span class="am-status-dot"></span>${capitalize(u.status)}</span>`;
+        const blockedTitle = u.status === 'blocked' && u.blockedReason === 'inactivity'
+            ? ' title="Blocked automatically for inactivity"'
+            : u.status === 'blocked' && u.blockedReason === 'failed_login'
+                ? ' title="Blocked after repeated failed login attempts"'
+                : u.status === 'blocked' && u.blockedReason === 'user_request'
+                    ? ' title="The owner closed this account themselves from Account Settings"'
+                    : '';
+
+        // The other two reasons stay hover-only: both are things the system did
+        // TO the user, and unblocking is the expected remedy. This one is the
+        // user's own decision, so it is spelled out on the row -- restoring an
+        // account someone deliberately closed is the mistake worth preventing,
+        // and a tooltip is too easy to skim past.
+        const selfClosed = u.status === 'blocked' && u.blockedReason === 'user_request'
+            ? '<span class="am-status-note"> · Left by request</span>'
+            : '';
+        const overdueEl = u.overdueSince
+            ? ` <span class="am-overdue" title="Waiting more than 2 working days">Overdue</span>`
+            : '';
+        const statusEl = `<span class="am-status ${u.status}"${blockedTitle}><span class="am-status-dot"></span>${capitalize(u.status)}${selfClosed}</span>${overdueEl}`;
 
         let actionsEl = `
             <button class="am-btn-delete" onclick="openDeleteModal('${u.id}')" title="Delete user">
@@ -137,32 +178,61 @@ function renderTable() {
 
         if (u.status === 'blocked') {
             actionsEl = `<button class="am-btn-unblock" onclick="openUnblockModal('${u.id}')">Unblock</button>${actionsEl}`;
+        } else if (u.status === 'active' || u.status === 'inactive') {
+            actionsEl = `<button class="am-btn-block" onclick="openBlockModal('${u.id}')">Block</button>${actionsEl}`;
         }
 
+        // One Review button, not Approve/Reject on the row: deciding from
+        // the table meant rejecting someone without ever seeing their ID.
+        // Both decisions live in the review window, next to the document.
         if (u.status === 'pending') {
             actionsEl = `
-                <button class="am-btn-approve" onclick="openVerifyModal('${u.id}')">Approve</button>
-                <button class="am-btn-reject"  onclick="handleReject('${u.id}')">Reject</button>
+                <button class="am-btn-approve" onclick="openVerifyModal('${u.id}')">Review</button>
                 ${actionsEl}`;
         }
 
+        // A walk-in is someone a vet entered at the counter, not an app member:
+        // never logged in, and usually carrying a synthetic owner_<hash>
+        // address that exists only to satisfy the UNIQUE constraint on
+        // users.email. Rendering that hash as if it were a real contact
+        // address is what made 44 rows read as 44 registered users.
+        const walkInTag = u.isWalkIn
+            ? '<span class="am-walkin-tag" title="Added by a vet from a clinic visit. This person has never signed in.">Walk-in</span>'
+            : '';
+        const emailEl = u.emailIsPlaceholder
+            ? '<span class="am-email-none">No email on file</span>'
+            : esc(u.email);
+
         return `
-            <tr data-id="${u.id}">
+            <tr data-id="${u.id}" class="am-row-clickable" tabindex="0" title="${u.status === 'pending' ? 'Review this application' : 'View account details'}">
                 <td>
                     <div class="am-user-cell">
                         ${avatarEl}
                         <div>
-                            <span class="am-user-name">${u.name}</span>
-                            <span class="am-user-email">${u.email}</span>
+                            <span class="am-user-name">${esc(u.name)}${walkInTag}</span>
+                            <span class="am-user-email">${emailEl}</span>
                         </div>
                     </div>
                 </td>
-                <td><span class="am-role-badge ${roleCss}">${u.roleLabel || capitalize(u.role)}</span></td>
+                <td><span class="am-role-badge ${roleCss}">${esc(u.roleLabel || capitalize(u.role))}</span></td>
                 <td>${statusEl}</td>
                 <td>${formatDate(u.created)}</td>
                 <td><div class="am-actions-cell">${actionsEl}</div></td>
             </tr>`;
     }).join('');
+
+    // The whole row opens the account; its own buttons (Review, Block,
+    // Delete...) keep doing just their one job.
+    tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+        const open = (event) => {
+            if (event.target.closest('button, a, input')) return;
+            openAccount(tr.dataset.id);
+        };
+        tr.addEventListener('click', open);
+        tr.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(event); }
+        });
+    });
 
     const prevBtn = document.getElementById('prev-page');
     const nextBtn = document.getElementById('next-page');
@@ -198,7 +268,7 @@ function wirePagination() {
     });
 }
 
-/* ── ADD USER MODAL (dash-* form) ──────────────────────────── */
+/*  ADD USER MODAL (dash-* form) */
 function wireAddModal() {
     const overlay    = document.getElementById('modal-add-account');
     const closeBtn   = document.getElementById('modal-add-close');
@@ -224,13 +294,15 @@ function wireAddModal() {
     }
 
     function resetForm() {
-        ['add-acc-name','add-acc-phone','add-acc-email','add-acc-password','add-acc-license','add-acc-specialization','add-acc-education','add-acc-clinic'].forEach(id => {
+        ['add-acc-name','add-acc-phone','add-acc-email','add-acc-password','add-acc-specialization','add-acc-education','add-acc-clinic'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.value = ''; el.classList.remove('dash-error'); }
         });
         if (roleSelect)  roleSelect.value = '';
         const statusEl = document.getElementById('add-acc-status');
         if (statusEl) statusEl.value = 'active';
+        const bookableEl = document.getElementById('add-acc-bookable');
+        if (bookableEl) bookableEl.checked = true;
         if (vetFields) vetFields.hidden = true;
         overlay?.querySelectorAll('.dash-field-error').forEach(e => e.remove());
         if (photoCircle) photoCircle.innerHTML = CAMERA_SVG;
@@ -296,12 +368,16 @@ function wireAddModal() {
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
                     err('add-acc-email',    'Enter a valid email address.');
         if (!pw)    err('add-acc-password', 'Password is required.');
-        else if (pw.length < 8)
-                    err('add-acc-password', 'Minimum 8 characters.');
+        else {
+            const pwError = window.PasswordPolicy
+                ? PasswordPolicy.validate(pw)
+                : (pw.length < 12 ? 'Minimum 12 characters.' : null);
+            if (pwError) err('add-acc-password', pwError);
+        }
 
         const isVet = roleSelect?.selectedOptions[0]?.dataset.frontendRole === 'vet';
         if (isVet) {
-            ['add-acc-license', 'add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
+            ['add-acc-specialization', 'add-acc-education', 'add-acc-clinic'].forEach(id => {
                 if (!document.getElementById(id)?.value.trim()) err(id, 'Required for veterinarian accounts.');
             });
         }
@@ -321,10 +397,10 @@ function wireAddModal() {
         formData.append('account_status', document.getElementById('add-acc-status')?.value || 'active');
 
         if (roleSelect.selectedOptions[0]?.dataset.frontendRole === 'vet') {
-            formData.append('license_number', document.getElementById('add-acc-license').value.trim());
             formData.append('specialization', document.getElementById('add-acc-specialization').value.trim());
             formData.append('education', document.getElementById('add-acc-education').value.trim());
             formData.append('clinic_location', document.getElementById('add-acc-clinic').value.trim());
+            formData.append('is_bookable', document.getElementById('add-acc-bookable')?.checked ? '1' : '0');
         }
 
         if (photoInput?.files[0]) formData.append('profile_photo', photoInput.files[0]);
@@ -334,7 +410,7 @@ function wireAddModal() {
         submitBtn.disabled = false;
 
         if (!result.success) {
-            alert(result.message || 'Could not create account.');
+            await vbAlert(result.message || 'Could not create account.');
             return;
         }
 
@@ -349,7 +425,7 @@ function wireUnblockModal() {
         if (!pendingUnblockId) return;
         const result = await api.updateUserStatus(pendingUnblockId, 'active').catch(() => ({ success: false }));
         if (!result.success) {
-            alert(result.message || 'Could not unblock this account.');
+            await vbAlert(result.message || 'Could not unblock this account.');
             return;
         }
         pendingUnblockId = null;
@@ -372,13 +448,76 @@ function openUnblockModal(id) {
     document.getElementById('modal-unblock').hidden = false;
 }
 
+/* ── BLOCK MODAL ────────────────────────────────────────────── */
+function wireBlockModal() {
+    document.getElementById('block-confirm-btn')?.addEventListener('click', async () => {
+        if (!pendingBlockId) return;
+        const result = await api.updateUserStatus(pendingBlockId, 'blocked').catch(() => ({ success: false }));
+        if (!result.success) {
+            await vbAlert(result.message || 'Could not block this account.');
+            return;
+        }
+        pendingBlockId = null;
+        document.getElementById('modal-block').hidden = true;
+        await loadUsers();
+    });
+}
+
+function openBlockModal(id) {
+    const user = allUsers.find(u => u.id === id);
+    if (!user) return;
+    pendingBlockId = id;
+
+    document.getElementById('block-user-id').value = id;
+    setEl('block-name',  user.name);
+    setEl('block-role',  user.roleLabel || capitalize(user.role));
+    setEl('block-phone', user.phone || '—');
+    setEl('block-email', user.email);
+
+    document.getElementById('modal-block').hidden = false;
+}
+
 /* ── DELETE MODAL ───────────────────────────────────────────── */
+
+/*
+ * Deletion is the only irreversible action on this page, and a plain modal
+ * guarded almost nothing: the delete icon sits in every row, so one mis-aimed
+ * click plus one reflexive click on a red button was the whole distance
+ * between a full table and a destroyed account. Nothing in the dialog forced
+ * the admin to read WHOSE account it was holding.
+ *
+ * The confirm button now stays disabled until the account's full name is
+ * retyped. The comparison is deliberately forgiving — case and runs of
+ * whitespace are normalised — because the point is to make the admin read the
+ * name, not to test their typing.
+ */
+function normalizeName(value) {
+    return String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 function wireDeleteModal() {
-    document.getElementById('delete-confirm-btn')?.addEventListener('click', async () => {
-        if (!pendingDeleteId) return;
+    const input      = document.getElementById('delete-confirm-input');
+    const confirmBtn = document.getElementById('delete-confirm-btn');
+
+    input?.addEventListener('input', () => {
+        const user = allUsers.find(u => u.id === pendingDeleteId);
+        const ok = !!user && normalizeName(input.value) === normalizeName(user.name);
+        if (confirmBtn) confirmBtn.disabled = !ok;
+        input.classList.toggle('am-match', ok);
+    });
+
+    confirmBtn?.addEventListener('click', async () => {
+        const user = allUsers.find(u => u.id === pendingDeleteId);
+        // Re-checked here instead of trusting the disabled attribute: the
+        // pending id and the typed name are what actually authorise this
+        // call, and the button state is only a reflection of them.
+        if (!user || normalizeName(input?.value) !== normalizeName(user.name)) return;
+
+        confirmBtn.disabled = true;
         const result = await api.deleteUser(pendingDeleteId).catch(() => ({ success: false }));
         if (!result.success) {
-            alert(result.message || 'Could not delete this account.');
+            confirmBtn.disabled = false;
+            await vbAlert(result.message || 'Could not delete this account.');
             return;
         }
         pendingDeleteId = null;
@@ -395,29 +534,164 @@ function openDeleteModal(id) {
     const initials = user.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
     setEl('delete-avatar', initials);
     setEl('delete-user-name', user.name);
+    // Role and email so the name is not the only thing identifying the row:
+    // two residents can share a name, and the email is what separates them.
+    const contact = user.emailIsPlaceholder ? 'no email on file' : user.email;
+    setEl('delete-user-meta', `${user.roleLabel || capitalize(user.role)} · ${contact}`);
+
+    // Every open starts clean. A value left over from the previous account
+    // would arrive already matching — against a different person entirely.
+    const input      = document.getElementById('delete-confirm-input');
+    const confirmBtn = document.getElementById('delete-confirm-btn');
+    if (input)      { input.value = ''; input.classList.remove('am-match'); }
+    if (confirmBtn) confirmBtn.disabled = true;
 
     document.getElementById('modal-delete').hidden = false;
+    input?.focus();
 }
 
 /* ── VERIFY MODAL ───────────────────────────────────────────── */
+
+/*
+ * Walk-in linking.
+ *
+ * pendingWalkIns holds the candidates last fetched for the open modal, and
+ * selectedWalkInId the one the admin has picked. Both reset every time the
+ * modal opens: a selection left over from the previous applicant is exactly
+ * the mistake that would attach a stranger's medical history to the wrong
+ * person.
+ */
+let pendingWalkIns    = [];
+let selectedWalkInId  = '';
+
+async function loadWalkInCandidates(userId) {
+    pendingWalkIns = [];
+    selectedWalkInId = '';
+
+    const wrap = document.getElementById('verify-walkin-wrap');
+    const list = document.getElementById('verify-walkin-list');
+    if (!wrap || !list) return;
+
+    wrap.hidden = true;
+    list.innerHTML = '';
+
+    const result = await api.walkInCandidates(userId).catch(() => ({ success: false }));
+    // A registrant with no match is the normal case, so silence is correct
+    // here -- the section simply stays hidden.
+    if (!result.success || !Array.isArray(result.data) || result.data.length === 0) return;
+
+    pendingWalkIns = result.data;
+    renderWalkInCandidates();
+    wrap.hidden = false;
+}
+
+function renderWalkInCandidates() {
+    const esc = window.vbEscapeHtml;
+    const list = document.getElementById('verify-walkin-list');
+    if (!list) return;
+
+    // Every card spells out what linking would actually transfer -- pets by
+    // name, how many visits, when the last one was. This is the whole defence
+    // against a mis-link: there is no unlink, so the mistake has to be caught
+    // before the admin commits, not afterwards.
+    const cards = pendingWalkIns.map((c) => {
+        const pets = c.pets && c.pets.length
+            ? c.pets.map(esc).join(', ')
+            : 'no pets on file';
+        const visits = c.visitCount === 1 ? '1 visit' : `${c.visitCount} visits`;
+        const last = c.lastVisit ? `, last ${formatDate(c.lastVisit)}` : '';
+        const checked = selectedWalkInId === c.id ? ' checked' : '';
+
+        return `
+            <label class="am-walkin-card${selectedWalkInId === c.id ? ' selected' : ''}">
+                <input type="radio" name="walkin-pick" value="${esc(c.id)}"${checked}>
+                <span class="am-walkin-body">
+                    <span class="am-walkin-name">${esc(c.name)}</span>
+                    <span class="am-walkin-meta">${esc(c.phone || 'no phone')} &middot; ${esc(c.barangay || 'no barangay')}</span>
+                    <span class="am-walkin-detail">${pets} &middot; ${visits}${last}</span>
+                    <span class="am-walkin-why">matched on ${esc(c.matchedOn)}</span>
+                </span>
+            </label>`;
+    }).join('');
+
+    // "None of these" is checked by default and is never removed. Linking must
+    // always be a deliberate act, so the safe option is the resting state.
+    list.innerHTML = cards + `
+        <label class="am-walkin-card${selectedWalkInId === '' ? ' selected' : ''}">
+            <input type="radio" name="walkin-pick" value=""${selectedWalkInId === '' ? ' checked' : ''}>
+            <span class="am-walkin-body">
+                <span class="am-walkin-name">None of these</span>
+                <span class="am-walkin-meta">Approve as a brand-new account</span>
+            </span>
+        </label>`;
+
+    list.querySelectorAll('input[name="walkin-pick"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            selectedWalkInId = input.value;
+            renderWalkInCandidates();
+        });
+    });
+}
+
 function wireVerifyModal() {
     document.getElementById('verify-approve-btn')?.addEventListener('click', async () => {
         if (!pendingVerifyId) return;
-        const result = await api.approveUser(pendingVerifyId).catch(() => ({ success: false }));
+
+        const applicant = allUsers.find(u => u.id === pendingVerifyId);
+        const who = applicant ? applicant.name : 'this applicant';
+        const linkTo = pendingWalkIns.find(c => c.id === selectedWalkInId);
+
+        if (linkTo) {
+            const pets = linkTo.pets && linkTo.pets.length ? ` (${linkTo.pets.join(', ')})` : '';
+            const ok = await vbConfirm(
+                `Link this application to clinic record #${linkTo.id} for ${linkTo.name}? `
+                + `The new account takes over ${linkTo.pets.length} pet(s)${pets} and `
+                + `${linkTo.visitCount} visit record(s). This cannot be undone.`,
+                'Yes, link'
+            );
+            if (!ok) return;
+        } else {
+            // The unlinked path used to commit on the first click. Approving
+            // turns an ID photo into a verified resident who can sign in and
+            // book — the same weight of decision as the linked path, it just
+            // has less to spell out.
+            const ok = await vbConfirm(
+                `Approve ${who} as a verified resident? They will be able to sign in and book appointments.`
+            );
+            if (!ok) return;
+        }
+
+        const result = await api
+            .approveUser(pendingVerifyId, linkTo ? linkTo.id : 0)
+            .catch(() => ({ success: false }));
+
         if (!result.success) {
-            alert(result.message || 'Could not approve this account.');
+            await vbAlert(result.message || 'Could not approve this account.');
             return;
         }
         pendingVerifyId = null;
+        pendingWalkIns = [];
+        selectedWalkInId = '';
         document.getElementById('modal-verify').hidden = true;
         await loadUsers();
     });
 
     document.getElementById('verify-reject-btn')?.addEventListener('click', async () => {
         if (!pendingVerifyId) return;
+
+        // Matches the confirmation the Reject button on the table row has
+        // always had. The one inside this modal sits next to Approve, which
+        // is exactly where a slip is most likely.
+        const applicant = allUsers.find(u => u.id === pendingVerifyId);
+        const ok = await vbConfirm(
+            `Reject ${applicant ? applicant.name : 'this application'}? The account is set to inactive `
+            + `and they will have to submit proof of residence again.`
+        );
+        if (!ok) return;
+
         const result = await api.rejectUser(pendingVerifyId).catch(() => ({ success: false }));
         if (!result.success) {
-            alert(result.message || 'Could not reject this account.');
+            await vbAlert(result.message || 'Could not reject this account.');
             return;
         }
         pendingVerifyId = null;
@@ -435,6 +709,8 @@ function openVerifyModal(id) {
     setEl('verify-email',    user.email);
     setEl('verify-barangay', user.barangay || '—');
 
+    loadWalkInCandidates(id);
+
     const idImg     = document.getElementById('verify-id-img');
     const pdfBox     = document.getElementById('verify-id-pdf');
     const pdfName    = document.getElementById('verify-id-pdf-name');
@@ -442,7 +718,6 @@ function openVerifyModal(id) {
     const fullLink   = document.getElementById('verify-fullsize-link');
 
     const docPath = user.idImage || '';
-    console.log(docPath);
     const isPdf   = /\.pdf($|\?)/i.test(docPath) || /\.pdf$/i.test(user.proofName || '');
 
     if (idImg)     idImg.hidden = true;
@@ -474,18 +749,104 @@ function openVerifyModal(id) {
     document.getElementById('modal-verify').hidden = false;
 }
 
-/* ── Actions ────────────────────────────────────────────────── */
-async function handleReject(id) {
+/* ── ACCOUNT DETAILS ────────────────────────────────────────── */
+
+/** A pending application opens its review; every other account its details. */
+function openAccount(id) {
     const user = allUsers.find(u => u.id === id);
     if (!user) return;
-    if (!confirm(`Reject application for ${user.name}?`)) return;
+    if (user.status === 'pending') openVerifyModal(id);
+    else openDetailsModal(id);
+}
 
-    const result = await api.rejectUser(id).catch(() => ({ success: false }));
-    if (!result.success) {
-        alert(result.message || 'Could not reject this account.');
-        return;
+/**
+ * Read-only on purpose -- see the note at the top of this file: owners edit
+ * their own profile. This window only answers "who is this, and what has
+ * happened to the account", with the same Block/Unblock/Delete buttons the
+ * row already has.
+ */
+function openDetailsModal(id) {
+    const user = allUsers.find(u => u.id === id);
+    if (!user) return;
+    const esc = window.vbEscapeHtml;
+
+    const statusNote = {
+        inactivity: 'Blocked automatically for inactivity',
+        failed_login: 'Blocked after repeated failed login attempts',
+        user_request: 'The owner closed this account themselves',
+    }[user.blockedReason] || '';
+
+    const rows = [
+        ['Full Name', esc(user.name)],
+        ['Role', esc(user.roleLabel || capitalize(user.role))],
+        ['Status', esc(capitalize(user.status)) + (statusNote ? ` <span class="am-details-note">· ${esc(statusNote)}</span>` : '')],
+        ['Email', user.emailIsPlaceholder ? '<span class="am-email-none">No email on file</span>' : esc(user.email)],
+        ['Phone', esc(user.phone || '—')],
+        ['Joined', esc(formatDate(user.created))],
+        ['Last Sign-in', user.lastLogin ? esc(formatDate(user.lastLogin)) : (user.isWalkIn ? 'Never (clinic walk-in)' : 'Never')],
+    ];
+
+    if (user.role === 'owner') {
+        rows.push(['Barangay', esc(user.barangay || '—')]);
+        rows.push(['Pets on File', String(user.petCount || 0)]);
+
+        let verification = '—';
+        if (user.isWalkIn) {
+            verification = 'Added by a vet from a clinic visit';
+        } else if (user.verificationStatus === 'approved') {
+            const when = user.verifiedAt || user.reviewedAt;
+            verification = 'Approved'
+                + (user.reviewerName ? ` by ${esc(user.reviewerName)}` : '')
+                + (when ? ` on ${esc(formatDate(when))}` : '');
+        } else if (user.verificationStatus === 'rejected') {
+            verification = 'Not approved'
+                + (user.reviewerName ? ` by ${esc(user.reviewerName)}` : '')
+                + (user.reviewedAt ? ` on ${esc(formatDate(user.reviewedAt))}` : '')
+                + (user.reviewNotes ? ` <span class="am-details-note">· ${esc(user.reviewNotes)}</span>` : '');
+        }
+        rows.push(['Residency Check', verification]);
     }
-    await loadUsers();
+
+    const grid = document.getElementById('details-grid');
+    if (grid) {
+        grid.innerHTML = rows.map(([label, value]) => `
+            <div class="am-verify-field">
+                <label>${label}</label>
+                <span>${value}</span>
+            </div>`).join('');
+    }
+
+    const doc = document.getElementById('details-doc');
+    const docLink = document.getElementById('details-doc-link');
+    if (doc && docLink) {
+        doc.hidden = !user.idImage;
+        if (user.idImage) {
+            docLink.href = user.idImage;
+            docLink.textContent = user.proofName || 'View uploaded document';
+        }
+    }
+
+    // Same actions as the row, so nothing needs a trip back to the table.
+    const actions = document.getElementById('details-actions');
+    if (actions) {
+        let html = '';
+        if (user.status === 'blocked') html += `<button class="am-btn-unblock" type="button" data-details-action="unblock">Unblock</button>`;
+        else if (user.status === 'active' || user.status === 'inactive') html += `<button class="am-btn-block" type="button" data-details-action="block">Block</button>`;
+        html += `<button class="am-btn-reject-verify" type="button" data-details-action="delete">Delete</button>`;
+        actions.innerHTML = html;
+        actions.querySelectorAll('[data-details-action]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById('modal-details').hidden = true;
+                const action = btn.dataset.detailsAction;
+                if (action === 'unblock') openUnblockModal(id);
+                if (action === 'block') openBlockModal(id);
+                if (action === 'delete') openDeleteModal(id);
+            });
+        });
+    }
+
+    setEl('details-modal-title', user.name);
+    document.getElementById('modal-details').hidden = false;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
